@@ -1,0 +1,17 @@
+{
+  "description": "Draft-only guardrail: blocks all outbound/mutating actions (GitHub writes, git push, posting comments) so this plugin can only research and draft. Sending is handled by the separate execution/submission plugin.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|mcp__plugin_oss-contribution_github__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-outbound.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "josix-plugins",
+  "owner": {
+    "name": "Wilson \"Josix\" Wang"
+  },
+  "plugins": [
+    {
+      "name": "oss-contribution",
+      "source": {
+        "source": "github",
+        "repo": "josix/oss-contribution"
+      },
+      "description": "Research-and-engagement assistant for contributing to open-source projects (e.g. apache/airflow, apache/spark) — draft-only, human-in-the-loop.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Wilson \"Josix\" Wang"
+      },
+      "homepage": "https://github.com/josix/oss-contribution",
+      "repository": "https://github.com/josix/oss-contribution",
+      "license": "MIT",
+      "keywords": ["open-source", "github", "contribution", "draft", "research", "human-in-the-loop"],
+      "category": "development"
+    }
+  ]
+}

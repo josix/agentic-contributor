@@ -1,0 +1,48 @@
+# OSS Contribution Plugin — Target Projects Configuration
+#
+# Copy this file to targets.yaml to activate it:
+#   cp config/targets.example.yaml config/targets.yaml
+#
+# Add or remove projects from the `projects` list. The /oss command will
+# use this list when no specific project is named in the arguments.
+#
+# Note: v0.1 supports GitHub-hosted projects only.
+
+projects:
+  - owner: apache
+    repo: airflow
+    description: "Apache Airflow — workflow orchestration platform (Python)"
+    labels_of_interest:
+      - "good first issue"
+      - "help wanted"
+      - "kind:bug"
+      - "kind:feature"
+      - "area:docs"
+
+  - owner: apache
+    repo: spark
+    description: "Apache Spark — unified analytics engine (Scala/Python/Java)"
+    labels_of_interest:
+      - "good first issue"
+      - "help wanted"
+      - "bug"
+      - "improvement"
+      - "documentation"
+
+# Defaults applied to all projects unless overridden per-project.
+defaults:
+  # How far back to look when fetching "recent" items (in days).
+  recency_window_days: 7
+
+  # Which item types to include in status and find scenarios.
+  # Options: issues, pull_requests, releases
+  item_types:
+    - issues
+    - pull_requests
+    - releases
+
+  # Maximum number of items to return per type in a status report.
+  max_items_per_type: 10
+
+  # Maximum shortlist size for the find/issue-matching scenario.
+  max_shortlist_size: 8
