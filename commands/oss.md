@@ -8,7 +8,7 @@ allowed-tools:
   - Glob
   - WebFetch
   - Task
-  - mcp__plugin_oss-contribution_github__*
+  - mcp__plugin_agentic-contributor_github__*
 ---
 
 # /oss — OSS Contribution Orchestrator
@@ -64,7 +64,7 @@ review-reply), dispatch the mapped subagent via the **Task tool**:
   output. The researcher dispatch is optional — if the docs are already available inline,
   skip it.
 
-Prefer `mcp__plugin_oss-contribution_github__*` read tools inside subagents. If GITHUB_MCP_TOKEN
+Prefer `mcp__plugin_agentic-contributor_github__*` read tools inside subagents. If GITHUB_MCP_TOKEN
 is not set, the subagents fall back to `gh` CLI (they will run `gh auth status` first).
 
 ---
@@ -117,8 +117,8 @@ The `guard-outbound.sh` PreToolUse hook is always active. It DENIES:
 - `gh pr/issue/release/repo` mutating subcommands.
 - `gh api` calls with POST/PUT/PATCH/DELETE methods or `-f`/`--field` flags.
 - `curl`/`wget` with mutation flags (`-X POST`, `-d`, `--data`, `-F`, etc.).
-- Any `mcp__plugin_oss-contribution_github__` tool with a write-verb suffix
+- Any `mcp__plugin_agentic-contributor_github__` tool with a write-verb suffix
   (create, update, delete, merge, add_comment, push, fork, and related verbs).
 
 Read-only operations — `gh pr view`, `gh issue list`, `gh release list`, `gh api` GETs, `git clone`,
-and all `mcp__plugin_oss-contribution_github__` read tools — are always allowed.
+and all `mcp__plugin_agentic-contributor_github__` read tools — are always allowed.

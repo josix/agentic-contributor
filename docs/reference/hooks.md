@@ -4,7 +4,7 @@ The draft-only `PreToolUse` guardrail: registration, matcher, and the full deny/
 
 ## Overview
 
-The `oss-contribution` plugin registers one hook type: a `PreToolUse` hook that runs before every `Bash` call and every GitHub MCP tool call. It enforces the draft-only contract by denying outbound and mutating actions before they execute.
+The `agentic-contributor` plugin registers one hook type: a `PreToolUse` hook that runs before every `Bash` call and every GitHub MCP tool call. It enforces the draft-only contract by denying outbound and mutating actions before they execute.
 
 ## Registration (`hooks/hooks.json`)
 
@@ -14,7 +14,7 @@ The `oss-contribution` plugin registers one hook type: a `PreToolUse` hook that 
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|mcp__plugin_oss-contribution_github__.*",
+        "matcher": "Bash|mcp__plugin_agentic-contributor_github__.*",
         "hooks": [
           {
             "type": "command",
@@ -28,7 +28,7 @@ The `oss-contribution` plugin registers one hook type: a `PreToolUse` hook that 
 }
 ```
 
-**Matcher:** `Bash|mcp__plugin_oss-contribution_github__.*` — matches all Bash tool calls and all GitHub MCP tool calls namespaced to this plugin.
+**Matcher:** `Bash|mcp__plugin_agentic-contributor_github__.*` — matches all Bash tool calls and all GitHub MCP tool calls namespaced to this plugin.
 
 **Timeout:** 10 seconds. The script runs in well under 1 second in practice (pure bash string matching, no network calls).
 
@@ -59,11 +59,11 @@ create_branch | create_repository | assign | transfer | lock | unlock |
 submit | dispatch | edit
 ```
 
-Any `mcp__plugin_oss-contribution_github__` tool whose suffix matches any of these verbs is denied. All other MCP tools (all read tools) are allowed immediately.
+Any `mcp__plugin_agentic-contributor_github__` tool whose suffix matches any of these verbs is denied. All other MCP tools (all read tools) are allowed immediately.
 
 ### MCP Read Tools — ALLOW
 
-Any `mcp__plugin_oss-contribution_github__` tool whose suffix does not match a write verb. Examples: `list_issues`, `get_pull_request`, `get_file_contents`, `list_releases`, `search_repositories`, `search_issues`, `list_pull_requests`.
+Any `mcp__plugin_agentic-contributor_github__` tool whose suffix does not match a write verb. Examples: `list_issues`, `get_pull_request`, `get_file_contents`, `list_releases`, `search_repositories`, `search_issues`, `list_pull_requests`.
 
 ### Bash Commands — DENY
 

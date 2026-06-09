@@ -10,7 +10,7 @@ This is not just a convention in the command instructions. It is enforced at the
 
 ## How the Guardrail Works
 
-`hooks/hooks.json` registers a `PreToolUse` hook that matches `Bash|mcp__plugin_oss-contribution_github__.*` and calls `hooks/scripts/guard-outbound.sh` before the tool executes.
+`hooks/hooks.json` registers a `PreToolUse` hook that matches `Bash|mcp__plugin_agentic-contributor_github__.*` and calls `hooks/scripts/guard-outbound.sh` before the tool executes.
 
 The script:
 1. Reads the tool-use JSON from stdin.
@@ -28,27 +28,27 @@ The denial message states:
 
 | Pattern | Decision |
 |---|---|
-| `mcp__plugin_oss-contribution_github__create` | DENY |
-| `mcp__plugin_oss-contribution_github__update` | DENY |
-| `mcp__plugin_oss-contribution_github__delete` | DENY |
-| `mcp__plugin_oss-contribution_github__merge` | DENY |
-| `mcp__plugin_oss-contribution_github__add_comment` | DENY |
-| `mcp__plugin_oss-contribution_github__add_issue_comment` | DENY |
-| `mcp__plugin_oss-contribution_github__add_sub_issue` | DENY |
-| `mcp__plugin_oss-contribution_github__push` | DENY |
-| `mcp__plugin_oss-contribution_github__fork` | DENY |
-| `mcp__plugin_oss-contribution_github__assign` | DENY |
-| `mcp__plugin_oss-contribution_github__transfer` | DENY |
-| `mcp__plugin_oss-contribution_github__lock` / `unlock` | DENY |
-| `mcp__plugin_oss-contribution_github__submit` | DENY |
-| `mcp__plugin_oss-contribution_github__dispatch` | DENY |
-| `mcp__plugin_oss-contribution_github__edit` | DENY |
-| `mcp__plugin_oss-contribution_github__create_or_update` | DENY |
-| `mcp__plugin_oss-contribution_github__create_pull_request` | DENY |
-| `mcp__plugin_oss-contribution_github__create_branch` | DENY |
-| `mcp__plugin_oss-contribution_github__create_repository` | DENY |
-| `mcp__plugin_oss-contribution_github__request_copilot` | DENY |
-| All other `mcp__plugin_oss-contribution_github__*` read tools | ALLOW |
+| `mcp__plugin_agentic-contributor_github__create` | DENY |
+| `mcp__plugin_agentic-contributor_github__update` | DENY |
+| `mcp__plugin_agentic-contributor_github__delete` | DENY |
+| `mcp__plugin_agentic-contributor_github__merge` | DENY |
+| `mcp__plugin_agentic-contributor_github__add_comment` | DENY |
+| `mcp__plugin_agentic-contributor_github__add_issue_comment` | DENY |
+| `mcp__plugin_agentic-contributor_github__add_sub_issue` | DENY |
+| `mcp__plugin_agentic-contributor_github__push` | DENY |
+| `mcp__plugin_agentic-contributor_github__fork` | DENY |
+| `mcp__plugin_agentic-contributor_github__assign` | DENY |
+| `mcp__plugin_agentic-contributor_github__transfer` | DENY |
+| `mcp__plugin_agentic-contributor_github__lock` / `unlock` | DENY |
+| `mcp__plugin_agentic-contributor_github__submit` | DENY |
+| `mcp__plugin_agentic-contributor_github__dispatch` | DENY |
+| `mcp__plugin_agentic-contributor_github__edit` | DENY |
+| `mcp__plugin_agentic-contributor_github__create_or_update` | DENY |
+| `mcp__plugin_agentic-contributor_github__create_pull_request` | DENY |
+| `mcp__plugin_agentic-contributor_github__create_branch` | DENY |
+| `mcp__plugin_agentic-contributor_github__create_repository` | DENY |
+| `mcp__plugin_agentic-contributor_github__request_copilot` | DENY |
+| All other `mcp__plugin_agentic-contributor_github__*` read tools | ALLOW |
 
 ### Bash Commands
 

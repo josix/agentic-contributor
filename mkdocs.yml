@@ -1,17 +1,17 @@
-# MkDocs Configuration for oss-contribution Documentation
+# MkDocs Configuration for agentic-contributor Documentation
 # https://www.mkdocs.org/
 #
 # Local preview:  pip install -r docs/requirements.txt && mkdocs serve
 # Build:          mkdocs build
 # Deploy (Pages): mkdocs gh-deploy
 
-site_name: oss-contribution Documentation
+site_name: agentic-contributor Documentation
 site_description: Research-and-engagement assistant for contributing to open-source projects — draft-only, human-in-the-loop
-site_url: https://josix.github.io/oss-contribution/  # Update with actual URL
+site_url: https://josix.github.io/agentic-contributor/  # Update with actual URL
 
 # Repository information
-repo_name: oss-contribution
-repo_url: https://github.com/josix/oss-contribution  # Update with actual URL
+repo_name: agentic-contributor
+repo_url: https://github.com/josix/agentic-contributor  # Update with actual URL
 edit_uri: edit/main/docs/
 
 # Theme configuration
@@ -120,5 +120,5 @@ nav:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/josix/oss-contribution
+      link: https://github.com/josix/agentic-contributor
   generator: false
