@@ -1,0 +1,124 @@
+# MkDocs Configuration for oss-contribution Documentation
+# https://www.mkdocs.org/
+#
+# Local preview:  pip install -r docs/requirements.txt && mkdocs serve
+# Build:          mkdocs build
+# Deploy (Pages): mkdocs gh-deploy
+
+site_name: oss-contribution Documentation
+site_description: Research-and-engagement assistant for contributing to open-source projects — draft-only, human-in-the-loop
+site_url: https://josix.github.io/oss-contribution/  # Update with actual URL
+
+# Repository information
+repo_name: oss-contribution
+repo_url: https://github.com/josix/oss-contribution  # Update with actual URL
+edit_uri: edit/main/docs/
+
+# Theme configuration
+theme:
+  name: material
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+# Plugins
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
+
+# Extensions
+markdown_extensions:
+  # Python Markdown
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+  # PyMdown Extensions
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Navigation structure
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quick-start.md
+  - Concepts:
+      - Draft-Only Guardrail: concepts/draft-only-guardrail.md
+      - Two-Plugin System: concepts/two-plugin-system.md
+  - Guides:
+      - Using /oss: guides/using-oss.md
+      - GitHub Access (MCP & gh): guides/github-access.md
+  - Reference:
+      - Commands: reference/commands.md
+      - Agents: reference/agents.md
+      - Skills: reference/skills.md
+      - Hooks: reference/hooks.md
+      - Scenarios: reference/scenarios.md
+
+# Extra configuration
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/josix/oss-contribution
+  generator: false

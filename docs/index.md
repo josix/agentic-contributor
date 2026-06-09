@@ -14,22 +14,22 @@ The plugin exposes a single `/oss` command that routes to one of 8 contribution 
 flowchart TD
     U([User]) --> OSS["/oss command"]
 
-    OSS --> SR["skills/oss-scenario-routing\nclassifies intent into 8 scenarios"]
+    OSS --> SR["skills/oss-scenario-routing<br/>classifies intent into 8 scenarios"]
 
-    SR --> IM["skills/issue-matching\nscenario 2: find"]
-    SR --> CN["skills/contribution-norms\nscenario 3: norms"]
-    SR --> DE["skills/dev-env-setup\nscenario 4: setup"]
-    SR --> SQ["skills/smart-questions\nscenarios 5 / 6 / 7 / 8: drafting"]
+    SR --> IM["skills/issue-matching<br/>scenario 2: find"]
+    SR --> CN["skills/contribution-norms<br/>scenario 3: norms"]
+    SR --> DE["skills/dev-env-setup<br/>scenario 4: setup"]
+    SR --> SQ["skills/smart-questions<br/>scenarios 5 / 6 / 7 / 8: drafting"]
 
-    OSS --> RES["agents/oss-researcher\nGitHub data (scenarios 1/2/3/4/5/7/8)"]
-    OSS --> CA["agents/oss-claim-analyst\nclaim detection (scenario 6)"]
+    OSS --> RES["agents/oss-researcher<br/>GitHub data (scenarios 1/2/3/4/5/7/8)"]
+    OSS --> CA["agents/oss-claim-analyst<br/>claim detection (scenario 6)"]
 
-    RES --> MCP["GitHub MCP server\n(preferred — GITHUB_MCP_TOKEN)"]
-    RES --> GH["gh CLI\n(fallback — gh auth login)"]
+    RES --> MCP["GitHub MCP server<br/>(preferred — GITHUB_MCP_TOKEN)"]
+    RES --> GH["gh CLI<br/>(fallback — gh auth login)"]
     CA --> MCP
     CA --> GH
 
-    OSS -.->|PreToolUse — DENIES all\noutbound/mutating actions| GRD["hooks/scripts/guard-outbound.sh"]
+    OSS -.->|PreToolUse — DENIES all<br/>outbound/mutating actions| GRD["hooks/scripts/guard-outbound.sh"]
     RES -.-> GRD
     CA -.-> GRD
 ```
@@ -61,4 +61,4 @@ flowchart TD
 
 ---
 
-Back to [README](../README.md) | [CHANGELOG](../CHANGELOG.md)
+Back to [README](https://github.com/josix/oss-contribution/blob/main/README.md) | [CHANGELOG](https://github.com/josix/oss-contribution/blob/main/CHANGELOG.md)

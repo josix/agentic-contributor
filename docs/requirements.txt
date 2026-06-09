@@ -1,0 +1,5 @@
+# Documentation site dependencies (MkDocs + Material theme)
+# Install: pip install -r docs/requirements.txt
+# Preview: mkdocs serve
+# Or run without installing: uvx --from mkdocs-material mkdocs serve
+mkdocs-material>=9.5
