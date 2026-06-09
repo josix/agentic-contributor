@@ -1,6 +1,6 @@
 # Skills Reference
 
-The five skills in the `oss-contribution` plugin. Each skill is a domain-expertise module loaded by the `/oss` command after scenario classification.
+The five skills in the `agentic-contributor` plugin. Each skill is a domain-expertise module loaded by the `/oss` command after scenario classification.
 
 ## Overview
 

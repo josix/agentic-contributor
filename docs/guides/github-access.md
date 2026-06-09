@@ -8,7 +8,7 @@ The plugin always uses read-only GitHub access. There are two paths, and subagen
 
 | Path | When used | Tools |
 |---|---|---|
-| GitHub MCP server | `GITHUB_MCP_TOKEN` is set | `mcp__plugin_oss-contribution_github__*` read tools |
+| GitHub MCP server | `GITHUB_MCP_TOKEN` is set | `mcp__plugin_agentic-contributor_github__*` read tools |
 | `gh` CLI fallback | `GITHUB_MCP_TOKEN` not set | `gh issue list`, `gh pr view`, `gh api` GET, etc. |
 
 ## GitHub MCP Server
@@ -25,7 +25,7 @@ The MCP server is configured in `.mcp.json` at the plugin root:
 }
 ```
 
-When the token is present, all `mcp__plugin_oss-contribution_github__*` read tools are available to subagents. The MCP server returns structured JSON data without shell invocations — it is faster and avoids shell-quoting edge cases.
+When the token is present, all `mcp__plugin_agentic-contributor_github__*` read tools are available to subagents. The MCP server returns structured JSON data without shell invocations — it is faster and avoids shell-quoting edge cases.
 
 Read tools used by `oss-researcher`:
 

@@ -3,7 +3,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|mcp__plugin_oss-contribution_github__.*",
+        "matcher": "Bash|mcp__plugin_agentic-contributor_github__.*",
         "hooks": [
           {
             "type": "command",

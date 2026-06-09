@@ -23,7 +23,7 @@ Direct the `oss-researcher` agent to fetch:
 - Any `DCO` file or sign-off instructions.
 - The project's README for any "contributing" section.
 
-Use `mcp__plugin_oss-contribution_github__get_file_contents` for each, or fall back to
+Use `mcp__plugin_agentic-contributor_github__get_file_contents` for each, or fall back to
 `gh api repos/<owner/repo>/contents/<path>` if the MCP token is absent.
 
 ## 2. Surface Legal Prerequisites

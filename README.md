@@ -1,4 +1,4 @@
-# oss-contribution
+# agentic-contributor
 
 Research-and-engagement assistant for contributing to open-source projects — draft-only, human-in-the-loop.
 
@@ -27,21 +27,21 @@ This is the **research-and-engagement half** of a two-plugin system. It surfaces
 ### Local install (development)
 
 ```bash
-git clone https://github.com/josix/oss-contribution.git
-claude --plugin-dir /path/to/oss-contribution
+git clone https://github.com/josix/agentic-contributor.git
+claude --plugin-dir /path/to/agentic-contributor
 ```
 
 ### Enable after cloning
 
 ```
-/plugins enable oss-contribution
+/plugins enable agentic-contributor
 ```
 
 ### Marketplace
 
 ```
-/plugin marketplace add josix/oss-contribution
-/plugin install oss-contribution@josix-plugins
+/plugin marketplace add josix/agentic-contributor
+/plugin install agentic-contributor@josix-plugins
 ```
 
 ### Validating Your Installation
@@ -50,8 +50,8 @@ Confirm the plugin loaded correctly before your first `/oss` run:
 
 ```bash
 # 1. Confirm plugin.json and marketplace.json are valid JSON
-jq . /path/to/oss-contribution/.claude-plugin/plugin.json
-jq . /path/to/oss-contribution/.claude-plugin/marketplace.json
+jq . /path/to/agentic-contributor/.claude-plugin/plugin.json
+jq . /path/to/agentic-contributor/.claude-plugin/marketplace.json
 
 # 2. Confirm the /oss command appears in Claude Code
 # (type /oss in Claude Code and verify the command is suggested)
@@ -137,7 +137,7 @@ The `PreToolUse` guardrail hook (`hooks/hooks.json` + `hooks/scripts/guard-outbo
 | `curl` / `wget` with mutation flags (`-X POST`, `-d`, `--data`, `-F`) | DENY |
 | GitHub MCP write tools (`create`, `update`, `delete`, `merge`, `add_comment`, `push`, `fork`, …) | DENY |
 | `gh pr view`, `gh issue list`, `gh release list`, `gh api` GET, `git clone`, `git status`, `git log` | ALLOW |
-| All `mcp__plugin_oss-contribution_github__` read tools | ALLOW |
+| All `mcp__plugin_agentic-contributor_github__` read tools | ALLOW |
 
 The denial message explains that the plugin is draft-only and that the execution/submission plugin handles sending.
 

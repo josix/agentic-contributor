@@ -4,7 +4,7 @@ How the research-and-engagement half (this plugin) and the execution/submission 
 
 ## The Two Halves
 
-| Aspect | oss-contribution (this plugin) | Execution/submission plugin (separate) |
+| Aspect | agentic-contributor (this plugin) | Execution/submission plugin (separate) |
 |---|---|---|
 | Purpose | Research projects, surface issues, draft outbound text | Post comments, create PRs, push branches |
 | GitHub access | Read-only (MCP server or `gh` CLI read commands) | Read + write (`gh` CLI mutating commands) |

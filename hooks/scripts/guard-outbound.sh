@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# guard-outbound.sh — Draft-only guardrail for the oss-contribution plugin.
+# guard-outbound.sh — Draft-only guardrail for the agentic-contributor plugin.
 # Reads a tool-use JSON from stdin, inspects the tool name and command,
 # and DENIES any outbound/mutating actions.
 #
@@ -57,7 +57,7 @@ deny() {
 # Write-verb suffixes (after the last '__'):
 WRITE_VERBS="create|update|delete|merge|add_comment|add_issue_comment|add_sub_issue|push|fork|request_copilot|create_or_update|create_pull_request|create_branch|create_repository|assign|transfer|lock|unlock|submit|dispatch|edit"
 
-if [[ "$tool_name" == mcp__plugin_oss-contribution_github__* ]]; then
+if [[ "$tool_name" == mcp__plugin_agentic-contributor_github__* ]]; then
   suffix="${tool_name##*__}"
   if [[ "$suffix" =~ ^($WRITE_VERBS)$ ]]; then
     deny "$tool_name"

@@ -1,6 +1,6 @@
 # Agents Reference
 
-The two read-only subagents in the `oss-contribution` plugin.
+The two read-only subagents in the `agentic-contributor` plugin.
 
 ## Overview
 
@@ -29,7 +29,7 @@ No explicit `tools` field is declared in the agent frontmatter — all tools are
 
 | Tool class | Usage |
 |---|---|
-| `mcp__plugin_oss-contribution_github__*` read tools | Preferred when `GITHUB_MCP_TOKEN` is set |
+| `mcp__plugin_agentic-contributor_github__*` read tools | Preferred when `GITHUB_MCP_TOKEN` is set |
 | `Bash` (gh CLI) | Fallback when MCP token is absent |
 | `Read`, `Grep`, `Glob` | Locally cloned repo files |
 | `WebFetch` | Supplementary docs pages |

@@ -1,27 +1,27 @@
 # Installation
 
-Install, authenticate, and validate the `oss-contribution` plugin.
+Install, authenticate, and validate the `agentic-contributor` plugin.
 
 ## Install and Enable
 
 ### Option A — Local directory (development / try-it-out)
 
 ```bash
-git clone https://github.com/josix/oss-contribution.git ~/oss-contribution
-claude --plugin-dir ~/oss-contribution
+git clone https://github.com/josix/agentic-contributor.git ~/agentic-contributor
+claude --plugin-dir ~/agentic-contributor
 ```
 
 ### Option B — Marketplace
 
 ```
-/plugin marketplace add josix/oss-contribution
-/plugin install oss-contribution@josix-plugins
+/plugin marketplace add josix/agentic-contributor
+/plugin install agentic-contributor@josix-plugins
 ```
 
 After installation, enable the plugin if it is not already active:
 
 ```
-/plugins enable oss-contribution
+/plugins enable agentic-contributor
 ```
 
 ## GitHub Authentication
@@ -36,7 +36,7 @@ Create a GitHub personal access token with **`repo:read`** (or the fine-grained 
 export GITHUB_MCP_TOKEN=ghp_your_token_here
 ```
 
-The MCP server is configured in `.mcp.json` at the plugin root. When the token is present, subagents prefer `mcp__plugin_oss-contribution_github__*` read tools, which return structured data without shell invocation.
+The MCP server is configured in `.mcp.json` at the plugin root. When the token is present, subagents prefer `mcp__plugin_agentic-contributor_github__*` read tools, which return structured data without shell invocation.
 
 To persist the variable across sessions, add it to your shell profile (`.zshrc`, `.bashrc`, or equivalent).
 
@@ -66,15 +66,15 @@ Run these checks before your first `/oss` command:
 
 ```bash
 # 1. plugin.json is valid JSON and version matches marketplace.json
-jq .version /path/to/oss-contribution/.claude-plugin/plugin.json
-jq '.plugins[0].version' /path/to/oss-contribution/.claude-plugin/marketplace.json
+jq .version /path/to/agentic-contributor/.claude-plugin/plugin.json
+jq '.plugins[0].version' /path/to/agentic-contributor/.claude-plugin/marketplace.json
 # Both should print "0.1.0"
 
 # 2. marketplace.json parses cleanly
-jq . /path/to/oss-contribution/.claude-plugin/marketplace.json
+jq . /path/to/agentic-contributor/.claude-plugin/marketplace.json
 
 # 3. Guardrail script is executable and has valid syntax
-bash -n /path/to/oss-contribution/hooks/scripts/guard-outbound.sh && echo "syntax OK"
+bash -n /path/to/agentic-contributor/hooks/scripts/guard-outbound.sh && echo "syntax OK"
 
 # 4. gh CLI fallback (if not using MCP)
 gh auth status

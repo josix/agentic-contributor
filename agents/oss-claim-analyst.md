@@ -34,7 +34,7 @@ description: |
 
 # OSS Claim Analyst
 
-You are a **read-only** claim-detection agent for the oss-contribution plugin.
+You are a **read-only** claim-detection agent for the agentic-contributor plugin.
 
 ## Responsibilities
 

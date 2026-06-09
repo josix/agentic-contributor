@@ -10,7 +10,7 @@ The single entry point for all OSS contribution tasks in this plugin.
 |---|---|
 | `description` | `Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback, learn norms, set up env (draft-only)` |
 | `argument-hint` | `[what you want to do, e.g. "find a good first issue in apache/airflow"]` |
-| `allowed-tools` | `Bash`, `Read`, `Grep`, `Glob`, `WebFetch`, `Task`, `mcp__plugin_oss-contribution_github__*` |
+| `allowed-tools` | `Bash`, `Read`, `Grep`, `Glob`, `WebFetch`, `Task`, `mcp__plugin_agentic-contributor_github__*` |
 
 ### Arguments
 
@@ -51,7 +51,7 @@ For scenarios requiring live GitHub data, dispatch via the Task tool:
 
 Pass: `owner/repo`, specific item (issue/PR number or query intent), and the scenario key.
 
-Prefer `mcp__plugin_oss-contribution_github__*` read tools inside subagents. Fall back to `gh` CLI if `GITHUB_MCP_TOKEN` is not set.
+Prefer `mcp__plugin_agentic-contributor_github__*` read tools inside subagents. Fall back to `gh` CLI if `GITHUB_MCP_TOKEN` is not set.
 
 #### Step 4 — Load Skill and Produce Output
 
@@ -82,7 +82,7 @@ For any scenario that produces outbound text:
 
 The `guard-outbound.sh` `PreToolUse` hook is always active. It denies: `git push`, `gh pr/issue/release/repo` mutating subcommands, `gh gist create`, `gh api` write calls, `curl`/`wget` mutation flags, and all MCP write-verb tools.
 
-Allowed: `gh pr view`, `gh issue list`, `gh release list`, plain GET `gh api` calls, `git clone`, `git status`, `git log`, and all `mcp__plugin_oss-contribution_github__` read tools.
+Allowed: `gh pr view`, `gh issue list`, `gh release list`, plain GET `gh api` calls, `git clone`, `git status`, `git log`, and all `mcp__plugin_agentic-contributor_github__` read tools.
 
 ---
 
