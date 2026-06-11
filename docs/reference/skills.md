@@ -23,7 +23,8 @@ The five skills in the `agentic-contributor` plugin. Each skill is a domain-expe
 - If no strong match: presents the scenario menu and asks one clarifying question (maximum one question before classifying and proceeding).
 - Specifies the skill and subagent to load/dispatch for the classified scenario.
 - Handles the claim→engage branch: if `oss-claim-analyst` returns "appears already claimed", the skill directs a switch to the **engage** scenario.
-- Enforces the DRAFT-ONLY rule for scenarios 5–8 and confirms that scenarios 1–4 never trigger write actions.
+- Enforces the DRAFT-ONLY rule for all 8 scenarios: report tier (1–4) saves to `.oss-drafts/` and shows a "Saved to…" notice; draft tier (5–8) additionally presents the draft in chat with the canonical draft notice.
+- Confirms that none of the 8 scenarios ever trigger write actions toward GitHub.
 
 **References:** `skills/oss-scenario-routing/SKILL.md`
 
@@ -39,7 +40,7 @@ The five skills in the `agentic-contributor` plugin. Each skill is a domain-expe
 2. **Data gathering** — directs `oss-researcher` to fetch open issues with relevant labels (`good first issue`, `help wanted`, `bug`, `enhancement`, `docs`) and stalled/review-requested PRs.
 3. **Exclusion filter** — removes closed, merged, assigned, locked, or "wontfix" items.
 4. **Heuristic scoring** — ranks items by: newcomer-friendly labels (+3/+2), tech-stack overlap (+2), recent activity (+1), maintainer engagement (+1), clear unblock opportunity for PRs (+1), intent match (+2).
-5. **Ranked shortlist** — top 5–10 items, each with link, type, labels, last-updated date, and a 1–2 sentence rationale.
+5. **Ranked shortlist** — top 5–10 items, each with link, type, labels, last-updated date, and a 1–2 sentence rationale. The orchestrator saves the shortlist to `.oss-drafts/find-…` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
 
 **References:** `skills/issue-matching/SKILL.md`
 
@@ -52,8 +53,8 @@ The five skills in the `agentic-contributor` plugin. Each skill is a domain-expe
 **What it provides:**
 
 All output is a DRAFT. The contract:
-1. Present the complete draft, clearly labelled.
-2. Add the mandatory review notice ("This plugin will NOT post it…").
+1. Return the complete draft to the orchestrator, which saves it to `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md` using the Write tool.
+2. The orchestrator presents the draft in chat and adds the mandatory notice: "**DRAFT — saved to `<path>`. Review and edit this file before sending.** This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin."
 3. Never call any tool that posts, comments, pushes, or creates a GitHub resource.
 
 Four scenario-specific procedures:
@@ -81,7 +82,7 @@ Four scenario-specific procedures:
 4. **Commit and PR title conventions** — required title format (e.g., `[SPARK-NNNN][COMPONENT]`), commit message format, bot checks, required issue links.
 5. **Code of conduct** — summary and link (ASF CoC for Apache projects).
 6. **Apache-specific notes** — ICLA, DCO sign-off, JIRA vs GitHub workflow, lazy consensus, and `[PROJECT-NNNN]`-style title conventions from `references/apache-governance.md`.
-7. **What's missing** — explicitly states when a governing document cannot be found; never fabricates norms.
+7. **What's missing** — explicitly states when a governing document cannot be found; never fabricates norms. The orchestrator saves the briefing to `.oss-drafts/norms-…` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
 
 **References:** `skills/contribution-norms/SKILL.md`, `skills/contribution-norms/references/apache-governance.md`
 
@@ -98,10 +99,10 @@ Four scenario-specific procedures:
 3. **Environment-ready checkpoint** — presents the specific verification command (e.g., `pytest tests/unit/`, `./gradlew test`) and what a passing result looks like.
 4. **Failure diagnosis** — identifies which requirement or version constraint is not met; refers back to documented prerequisites; never suggests changes that could break other projects without explicit confirmation.
 5. **Destructive-action confirmation** — presents a yes/no confirmation step before any action that would upgrade a system package, change `$PATH` permanently, or remove existing virtual environments.
-6. **Scope boundary** — explicitly states that writing code, committing, opening PRs, and pushing branches are out of scope and belong to the execution/submission plugin.
+6. **Scope boundary** — explicitly states that writing code, committing, opening PRs, and pushing branches are out of scope and belong to the execution/submission plugin. The orchestrator saves the walkthrough to `.oss-drafts/setup-…` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
 
 **References:** `skills/dev-env-setup/SKILL.md`
 
 ---
 
-[Back to docs index](../index.md) | Related: [Agents](agents.md) | [Commands](commands.md) | [Scenarios](scenarios.md)
+[Back to docs index](../index.md) | Related: [Agents](agents.md) | [Commands](commands.md) | [Scenarios](scenarios.md) | [Draft Files](../concepts/draft-files.md)

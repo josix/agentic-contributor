@@ -54,7 +54,9 @@ Fetches in batches of 10–20 items. Never fetches all items in a single call fo
 
 ### Output Format
 
-Structured markdown with:
+Returns structured markdown findings to the orchestrating `/oss` command. The orchestrator (not this agent) persists the findings to `.oss-drafts/` using the Write tool.
+
+Structure:
 - A per-section header (Releases / Issues / PRs / Contribution Docs / etc.)
 - Each item: type badge, title, number, direct link, timestamp
 - A brief summary paragraph noting data freshness and any gaps
@@ -89,6 +91,10 @@ Declared in frontmatter: `["Bash", "Read", "Grep", "Glob"]`
 No MCP tools are declared for this agent; it uses `gh` CLI exclusively.
 
 ### Verdict Format
+
+Returns the verdict and evidence table to the orchestrating `/oss` command. The orchestrator
+persists the verdict and resulting draft (claim comment or engage draft) to `.oss-drafts/` using
+the Write tool.
 
 Returns one of:
 

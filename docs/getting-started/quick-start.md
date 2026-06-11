@@ -38,9 +38,17 @@ Answer each question. The more specific your answers, the better the ranking.
 
 The `oss-researcher` subagent fetches live data from GitHub (via MCP or `gh` CLI). You will see it paginate through open issues labelled `good first issue` and `help wanted`, filtering out locked, assigned, or closed items.
 
-### Step 4 — Review the Ranked Shortlist
+### Step 4 — Review the Saved Report File
 
-The skill returns a ranked list of up to 10 issues with rationale:
+The orchestrator saves the ranked shortlist to a file in `.oss-drafts/`:
+
+```
+Saved to .oss-drafts/find-apache-airflow-find-20260611T143000Z.md.
+Review and edit this report file as needed before using it.
+```
+
+The file contains a ranked list of up to 10 issues with rationale. A brief summary is shown in
+chat:
 
 ```
 ## #1. Issue #42345: Add docstring examples to BaseSensor.poke()
@@ -51,7 +59,8 @@ The skill returns a ranked list of up to 10 issues with rationale:
 - Why it fits: Docs task; matches your stated goal of learning and Python comfort.
 ```
 
-This is a **read-only report** — no draft notice is shown because no outbound text was produced.
+Open `.oss-drafts/find-apache-airflow-find-20260611T143000Z.md` in your editor to read the full
+list, add notes, or highlight the issues you want to investigate.
 
 ### Step 5 — Continue with a Draft Scenario (Optional)
 
@@ -61,20 +70,20 @@ Once you pick an issue, you can use a draft scenario:
 /oss is issue #42345 in apache/airflow free to claim?
 ```
 
-The **claim** scenario dispatches `oss-claim-analyst`, which checks assignees, linked PRs, and recent intent comments, then returns a verdict. If the issue is free, `smart-questions` drafts a claim comment:
+The **claim** scenario dispatches `oss-claim-analyst`, which checks assignees, linked PRs, and recent intent comments, then returns a verdict. If the issue is free, `smart-questions` drafts a claim comment. The orchestrator saves it to a file and shows:
+
+> **DRAFT — saved to `.oss-drafts/claim-apache-airflow-issue42345-20260611T143200Z.md`. Review and edit this file before sending.**
+> This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
+
+The draft text in chat will look like:
 
 ```
-DRAFT — Review before sending.
----
 Hi, I'm [your name], a Python developer interested in contributing to Airflow.
 I'd like to work on issue #42345 (Add docstring examples to BaseSensor.poke()).
 Is there anything specific you'd like me to keep in mind? Happy to discuss the approach first.
----
-This plugin will NOT post, comment, push, or send anything. Sending is handled by the
-separate execution/submission plugin. Edit or cancel this draft as needed.
 ```
 
-The plugin stops here. To actually post the comment, use the execution/submission plugin.
+Open the saved file, edit it to your liking, then use the execution/submission plugin to post it.
 
 ## What the Plugin Will Never Do
 

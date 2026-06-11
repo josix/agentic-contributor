@@ -104,6 +104,7 @@ nav:
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quick-start.md
   - Concepts:
+      - Draft Files: concepts/draft-files.md
       - Draft-Only Guardrail: concepts/draft-only-guardrail.md
       - Two-Plugin System: concepts/two-plugin-system.md
   - Guides:
