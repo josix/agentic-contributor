@@ -17,14 +17,14 @@ the eight scenarios below, then route to the correct skill and subagent.
 
 | # | Scenario key | Intent signals | Skill to load | Agent to dispatch | Output type |
 |---|---|---|---|---|---|
-| 1 | **status** | "what's new", "latest releases", "recent issues/PRs", "project news", "what's happening in X" | — | `oss-researcher` | Timestamped status report |
-| 2 | **find** | "find an issue", "match me to a task", "good first issue", "what can I work on", "suggest a PR to help with" | `issue-matching` | `oss-researcher` | Ranked shortlist with rationale |
-| 3 | **norms** | "contribution norms", "how do I contribute", "CLA", "DCO", "CONTRIBUTING", "governance", "how decisions are made" | `contribution-norms` | `oss-researcher` | Contribution briefing |
-| 4 | **setup** | "set up locally", "clone and build", "dev environment", "run the tests", "how do I build X" | `dev-env-setup` | `oss-researcher` (optional, read-only — to fetch CONTRIBUTING/setup docs) | Step-by-step guided setup |
-| 5 | **clarify** | "draft a question", "ask the maintainer", "clarify the issue", "what does this issue mean", "I don't understand the design" | `smart-questions` | `oss-researcher` | DRAFT questions (review-before-send) |
-| 6 | **claim** | "claim an issue", "can I take this", "is this issue free", "I want to work on #N" | `smart-questions` | `oss-claim-analyst` | Claim assessment + DRAFT claim comment |
-| 7 | **engage** | "give feedback on a PR", "help with someone's PR", "comment on PR", "review an in-progress PR", "there's a linked PR" | `smart-questions` | `oss-researcher` | DRAFT feedback comment |
-| 8 | **review-reply** | "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review" | `smart-questions` | `oss-researcher` | DRAFT review replies |
+| 1 | **status** | "what's new", "latest releases", "recent issues/PRs", "project news", "what's happening in X" | — | `oss-researcher` | Timestamped status report saved to `.oss-drafts/` |
+| 2 | **find** | "find an issue", "match me to a task", "good first issue", "what can I work on", "suggest a PR to help with" | `issue-matching` | `oss-researcher` | Ranked shortlist with rationale saved to `.oss-drafts/` |
+| 3 | **norms** | "contribution norms", "how do I contribute", "CLA", "DCO", "CONTRIBUTING", "governance", "how decisions are made" | `contribution-norms` | `oss-researcher` | Contribution briefing saved to `.oss-drafts/` |
+| 4 | **setup** | "set up locally", "clone and build", "dev environment", "run the tests", "how do I build X" | `dev-env-setup` | `oss-researcher` (optional, read-only — to fetch CONTRIBUTING/setup docs) | Step-by-step guided walkthrough saved to `.oss-drafts/` |
+| 5 | **clarify** | "draft a question", "ask the maintainer", "clarify the issue", "what does this issue mean", "I don't understand the design" | `smart-questions` | `oss-researcher` | DRAFT questions saved to `.oss-drafts/` (review-before-send) |
+| 6 | **claim** | "claim an issue", "can I take this", "is this issue free", "I want to work on #N" | `smart-questions` | `oss-claim-analyst` | Claim assessment + DRAFT claim comment saved to `.oss-drafts/` |
+| 7 | **engage** | "give feedback on a PR", "help with someone's PR", "comment on PR", "review an in-progress PR", "there's a linked PR" | `smart-questions` | `oss-researcher` | DRAFT feedback comment saved to `.oss-drafts/` |
+| 8 | **review-reply** | "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review" | `smart-questions` | `oss-researcher` | DRAFT review replies saved to `.oss-drafts/` |
 
 ## Classification Rules
 
@@ -59,14 +59,27 @@ Once the scenario is classified, the `/oss` command must:
 
 ## DRAFT-ONLY Rule
 
-Scenarios 5, 6, 7, and 8 all produce outbound text. For every one of these scenarios:
+All 8 scenarios save their output to `.oss-drafts/` in the user's working directory. The
+orchestrator uses the Write tool to persist the file; subagents remain read-only.
+
+### Report tier (scenarios 1–4)
+
+The orchestrator saves the output file and shows:
+
+> Saved to `<path>`. Review and edit this report file as needed before using it.
+
+These scenarios never produce outbound text and never trigger any write action toward GitHub.
+
+### Draft tier (scenarios 5–8)
+
+The orchestrator saves the draft file and shows the complete draft in chat, then adds:
+
+> **DRAFT — saved to `<path>`. Review and edit this file before sending.**
+> This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
 
 - Always present the drafted content (questions, claim comment, feedback, review replies) for the
-  user's explicit review before anything is sent.
-- Add a clearly visible notice: **"Review this draft before sending. This plugin will NOT post it —
-  sending is handled by the separate execution/submission plugin."**
+  user's explicit review.
 - NEVER call any mutating tool, MCP write method, `gh` posting command, or `git push`. The
   PreToolUse guardrail hook will block such attempts regardless.
-
-Scenarios 1, 2, 3, and 4 are read or guidance outputs only — no draft disclaimer is needed, but
-they must equally never trigger any write action.
+- Writing local `.oss-drafts/` files with the Write tool does NOT violate draft-only — local
+  file writes cannot reach GitHub.

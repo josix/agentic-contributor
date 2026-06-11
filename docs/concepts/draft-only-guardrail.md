@@ -78,6 +78,23 @@ The hook exits `2` (deny) rather than asking a follow-up question. The reasons:
 2. **Fail safe:** Denying unconditionally means a bug in command instructions cannot accidentally post on the user's behalf.
 3. **User trust:** The user must be in the loop for any outbound action. A denial that refers them to the execution plugin preserves that contract explicitly.
 
+## Local Draft File Writes
+
+The `/oss` command saves all scenario outputs to `.oss-drafts/` in your working directory using
+the Write tool. The Write tool is restricted to paths under `.oss-drafts/` only — it is never
+used for any other path. This is explicitly permitted and does **not** violate the draft-only
+constraint:
+
+- The Write tool writes to the local filesystem only.
+- Local file writes cannot reach GitHub, post comments, push branches, or trigger any outbound action.
+- The guardrail hook does not intercept Write tool calls (it matches only `Bash` and `mcp__plugin_agentic-contributor_github__*` tools).
+
+The `.oss-drafts/` directory is automatically excluded from version control via `.git/info/exclude`
+on the first write (non-invasive — does not dirty the user's tracked `.gitignore`).
+
+See [Draft Files](draft-files.md) for the naming convention, frontmatter schema, and per-scenario
+file paths.
+
 ## Hand-off to the Execution Plugin
 
 When you are ready to send a reviewed draft, switch to the separate execution/submission plugin. That plugin uses `gh` CLI commands such as `gh issue comment --body "..."` and `gh pr create` to perform the actual actions after your final confirmation.

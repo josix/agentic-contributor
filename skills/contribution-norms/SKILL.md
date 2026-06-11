@@ -77,6 +77,10 @@ Never fabricate norms, processes, or requirements. Accuracy matters more than co
 
 ## Output Format
 
+Return the briefing to the orchestrating `/oss` command. The orchestrator saves it to
+`.oss-drafts/norms-<owner>-<repo>-norms-<UTC>.md` and shows the user the file path with the
+notice: "Saved to `<path>`. Review and edit this report file as needed before using it."
+
 Structure the briefing as:
 
 ```

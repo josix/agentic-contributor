@@ -64,7 +64,11 @@ Sort by descending score. Return the **top 5–10 items** (or fewer if not enoug
 
 ## 5. Output Format
 
-Return a ranked shortlist. For each item:
+Return the ranked shortlist to the orchestrating `/oss` command. The orchestrator saves it to
+`.oss-drafts/find-<owner>-<repo>-find-<UTC>.md` and shows the user the file path with the notice:
+"Saved to `<path>`. Review and edit this report file as needed before using it."
+
+For each item:
 
 ```
 ## #<rank>. [Issue|PR] #<number>: <title>

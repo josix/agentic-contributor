@@ -48,6 +48,10 @@ Given an issue in a target project, determine whether it is free to claim by gat
 
 ## Verdict Format
 
+Return the verdict and evidence table to the orchestrating `/oss` command. The orchestrator
+persists the verdict and any resulting draft comment to `.oss-drafts/` using the Write tool.
+Do NOT attempt to write files directly.
+
 Output one of two verdicts, followed by the evidence table:
 
 **"Appears free to take"** — no assignee, no linked open PRs, no recent intent comments.

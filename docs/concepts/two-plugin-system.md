@@ -26,9 +26,9 @@ A single plugin that does both would require per-action confirmation dialogs thr
 
 The boundary is the moment the user decides a draft is ready to send.
 
-**This plugin stops at:** presenting a labeled DRAFT with the notice "This plugin will NOT post, comment, push, or send anything."
+**This plugin stops at:** saving the output to a `.oss-drafts/` file and showing: "**DRAFT — saved to `<path>`. Review and edit this file before sending.** This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin."
 
-**The execution plugin starts at:** receiving the approved draft text and performing the `gh` CLI action — for example:
+**The execution plugin starts at:** receiving the approved draft file (reading the `status: draft` frontmatter and the body) and performing the `gh` CLI action — for example:
 
 ```bash
 # Execution plugin posting the claim comment
@@ -38,14 +38,14 @@ gh issue comment 8765 --repo apache/spark --body "Hi, I'd like to take this issu
 gh pr create --repo apache/spark --title "[SPARK-8765] Fix null pointer in SparkContext" --body "…"
 ```
 
-The user copies (or the execution plugin reads) the draft text from this plugin's output and provides it to the execution plugin as the body of the action.
+The execution plugin reads the draft body from the `.oss-drafts/` file (the `status: draft` frontmatter identifies it as pending), presents it for final confirmation, and marks it `status: sent` after posting. See [Draft Files](draft-files.md) for the frontmatter schema.
 
 ## What This Plugin Covers
 
 All 8 `/oss` scenarios stay on the research-and-drafting side of the boundary:
 
-- **status, find, norms, setup** — read-only reports and guided walkthroughs; no draft produced.
-- **clarify, claim, engage, review-reply** — labeled DRAFTs ready for review; never posted.
+- **status, find, norms, setup** — read-only reports and guided walkthroughs saved to `.oss-drafts/`; no outbound text produced.
+- **clarify, claim, engage, review-reply** — labeled DRAFTs saved to `.oss-drafts/` and shown for review; never posted.
 
 ## What This Plugin Does Not Cover
 

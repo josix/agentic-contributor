@@ -19,11 +19,15 @@ example pair before drafting any question, comment, or reply.
 
 Every piece of outbound text this skill produces is a **DRAFT**. The contract is:
 
-1. Present the complete draft text to the user, clearly labelled as a draft.
-2. Add the notice: **"Review this draft before sending. This plugin will NOT post it — sending is
-   handled by the separate execution/submission plugin."**
+1. Return the complete draft text to the orchestrating `/oss` command. The orchestrator saves it
+   to a `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md` file using the Write tool, then
+   presents it to the user.
+2. After saving, the orchestrator adds the mandatory notice:
+   > **DRAFT — saved to `<path>`. Review and edit this file before sending.**
+   > This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
 3. NEVER call any tool that posts, comments, pushes, or creates a GitHub resource.
-4. The user may edit or cancel any draft before they decide to send it through the execution plugin.
+4. The user may edit the saved file or cancel the draft before deciding to send it through the
+   execution plugin.
 
 This contract applies to every scenario below without exception.
 

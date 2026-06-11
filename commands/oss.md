@@ -4,6 +4,7 @@ argument-hint: '[what you want to do, e.g. "find a good first issue in apache/ai
 allowed-tools:
   - Bash
   - Read
+  - Write
   - Grep
   - Glob
   - WebFetch
@@ -27,6 +28,41 @@ You are the single entry point for all OSS contribution tasks in this plugin.
 | 6 | **claim** | Claim check + DRAFT "I'd like to take this" comment |
 | 7 | **engage** | DRAFT feedback on someone else's in-progress PR |
 | 8 | **review-reply** | DRAFT replies to review comments on your own PR |
+
+---
+
+## Draft File Convention
+
+All scenario outputs are saved to `.oss-drafts/` in the user's current working directory.
+
+**Directory:** `.oss-drafts/` (relative to the user's cwd when `/oss` is invoked)
+
+**Naming:** `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`
+
+- `owner/repo` slashes become `-` (e.g. `apache-airflow`)
+- `item` is `issueN`, `prN`, `status`, `find`, `norms`, `setup`, etc.
+- UTC timestamp in `YYYYMMDDThhmmssZ` format (e.g. `20260611T143000Z`)
+- Example: `.oss-drafts/engage-apache-airflow-pr9876-20260611T143000Z.md`
+
+**Frontmatter** (include at the top of every draft file):
+
+```yaml
+---
+plugin: agentic-contributor
+scenario: <scenario-key>
+repo: <owner/repo>
+item: <issueN|prN|status|find|norms|setup>
+generated_at: <ISO-8601 UTC>
+status: draft
+---
+```
+
+**Gitignore:** Before writing the first draft file in a run, ensure `.oss-drafts/` is excluded from version control in the user's project:
+
+1. If `.git/` exists in the cwd, ensure `.oss-drafts/` is in `.git/info/exclude` using the idempotent one-liner:
+   `grep -qxF '.oss-drafts/' .git/info/exclude || echo '.oss-drafts/' >> .git/info/exclude`
+   (Non-invasive — does not dirty the user's tracked `.gitignore`. Creates the file if it does not exist.)
+2. If not in a git repo, skip silently.
 
 ---
 
@@ -69,17 +105,26 @@ is not set, the subagents fall back to `gh` CLI (they will run `gh auth status` 
 
 ---
 
-## Step 4 — Load the Mapped Skill and Produce Output
+## Step 4 — Load the Mapped Skill, Produce Output, and Save Draft File
 
-Load the skill named in the scenario catalog and follow its guidance to produce the output:
+Load the skill named in the scenario catalog and follow its guidance to produce the output. Then
+save it as a draft file per the convention above.
 
-- **status** → no skill; use oss-researcher findings directly as a timestamped report.
-- **find** → load `issue-matching`; apply its ranking and intake questions.
-- **norms** → load `contribution-norms`; apply its briefing structure.
-- **setup** → load `dev-env-setup`; follow its step-by-step and checkpoint guidance.
-  The skill MAY use `oss-researcher` findings (CONTRIBUTING, setup docs) fetched in Step 3
-  to provide project-specific build and test instructions.
-- **clarify / engage / review-reply / claim** → load `smart-questions`; follow its DRAFT-ONLY contract.
+- **status** → no skill; use oss-researcher findings directly as a timestamped report. Save to
+  `.oss-drafts/status-<owner>-<repo>-status-<UTC>.md`.
+- **find** → load `issue-matching`; apply its ranking and intake questions. Save ranked shortlist
+  to `.oss-drafts/find-<owner>-<repo>-find-<UTC>.md`.
+- **norms** → load `contribution-norms`; apply its briefing structure. Save briefing to
+  `.oss-drafts/norms-<owner>-<repo>-norms-<UTC>.md`.
+- **setup** → load `dev-env-setup`; follow its step-by-step and checkpoint guidance. Save
+  walkthrough to `.oss-drafts/setup-<owner>-<repo>-setup-<UTC>.md`.
+- **clarify / engage / review-reply / claim** → load `smart-questions`; follow its DRAFT-ONLY
+  contract. Save draft text to `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`.
+
+Before writing any file: ensure `.git/info/exclude` (or equivalent) excludes `.oss-drafts/` as
+described in the convention block above.
+
+Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path.
 
 ### Claim → Engage Branch
 
@@ -92,20 +137,32 @@ After `oss-claim-analyst` returns its verdict:
 
 ---
 
-## Step 5 — Draft Scenarios: Mandatory Review Notice
+## Step 5 — Two-Tier Export and Review Protocol
 
-For scenarios **clarify, claim, engage, review-reply** (any scenario that produces outbound text):
+### Report tier (scenarios 1, 2, 3, 4 — status, find, norms, setup)
 
-1. Present the complete draft clearly labelled.
-2. Add this notice verbatim:
+After saving the file, show the file path and this notice:
 
-   > **DRAFT — Review before sending.**
-   > This plugin will NOT post, comment, push, or send anything. Sending is handled by the
-   > separate execution/submission plugin. Edit or cancel this draft as needed.
+> Saved to `<path>`. Review and edit this report file as needed before using it.
 
-3. NEVER call any tool that posts, comments, creates issues/PRs, pushes branches, or takes any
-   write action toward GitHub. The PreToolUse guardrail hook blocks such calls, but you must not
-   attempt them regardless.
+Then briefly summarise the key findings in chat and ask the user if they want to take any next step.
+
+### Draft tier (scenarios 5, 6, 7, 8 — clarify, claim, engage, review-reply)
+
+After saving the file, present the complete draft text in chat (clearly labelled), show the file
+path, and add this notice verbatim:
+
+> **DRAFT — saved to `<path>`. Review and edit this file before sending.**
+> This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
+
+Then ask the user to review and modify the file, and confirm whether they want any changes.
+
+### Hard rule
+
+NEVER call any tool that posts, comments, creates issues/PRs, pushes branches, or takes any
+write action toward GitHub. The PreToolUse guardrail hook blocks such calls, but you must not
+attempt them regardless. Writing local files with the Write tool does NOT violate the draft-only
+constraint — local file writes cannot reach GitHub.
 
 ---
 
@@ -122,3 +179,6 @@ The `guard-outbound.sh` PreToolUse hook is always active. It DENIES:
 
 Read-only operations — `gh pr view`, `gh issue list`, `gh release list`, `gh api` GETs, `git clone`,
 and all `mcp__plugin_agentic-contributor_github__` read tools — are always allowed.
+
+Local file writes via the Write tool are NOT covered by the guardrail (they cannot reach GitHub)
+and are explicitly permitted for draft file export.

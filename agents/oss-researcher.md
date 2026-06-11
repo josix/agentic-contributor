@@ -75,7 +75,11 @@ retry once, then report the limitation rather than failing silently.
 
 ## Output Format
 
-Return structured findings as markdown with:
+Return structured findings as markdown to the orchestrating `/oss` command. The orchestrator
+(not this agent) is responsible for persisting the findings to `.oss-drafts/` using the Write
+tool. Do NOT attempt to write files directly.
+
+Structure your return value with:
 - A per-section header (Releases / Issues / PRs / Contribution Docs / etc.).
 - Each item on its own line with: type badge, title, number, **direct link**, and timestamp.
 - A brief summary paragraph at the end noting data freshness and any gaps.

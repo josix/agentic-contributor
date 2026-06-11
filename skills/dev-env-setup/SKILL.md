@@ -86,6 +86,10 @@ State this boundary clearly if the user asks about next steps beyond environment
 
 ## Output Format
 
+Return the walkthrough to the orchestrating `/oss` command. The orchestrator saves it to
+`.oss-drafts/setup-<owner>-<repo>-setup-<UTC>.md` and shows the user the file path with the
+notice: "Saved to `<path>`. Review and edit this report file as needed before using it."
+
 Structure the guidance as:
 
 ```

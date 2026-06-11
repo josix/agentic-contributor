@@ -11,7 +11,7 @@
         "repo": "josix/agentic-contributor"
       },
       "description": "Research-and-engagement assistant for contributing to open-source projects (e.g. apache/airflow, apache/spark) — draft-only, human-in-the-loop.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": {
         "name": "Wilson \"Josix\" Wang"
       },

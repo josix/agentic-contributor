@@ -91,16 +91,20 @@ If you omit arguments, `/oss` presents the full scenario menu and asks which app
 
 | # | Scenario | Intent | Skill | Agent | Output |
 |---|---|---|---|---|---|
-| 1 | **status** | Latest releases, open issues, active PRs | — | `oss-researcher` | Timestamped report |
-| 2 | **find** | Match issues/PRs to your skills | `issue-matching` | `oss-researcher` | Ranked shortlist |
-| 3 | **norms** | Contribution guide, CLA/DCO, PR conventions | `contribution-norms` | `oss-researcher` | Contribution briefing |
-| 4 | **setup** | Step-by-step local dev environment guide | `dev-env-setup` | `oss-researcher` (optional) | Guided walkthrough |
-| 5 | **clarify** | Draft questions for a maintainer | `smart-questions` | `oss-researcher` | DRAFT (review-before-send) |
-| 6 | **claim** | Issue availability check + draft claim comment | `smart-questions` | `oss-claim-analyst` | Assessment + DRAFT |
-| 7 | **engage** | Draft feedback on someone else's PR | `smart-questions` | `oss-researcher` | DRAFT (review-before-send) |
-| 8 | **review-reply** | Draft replies to review comments on your PR | `smart-questions` | `oss-researcher` | DRAFT (review-before-send) |
+| 1 | **status** | Latest releases, open issues, active PRs | — | `oss-researcher` | Timestamped report saved to `.oss-drafts/` |
+| 2 | **find** | Match issues/PRs to your skills | `issue-matching` | `oss-researcher` | Ranked shortlist saved to `.oss-drafts/` |
+| 3 | **norms** | Contribution guide, CLA/DCO, PR conventions | `contribution-norms` | `oss-researcher` | Contribution briefing saved to `.oss-drafts/` |
+| 4 | **setup** | Step-by-step local dev environment guide | `dev-env-setup` | `oss-researcher` (optional) | Guided walkthrough saved to `.oss-drafts/` |
+| 5 | **clarify** | Draft questions for a maintainer | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
+| 6 | **claim** | Issue availability check + draft claim comment | `smart-questions` | `oss-claim-analyst` | Assessment + DRAFT saved to `.oss-drafts/` |
+| 7 | **engage** | Draft feedback on someone else's PR | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
+| 8 | **review-reply** | Draft replies to review comments on your PR | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
 
-Scenarios 5–8 produce outbound-text drafts. Every draft is presented to you with a clear notice that the plugin will NOT send it — sending is the execution plugin's job.
+Every scenario saves its output to `.oss-drafts/` in your current working directory as an editable
+markdown file. Report scenarios (1–4) show "Saved to `<path>`. Review and edit this report file as
+needed before using it." Draft scenarios (5–8) show the draft in chat plus "**DRAFT — saved to
+`<path>`. Review and edit this file before sending.**" The plugin never posts — sending is the
+execution plugin's job.
 
 ## Agents
 
@@ -145,7 +149,16 @@ The denial message explains that the plugin is draft-only and that the execution
 
 ### Draft-Only / Human-in-the-Loop
 
-Every piece of outbound text (comments, claim messages, review replies) is a draft shown to you for review. The plugin will never post, comment, push, or send on your behalf. This is enforced at two levels: the command instructions (Step 5 in `commands/oss.md`) and the `PreToolUse` guardrail hook.
+Every piece of outbound text (comments, claim messages, review replies) is a draft shown to you
+for review. The plugin will never post, comment, push, or send on your behalf. This is enforced at
+two levels: the command instructions (Step 5 in `commands/oss.md`) and the `PreToolUse` guardrail
+hook.
+
+All scenario outputs — including read-only reports (scenarios 1–4) — are also saved as editable
+markdown files in `.oss-drafts/` in your working directory. The `.oss-drafts/` directory is
+automatically excluded from version control via `.git/info/exclude` when `/oss` first writes a
+file in a git repo. Local file writes via the Write tool do not violate draft-only — they cannot
+reach GitHub.
 
 ### Two-Plugin System
 
