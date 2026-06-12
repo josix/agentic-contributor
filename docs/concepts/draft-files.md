@@ -10,8 +10,8 @@ The file is written by the orchestrator using the Write tool immediately after t
 skill have produced their output. You can open and edit the file in any text editor before
 deciding what to do with it.
 
-This applies to all 8 scenarios — both read-only report scenarios (1–4) and outbound-text draft
-scenarios (5–8).
+This applies to all 9 scenarios — both read-only report scenarios (1–4) and outbound-text draft
+scenarios (5–9).
 
 ## Output Directory
 
@@ -33,10 +33,10 @@ The directory is created automatically on the first write.
 
 | Part | Description | Example |
 |------|-------------|---------|
-| `scenario` | One of: `status`, `find`, `norms`, `setup`, `clarify`, `claim`, `engage`, `review-reply` | `engage` |
+| `scenario` | One of: `status`, `find`, `norms`, `setup`, `clarify`, `claim`, `engage`, `review-reply`, `report` | `engage` |
 | `owner` | Repository owner (slashes in `owner/repo` become `-`) | `apache` |
 | `repo` | Repository name | `airflow` |
-| `item` | `issueN`, `prN`, `status`, `find`, `norms`, or `setup` | `pr9876` |
+| `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, or `issue-feature` | `pr9876` |
 | `UTC` | Timestamp in `YYYYMMDDThhmmssZ` format | `20260611T143000Z` |
 
 **Examples:**
@@ -51,6 +51,8 @@ The directory is created automatically on the first write.
 | claim issue #8765 in apache/spark | `.oss-drafts/claim-apache-spark-issue8765-20260611T143000Z.md` |
 | engage PR #9876 in apache/airflow | `.oss-drafts/engage-apache-airflow-pr9876-20260611T143000Z.md` |
 | review-reply PR #4321 in apache/spark | `.oss-drafts/review-reply-apache-spark-pr4321-20260611T143000Z.md` |
+| report bug in apache/airflow | `.oss-drafts/report-apache-airflow-issue-bug-20260612T100000Z.md` |
+| report feature request in apache/spark | `.oss-drafts/report-apache-spark-issue-feature-20260612T100000Z.md` |
 
 ## Frontmatter
 
@@ -70,9 +72,9 @@ status: draft
 | Field | Value |
 |-------|-------|
 | `plugin` | Always `agentic-contributor` |
-| `scenario` | The scenario key (`status`, `find`, `norms`, `setup`, `clarify`, `claim`, `engage`, `review-reply`) |
+| `scenario` | The scenario key (`status`, `find`, `norms`, `setup`, `clarify`, `claim`, `engage`, `review-reply`, `report`) |
 | `repo` | `owner/repo` (with slash, not hyphen) |
-| `item` | `issueN`, `prN`, `status`, `find`, `norms`, or `setup` |
+| `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, or `issue-feature` |
 | `generated_at` | ISO-8601 UTC timestamp |
 | `status` | Always `draft` — change to `sent` once the execution plugin posts it |
 
@@ -89,7 +91,7 @@ After saving the file, the orchestrator shows:
 
 Then it presents a brief summary in chat and asks if you want to take any next step.
 
-### Draft tier (scenarios 5–8: clarify, claim, engage, review-reply)
+### Draft tier (scenarios 5–9: clarify, claim, engage, review-reply, report)
 
 After saving the file, the orchestrator presents the complete draft in chat (clearly labelled as a
 draft), then shows verbatim:

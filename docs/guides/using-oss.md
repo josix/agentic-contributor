@@ -1,18 +1,18 @@
 # Using /oss
 
-The `/oss` command in depth: intent classification, all 8 scenarios, the claim→engage branch, and draft-review behavior.
+The `/oss` command in depth: intent classification, all 9 scenarios, the claim→engage branch, and draft-review behavior.
 
 ## How It Works
 
 `/oss` is the single entry point for all contribution tasks. When you run it, the command:
 
 1. **Reads `$ARGUMENTS`** — the text after `/oss`.
-2. **Classifies the scenario** — invokes `oss-scenario-routing` to map your intent to one of the 8 scenarios. If intent is unclear, it asks one clarifying question (the scenario menu).
+2. **Classifies the scenario** — invokes `oss-scenario-routing` to map your intent to one of the 9 scenarios. If intent is unclear, it asks one clarifying question (the scenario menu).
 3. **Dispatches a subagent** — uses the Task tool to launch `oss-researcher` or `oss-claim-analyst` with the target `owner/repo`, the specific item (issue/PR number or query), and the scenario key.
 4. **Loads the mapped skill** — applies domain-specific guidance to shape the output.
 5. **Presents results** — a timestamped report, ranked list, briefing, guided walkthrough, or labeled DRAFT depending on the scenario.
 
-## The 8 Scenarios in Detail
+## The 9 Scenarios in Detail
 
 ### Scenario 1 — status
 
@@ -121,6 +121,26 @@ The `issue-matching` skill runs a 5-question intake, directs `oss-researcher` to
 
 ---
 
+### Scenario 9 — report
+
+**Intent signals:** "report a bug", "file an issue", "draft a bug report", "draft a feature request", "propose a feature", "write up a new issue"
+
+**Example:**
+```
+/oss draft a bug report for apache/airflow about scheduler crashing on database reconnect
+```
+
+`oss-researcher` searches open and closed issues for duplicates, fetches `.github/ISSUE_TEMPLATE/` files (including `config.yml`), and surfaces contribution norms. The `issue-drafting` skill runs its three-step Pre-flight — duplicate search, template fetch, and convention extraction — then drafts a complete issue body using Procedure 2 (bug) or Procedure 3 (feature):
+
+- Missing required evidence (environment info, reproduction steps, stack traces) is marked with `TODO:` placeholders; nothing is fabricated.
+- If a strong duplicate is found, the skill recommends commenting on the existing issue instead of filing a new one.
+- If `config.yml` redirects the issue type elsewhere (Discussions, SECURITY.md), the skill warns you and links to the right destination.
+- The draft includes a suggested title (following the repo's title convention), suggested labels, and a complete body ready to paste.
+
+The orchestrator saves the draft to `.oss-drafts/report-<owner>-<repo>-issue-bug-<UTC>.md` (bug) or `.oss-drafts/report-<owner>-<repo>-issue-feature-<UTC>.md` (feature request) and shows the mandatory draft notice.
+
+---
+
 ## The Claim→Engage Branch
 
 When the **claim** scenario dispatches `oss-claim-analyst` and the verdict is **"appears already claimed"**, `/oss` switches to the **engage** scenario automatically:
@@ -133,7 +153,7 @@ This prevents a redundant claim comment on an issue already being worked on and 
 
 ## Draft-Review Behavior
 
-All 8 scenarios save their output to `.oss-drafts/` in your current working directory as an editable markdown file. The `.oss-drafts/` directory is automatically excluded from version control via `.git/info/exclude` when `/oss` first writes a file in a git repo.
+All 9 scenarios save their output to `.oss-drafts/` in your current working directory as an editable markdown file. The `.oss-drafts/` directory is automatically excluded from version control via `.git/info/exclude` when `/oss` first writes a file in a git repo.
 
 ### Report tier (scenarios 1–4)
 
@@ -143,9 +163,9 @@ Scenarios **status, find, norms, setup** produce read-only reports or guided wal
 
 These scenarios never produce outbound text and never trigger any write action toward GitHub.
 
-### Draft tier (scenarios 5–8)
+### Draft tier (scenarios 5–9)
 
-Scenarios **clarify, claim, engage, review-reply** produce outbound text. For each:
+Scenarios **clarify, claim, engage, review-reply, report** produce outbound text. For each:
 
 1. The full draft is saved to `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`.
 2. The draft is presented in chat, clearly labelled.
