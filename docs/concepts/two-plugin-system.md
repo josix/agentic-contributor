@@ -42,10 +42,11 @@ The execution plugin reads the draft body from the `.oss-drafts/` file (the `sta
 
 ## What This Plugin Covers
 
-All 8 `/oss` scenarios stay on the research-and-drafting side of the boundary:
+All 9 `/oss` scenarios stay on the research-and-drafting side of the boundary:
 
 - **status, find, norms, setup** — read-only reports and guided walkthroughs saved to `.oss-drafts/`; no outbound text produced.
 - **clarify, claim, engage, review-reply** — labeled DRAFTs saved to `.oss-drafts/` and shown for review; never posted.
+- **report** — a labeled DRAFT new-issue body (bug report or feature request) saved to `.oss-drafts/` and shown for review; actually filing the issue (e.g. `gh issue create`) belongs to the execution/submission plugin or the human.
 
 ## What This Plugin Does Not Cover
 

@@ -1,16 +1,17 @@
 # Skills Reference
 
-The five skills in the `agentic-contributor` plugin. Each skill is a domain-expertise module loaded by the `/oss` command after scenario classification.
+The six skills in the `agentic-contributor` plugin. Each skill is a domain-expertise module loaded by the `/oss` command after scenario classification.
 
 ## Overview
 
 | Skill | Trigger scenario | Purpose |
 |---|---|---|
-| `oss-scenario-routing` | Always (Step 2 of `/oss`) | Classifies intent into one of the 8 scenarios |
+| `oss-scenario-routing` | Always (Step 2 of `/oss`) | Classifies intent into one of the 9 scenarios |
 | `issue-matching` | find | Contributor intake, heuristic scoring, ranked shortlist |
-| `smart-questions` | clarify, claim, engage, review-reply | DRAFT-ONLY contract for all outbound-text scenarios |
+| `smart-questions` | clarify, claim, engage, review-reply | DRAFT-ONLY contract for outbound-text scenarios 5–8 |
 | `contribution-norms` | norms | Surfaces CONTRIBUTING, CLA/DCO, PR conventions, governance |
 | `dev-env-setup` | setup | Step-by-step guided local dev environment |
+| `issue-drafting` | report | DRAFT-ONLY new issue (bug report or feature request) with pre-flight duplicate search and ISSUE_TEMPLATE application |
 
 ---
 
@@ -19,12 +20,12 @@ The five skills in the `agentic-contributor` plugin. Each skill is a domain-expe
 **Trigger phrases:** "find an issue to contribute", "check project status", "draft a question to maintainers", "understand contribution norms", "set up the project locally", "claim an issue", "give feedback on a PR", "respond to PR review", and close variants.
 
 **What it provides:**
-- Matches `$ARGUMENTS` against 8 scenario intent signals. The first strong match wins.
+- Matches `$ARGUMENTS` against 9 scenario intent signals. The first strong match wins.
 - If no strong match: presents the scenario menu and asks one clarifying question (maximum one question before classifying and proceeding).
 - Specifies the skill and subagent to load/dispatch for the classified scenario.
 - Handles the claim→engage branch: if `oss-claim-analyst` returns "appears already claimed", the skill directs a switch to the **engage** scenario.
-- Enforces the DRAFT-ONLY rule for all 8 scenarios: report tier (1–4) saves to `.oss-drafts/` and shows a "Saved to…" notice; draft tier (5–8) additionally presents the draft in chat with the canonical draft notice.
-- Confirms that none of the 8 scenarios ever trigger write actions toward GitHub.
+- Enforces the DRAFT-ONLY rule for all 9 scenarios: report tier (1–4) saves to `.oss-drafts/` and shows a "Saved to…" notice; draft tier (5–9) additionally presents the draft in chat with the canonical draft notice.
+- Confirms that none of the 9 scenarios ever trigger write actions toward GitHub.
 
 **References:** `skills/oss-scenario-routing/SKILL.md`
 
@@ -102,6 +103,44 @@ Four scenario-specific procedures:
 6. **Scope boundary** — explicitly states that writing code, committing, opening PRs, and pushing branches are out of scope and belong to the execution/submission plugin. The orchestrator saves the walkthrough to `.oss-drafts/setup-…` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
 
 **References:** `skills/dev-env-setup/SKILL.md`
+
+---
+
+## `issue-drafting`
+
+**Trigger phrases:** "draft a bug report", "file a new issue", "report a bug in X", "draft a feature request", "propose a feature", "write up an issue for X", "open an issue about".
+
+**What it provides:**
+
+All output is a DRAFT. The contract:
+1. Return the complete draft (suggested title, suggested labels, body) to the orchestrator, which saves it to `.oss-drafts/report-<owner>-<repo>-<item>-<UTC>.md` using the Write tool.
+2. The orchestrator presents the draft in chat and adds the mandatory notice: "**DRAFT — saved to `<path>`. Review and edit this file before sending.** This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin."
+3. Never call any tool that posts, comments, pushes, or creates a GitHub resource.
+
+Three-step Pre-flight (always before drafting):
+
+| Step | Description |
+|---|---|
+| **Duplicate search** | `oss-researcher` searches open + closed issues with symptom keywords; surfaces top 3–5 candidates with links and similarity assessment; recommends commenting on strong duplicates instead of filing new |
+| **Template fetch** | `oss-researcher` fetches `.github/ISSUE_TEMPLATE/` directory + each template file + `config.yml`; warns on security-report redirects and Discussions redirects |
+| **Convention extraction** | Identifies title format (component prefixes), label conventions (bug/enhancement), prompts user to pick component in monorepos rather than guessing |
+
+Two drafting procedures:
+
+| Procedure | Issue type | Evidence checklist |
+|---|---|---|
+| **Procedure 2 — Bug Report** | bug | Environment/version info, minimal reproducible example, exact steps to reproduce, expected vs. actual behavior, error logs/stack traces (fenced), file:line code references, related issue/PR links |
+| **Procedure 3 — Feature Request** | feature | Problem statement/motivation, proposed solution, alternatives considered, scope/impact, file:line references to current behavior, related issues/discussions |
+
+Four template-application cases:
+- **(a) Markdown template** — fills sections in order, strips HTML comments.
+- **(b) YAML issue form** — maps content to form fields by `label`/`id`; flags `required: true` fields.
+- **(c) Multiple templates** — picks the type-appropriate template; tells the user which was chosen.
+- **(d) No template** — uses built-in structure and notes this in the draft.
+
+Missing evidence is always marked with `TODO:` placeholders; required fields are never fabricated.
+
+**References:** `skills/issue-drafting/SKILL.md`, `skills/smart-questions/references/smart-questions-principles.md`
 
 ---
 

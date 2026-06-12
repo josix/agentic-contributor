@@ -1,6 +1,6 @@
 # Scenarios Reference
 
-Canonical 8-scenario table with full detail: intent signals, skill, agent, data source, output type, and guardrail relevance.
+Canonical 9-scenario table with full detail: intent signals, skill, agent, data source, output type, and guardrail relevance.
 
 ## Scenario Catalog
 
@@ -14,10 +14,11 @@ Canonical 8-scenario table with full detail: intent signals, skill, agent, data 
 | 6 | **claim** | "claim an issue", "can I take this", "is this issue free", "I want to work on #N" | `smart-questions` (Scenario D) | `oss-claim-analyst`; `oss-researcher` on engage branch | Issue details, assignees, linked PRs | Verdict + DRAFT claim comment; or auto-switch to engage | `.oss-drafts/claim-…` |
 | 7 | **engage** | "give feedback on a PR", "help with someone's PR", "comment on PR", "review an in-progress PR", "there's a linked PR" | `smart-questions` (Scenario B) | `oss-researcher` | PR diff, CI status, comment thread | DRAFT feedback comment | `.oss-drafts/engage-…` |
 | 8 | **review-reply** | "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review" | `smart-questions` (Scenario C) | `oss-researcher` | PR review comments | DRAFT review replies | `.oss-drafts/review-reply-…` |
+| 9 | **report** | "report a bug", "file an issue", "draft a bug report", "draft a feature request", "propose a feature", "write up a new issue" | `issue-drafting` | `oss-researcher` | ISSUE_TEMPLATE files + issue search results | DRAFT new issue (bug/feature) | `.oss-drafts/report-…` |
 
 All outputs are saved as editable markdown files in `.oss-drafts/` in the user's working
 directory. Report-tier scenarios (1–4) show a "Saved to `<path>`" notice. Draft-tier scenarios
-(5–8) show the draft in chat plus the mandatory "**DRAFT — saved to `<path>`. Review and edit
+(5–9) show the draft in chat plus the mandatory "**DRAFT — saved to `<path>`. Review and edit
 this file before sending.**" notice. See [Draft Files](../concepts/draft-files.md) for the full
 naming convention and frontmatter schema.
 
@@ -54,6 +55,24 @@ No skill is loaded. `oss-researcher` returns findings directly as a timestamped 
 ### Scenario 8 — review-reply
 
 `smart-questions` (Scenario C): one reply draft per review comment. Thematically grouped comments may be addressed in a combined reply. An optional change-summary comment is offered, recapping how the review round was addressed. Replies acknowledge feedback, state what was changed or explain the disagreement, stay concise, and assume good faith. The orchestrator saves the draft to `.oss-drafts/review-reply-<owner>-<repo>-pr<N>-<UTC>.md` and shows the mandatory draft-tier notice.
+
+### Scenario 9 — report
+
+`issue-drafting` runs a three-step Pre-flight before any drafting:
+
+1. **Duplicate search** — `oss-researcher` searches open and closed issues with the user's symptom keywords and surfaces the top 3–5 candidates with links and a similarity assessment. If a strong duplicate exists (open or recently closed), the skill recommends commenting on it instead of filing a new issue. Only proceeds to drafting when the user confirms no duplicate covers the case.
+2. **Template fetch** — `oss-researcher` fetches `.github/ISSUE_TEMPLATE/` directory listing, each discovered template file (`.md`, `.yml`, `.yaml`), and `config.yml`. If `config.yml` redirects the issue type (e.g., questions → Discussions, security reports → SECURITY.md), the skill warns the user and links to the appropriate destination.
+3. **Convention extraction** — title format (e.g., `[COMPONENT]` prefix), label conventions (bug/enhancement, component labels). For monorepos, the skill prompts the user to pick a component rather than guessing.
+
+After Pre-flight, the skill applies one of four template-application cases:
+- **(a) Markdown template (`.md`)** — fills the template's sections in order, stripping HTML comments.
+- **(b) YAML issue form (`.yml`/`.yaml` with `body:`)** — maps drafted content to form fields by `label`/`id`; flags `required: true` fields that are missing.
+- **(c) Multiple templates** — picks the type-appropriate template (bug vs. feature) and tells the user which was chosen.
+- **(d) No template** — uses built-in structure and notes "No issue template found in this repo; used a standard structure."
+
+Missing required evidence is always marked with `TODO:` placeholders — version info, reproduction steps, stack traces are never fabricated.
+
+The draft includes a suggested title (following the repo's convention), suggested labels, and a complete body ready to paste. The orchestrator saves the draft to `.oss-drafts/report-<owner>-<repo>-issue-bug-<UTC>.md` (bug reports) or `.oss-drafts/report-<owner>-<repo>-issue-feature-<UTC>.md` (feature requests) and shows the mandatory draft-tier notice.
 
 ## The Claim→Engage Branch
 

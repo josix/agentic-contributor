@@ -1,5 +1,5 @@
 ---
-description: "Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback, learn norms, set up env (draft-only)"
+description: "Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, learn norms, set up env (draft-only)"
 argument-hint: '[what you want to do, e.g. "find a good first issue in apache/airflow"]'
 allowed-tools:
   - Bash
@@ -28,6 +28,7 @@ You are the single entry point for all OSS contribution tasks in this plugin.
 | 6 | **claim** | Claim check + DRAFT "I'd like to take this" comment |
 | 7 | **engage** | DRAFT feedback on someone else's in-progress PR |
 | 8 | **review-reply** | DRAFT replies to review comments on your own PR |
+| 9 | **report** | DRAFT new bug report or feature request |
 
 ---
 
@@ -40,18 +41,19 @@ All scenario outputs are saved to `.oss-drafts/` in the user's current working d
 **Naming:** `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`
 
 - `owner/repo` slashes become `-` (e.g. `apache-airflow`)
-- `item` is `issueN`, `prN`, `status`, `find`, `norms`, `setup`, etc.
+- `item` is `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, etc.
 - UTC timestamp in `YYYYMMDDThhmmssZ` format (e.g. `20260611T143000Z`)
 - Example: `.oss-drafts/engage-apache-airflow-pr9876-20260611T143000Z.md`
+- Example (report): `.oss-drafts/report-apache-airflow-issue-bug-20260612T100000Z.md`
 
 **Frontmatter** (include at the top of every draft file):
 
 ```yaml
 ---
 plugin: agentic-contributor
-scenario: <scenario-key>
+scenario: <scenario-key>  # status|find|norms|setup|clarify|claim|engage|review-reply|report
 repo: <owner/repo>
-item: <issueN|prN|status|find|norms|setup>
+item: <issueN|prN|status|find|norms|setup|issue-bug|issue-feature>
 generated_at: <ISO-8601 UTC>
 status: draft
 ---
@@ -78,7 +80,7 @@ If `$ARGUMENTS` is empty or unclear, present the scenario menu above and ask:
 ## Step 2 — Classify the Scenario
 
 Invoke the `oss-scenario-routing` skill to classify the intent from `$ARGUMENTS` into one of the
-8 scenarios. Follow the routing rules in that skill exactly:
+9 scenarios. Follow the routing rules in that skill exactly:
 
 - Match against intent signals.
 - If ambiguous, ask ONE clarifying question (the scenario menu).
@@ -92,7 +94,7 @@ For scenarios that require live GitHub data (status, find, norms, clarify, claim
 review-reply), dispatch the mapped subagent via the **Task tool**:
 
 - Pass: `owner/repo`, the specific item (issue/PR number or search intent), and the scenario key.
-- **status, find, norms, clarify, engage, review-reply** → dispatch `oss-researcher`.
+- **status, find, norms, clarify, engage, review-reply, report** → dispatch `oss-researcher`.
 - **claim** → dispatch `oss-claim-analyst` first; then proceed based on the verdict (see claim
   branch below).
 - **setup** → optionally dispatch `oss-researcher` (read-only) to fetch the project's
@@ -120,6 +122,10 @@ save it as a draft file per the convention above.
   walkthrough to `.oss-drafts/setup-<owner>-<repo>-setup-<UTC>.md`.
 - **clarify / engage / review-reply / claim** → load `smart-questions`; follow its DRAFT-ONLY
   contract. Save draft text to `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`.
+- **report** → load `issue-drafting`; run its Pre-flight (duplicate search + template fetch +
+  convention extraction), then Procedure 2 (bug) or Procedure 3 (feature) based on the user's
+  intent. Save draft to `.oss-drafts/report-<owner>-<repo>-<item>-<UTC>.md` where `item` is
+  `issue-bug` for bug reports and `issue-feature` for feature requests.
 
 Before writing any file: ensure `.git/info/exclude` (or equivalent) excludes `.oss-drafts/` as
 described in the convention block above.
@@ -147,7 +153,7 @@ After saving the file, show the file path and this notice:
 
 Then briefly summarise the key findings in chat and ask the user if they want to take any next step.
 
-### Draft tier (scenarios 5, 6, 7, 8 — clarify, claim, engage, review-reply)
+### Draft tier (scenarios 5, 6, 7, 8, 9 — clarify, claim, engage, review-reply, report)
 
 After saving the file, present the complete draft text in chat (clearly labelled), show the file
 path, and add this notice verbatim:

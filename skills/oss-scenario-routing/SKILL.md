@@ -2,16 +2,17 @@
 name: oss-scenario-routing
 description: >
   This skill should be used when the orchestrator needs to classify a user's open-source
-  contribution intent into one of the eight supported scenarios. Trigger phrases include:
+  contribution intent into one of the nine supported scenarios. Trigger phrases include:
   "find an issue to contribute", "check project status", "draft a question to maintainers",
   "understand contribution norms", "set up the project locally", "claim an issue",
-  "give feedback on a PR", "respond to PR review", and close variants of each.
+  "give feedback on a PR", "respond to PR review", "draft a bug report", "file a new issue",
+  "propose a feature", and close variants of each.
 ---
 
 # OSS Scenario Routing
 
 Classify the user's intent from `$ARGUMENTS` (or from the clarifying answer) into exactly one of
-the eight scenarios below, then route to the correct skill and subagent.
+the nine scenarios below, then route to the correct skill and subagent.
 
 ## Scenario Catalog
 
@@ -25,6 +26,7 @@ the eight scenarios below, then route to the correct skill and subagent.
 | 6 | **claim** | "claim an issue", "can I take this", "is this issue free", "I want to work on #N" | `smart-questions` | `oss-claim-analyst` | Claim assessment + DRAFT claim comment saved to `.oss-drafts/` |
 | 7 | **engage** | "give feedback on a PR", "help with someone's PR", "comment on PR", "review an in-progress PR", "there's a linked PR" | `smart-questions` | `oss-researcher` | DRAFT feedback comment saved to `.oss-drafts/` |
 | 8 | **review-reply** | "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review" | `smart-questions` | `oss-researcher` | DRAFT review replies saved to `.oss-drafts/` |
+| 9 | **report** | "report a bug", "file an issue", "draft a bug report", "draft a feature request", "propose a feature", "write up a new issue" | `issue-drafting` | `oss-researcher` | DRAFT new issue (bug/feature) saved to `.oss-drafts/` |
 
 ## Classification Rules
 
@@ -33,7 +35,7 @@ To classify the user's intent:
 1. Match the `$ARGUMENTS` text against the intent signals column (exact phrases, close synonyms,
    or paraphrases). The first strong match wins.
 2. If no strong match is found, ask **one** clarifying question: present the scenario menu
-   (numbered list of the 8 scenarios) and ask the user which applies.
+   (numbered list of the 9 scenarios) and ask the user which applies.
 3. Never ask more than one clarifying question. After the answer, classify and proceed.
 
 ### Claim → Engage Branch
@@ -59,7 +61,7 @@ Once the scenario is classified, the `/oss` command must:
 
 ## DRAFT-ONLY Rule
 
-All 8 scenarios save their output to `.oss-drafts/` in the user's working directory. The
+All 9 scenarios save their output to `.oss-drafts/` in the user's working directory. The
 orchestrator uses the Write tool to persist the file; subagents remain read-only.
 
 ### Report tier (scenarios 1–4)
@@ -70,7 +72,7 @@ The orchestrator saves the output file and shows:
 
 These scenarios never produce outbound text and never trigger any write action toward GitHub.
 
-### Draft tier (scenarios 5–8)
+### Draft tier (scenarios 5–9)
 
 The orchestrator saves the draft file and shows the complete draft in chat, then adds:
 

@@ -54,7 +54,7 @@ Follow the prompts to complete browser-based authentication. Confirm you are log
 gh auth status
 ```
 
-The fallback path is fully functional for all 8 scenarios; it uses `gh issue list`, `gh pr view`, `gh api`, and related read-only commands.
+The fallback path is fully functional for all 9 scenarios; it uses `gh issue list`, `gh pr view`, `gh api`, and related read-only commands.
 
 ## Restart Required
 
@@ -68,7 +68,7 @@ Run these checks before your first `/oss` command:
 # 1. plugin.json is valid JSON and version matches marketplace.json
 jq .version /path/to/agentic-contributor/.claude-plugin/plugin.json
 jq '.plugins[0].version' /path/to/agentic-contributor/.claude-plugin/marketplace.json
-# Both should print "0.1.0"
+# Both should print "0.3.0"
 
 # 2. marketplace.json parses cleanly
 jq . /path/to/agentic-contributor/.claude-plugin/marketplace.json

@@ -8,7 +8,7 @@ The single entry point for all OSS contribution tasks in this plugin.
 
 | Field | Value |
 |---|---|
-| `description` | `Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback, learn norms, set up env (draft-only)` |
+| `description` | `Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, learn norms, set up env (draft-only)` |
 | `argument-hint` | `[what you want to do, e.g. "find a good first issue in apache/airflow"]` |
 | `allowed-tools` | `Bash`, `Read`, `Write`, `Grep`, `Glob`, `WebFetch`, `Task`, `mcp__plugin_agentic-contributor_github__*` |
 
@@ -27,7 +27,7 @@ help me give feedback on apache/airflow PR #9876
 help me respond to the review on my apache/spark PR #4321
 ```
 
-If `$ARGUMENTS` is empty or unclear, `/oss` presents the 8-scenario menu and asks one clarifying question.
+If `$ARGUMENTS` is empty or unclear, `/oss` presents the 9-scenario menu and asks one clarifying question.
 
 ### Behavior Steps
 
@@ -37,7 +37,7 @@ Read `$ARGUMENTS`. If empty or ambiguous, present the scenario menu and ask whic
 
 #### Step 2 — Classify the Scenario
 
-Invoke `oss-scenario-routing`. Match `$ARGUMENTS` against the 8 scenario intent signals. If no strong match, ask one clarifying question (the scenario menu). After classification, proceed immediately.
+Invoke `oss-scenario-routing`. Match `$ARGUMENTS` against the 9 scenario intent signals. If no strong match, ask one clarifying question (the scenario menu). After classification, proceed immediately.
 
 #### Step 3 — Dispatch Subagent
 
@@ -45,7 +45,7 @@ For scenarios requiring live GitHub data, dispatch via the Task tool:
 
 | Scenario | Subagent |
 |---|---|
-| status, find, norms, clarify, engage, review-reply | `oss-researcher` |
+| status, find, norms, clarify, engage, review-reply, report | `oss-researcher` |
 | claim | `oss-claim-analyst` first; then `oss-researcher` if branch switches to engage |
 | setup | `oss-researcher` (optional — only if CONTRIBUTING/setup docs not already available) |
 
@@ -62,6 +62,7 @@ Prefer `mcp__plugin_agentic-contributor_github__*` read tools inside subagents. 
 | norms | `contribution-norms` | Contribution briefing | `.oss-drafts/norms-…` |
 | setup | `dev-env-setup` | Step-by-step guided walkthrough | `.oss-drafts/setup-…` |
 | clarify, engage, review-reply, claim | `smart-questions` | DRAFT | `.oss-drafts/<scenario>-…` |
+| report | `issue-drafting` | DRAFT new issue (bug/feature) | `.oss-drafts/report-…` |
 
 Before writing any file, ensure `.git/info/exclude` (or equivalent) excludes `.oss-drafts/` as
 described in the Draft File Convention section of `commands/oss.md`. Use the Write tool to create
@@ -77,7 +78,7 @@ the file.
 
 Then briefly summarise key findings and ask the user if they want to take a next step.
 
-**Draft tier (scenarios 5–8):** After saving the file, present the complete draft in chat
+**Draft tier (scenarios 5–9):** After saving the file, present the complete draft in chat
 (clearly labelled), then add the mandatory notice verbatim:
 
 > **DRAFT — saved to `<path>`. Review and edit this file before sending.**

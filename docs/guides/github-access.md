@@ -67,7 +67,7 @@ Authenticate once with:
 gh auth login
 ```
 
-The fallback path is fully functional for all 8 scenarios. It is slightly slower than MCP because each command spawns a subprocess, but produces equivalent results.
+The fallback path is fully functional for all 9 scenarios. It is slightly slower than MCP because each command spawns a subprocess, but produces equivalent results.
 
 ## Pagination
 

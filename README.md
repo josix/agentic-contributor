@@ -6,8 +6,8 @@ This is the **research-and-engagement half** of a two-plugin system. It surfaces
 
 ## Features
 
-- **Single `/oss` entrypoint** — one command handles all 8 contribution scenarios; presents an interactive menu if arguments are omitted.
-- **8 built-in scenarios** — project status, issue/PR matching, contribution norms, dev environment setup, maintainer questions, issue claiming, PR feedback, and review-reply drafting.
+- **Single `/oss` entrypoint** — one command handles all 9 contribution scenarios; presents an interactive menu if arguments are omitted.
+- **9 built-in scenarios** — project status, issue/PR matching, contribution norms, dev environment setup, maintainer questions, issue claiming, PR feedback, review-reply drafting, and new-issue authoring (bug reports and feature requests).
 - **Read-only GitHub research** — `oss-researcher` and `oss-claim-analyst` subagents access GitHub via the MCP server or `gh` CLI; neither ever mutates.
 - **Draft-only guardrail** — a `PreToolUse` hook actively denies all outbound and mutating actions; drafts are presented for human review before any separate execution step.
 - **MCP + `gh` fallback** — prefers the structured GitHub MCP server when `GITHUB_MCP_TOKEN` is set; falls back to `gh` CLI automatically.
@@ -83,6 +83,7 @@ gh auth status
 /oss is issue #8765 in apache/spark free to claim?
 /oss help me give feedback on apache/airflow PR #9876
 /oss help me respond to the review on my apache/spark PR #4321
+/oss draft a bug report for apache/airflow about scheduler crashing on database reconnect
 ```
 
 If you omit arguments, `/oss` presents the full scenario menu and asks which applies.
@@ -99,10 +100,11 @@ If you omit arguments, `/oss` presents the full scenario menu and asks which app
 | 6 | **claim** | Issue availability check + draft claim comment | `smart-questions` | `oss-claim-analyst` | Assessment + DRAFT saved to `.oss-drafts/` |
 | 7 | **engage** | Draft feedback on someone else's PR | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
 | 8 | **review-reply** | Draft replies to review comments on your PR | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
+| 9 | **report** | Draft a new bug report or feature request | `issue-drafting` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
 
 Every scenario saves its output to `.oss-drafts/` in your current working directory as an editable
 markdown file. Report scenarios (1–4) show "Saved to `<path>`. Review and edit this report file as
-needed before using it." Draft scenarios (5–8) show the draft in chat plus "**DRAFT — saved to
+needed before using it." Draft scenarios (5–9) show the draft in chat plus "**DRAFT — saved to
 `<path>`. Review and edit this file before sending.**" The plugin never posts — sending is the
 execution plugin's job.
 
@@ -119,11 +121,12 @@ Both agents are read-only. The `PreToolUse` guardrail hook enforces this at the 
 
 | Skill | Purpose |
 |---|---|
-| `oss-scenario-routing` | Classifies intent into one of the 8 scenarios; handles the claim→engage branch switch |
+| `oss-scenario-routing` | Classifies intent into one of the 9 scenarios; handles the claim→engage branch switch |
 | `issue-matching` | Structured contributor intake (5 questions), heuristic scoring, ranked shortlist |
 | `smart-questions` | DRAFT-ONLY contract for clarify, engage, review-reply, and claim scenarios |
 | `contribution-norms` | Surfaces CONTRIBUTING, CLA/DCO, PR/commit conventions, and Apache governance |
 | `dev-env-setup` | Step-by-step guided local setup from official docs with a verifiable checkpoint |
+| `issue-drafting` | DRAFT-ONLY new bug reports and feature requests with duplicate search, ISSUE_TEMPLATE application, and evidence checklists |
 
 ## Hooks
 
@@ -173,15 +176,15 @@ All GitHub data access is read-only. The MCP server is configured with a `repo:r
 - [docs/index.md](docs/index.md) — overview, component diagram, quick links
 - [docs/getting-started/installation.md](docs/getting-started/installation.md) — install, auth, validation
 - [docs/getting-started/quick-start.md](docs/getting-started/quick-start.md) — first `/oss` walkthrough
-- [docs/guides/using-oss.md](docs/guides/using-oss.md) — `/oss` command in depth, all 8 scenarios
+- [docs/guides/using-oss.md](docs/guides/using-oss.md) — `/oss` command in depth, all 9 scenarios
 - [docs/guides/github-access.md](docs/guides/github-access.md) — MCP vs `gh` CLI, token setup, rate limits
 - [docs/concepts/draft-only-guardrail.md](docs/concepts/draft-only-guardrail.md) — guardrail internals, full deny/allow matrix
 - [docs/concepts/two-plugin-system.md](docs/concepts/two-plugin-system.md) — research half vs execution half
 - [docs/reference/commands.md](docs/reference/commands.md) — `/oss` frontmatter and behavior steps
 - [docs/reference/agents.md](docs/reference/agents.md) — `oss-researcher` and `oss-claim-analyst` specs
-- [docs/reference/skills.md](docs/reference/skills.md) — all 5 skills with trigger phrases
+- [docs/reference/skills.md](docs/reference/skills.md) — all 6 skills with trigger phrases
 - [docs/reference/hooks.md](docs/reference/hooks.md) — guardrail registration and deny/allow matrix
-- [docs/reference/scenarios.md](docs/reference/scenarios.md) — canonical 8-scenario table with full detail
+- [docs/reference/scenarios.md](docs/reference/scenarios.md) — canonical 9-scenario table with full detail
 - [CHANGELOG.md](CHANGELOG.md) — version history
 
 ## License
