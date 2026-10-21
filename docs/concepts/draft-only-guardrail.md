@@ -60,11 +60,13 @@ The denial message states:
 | `gh release create / edit / delete / upload` | DENY |
 | `gh repo create / fork / delete / edit` | DENY |
 | `gh gist create` | DENY |
-| `gh api` with `-X POST/PUT/PATCH/DELETE` or `--method POST/PUT/PATCH/DELETE` | DENY |
-| `gh api` with `-f` / `--field` flags | DENY |
+| `gh api` with `-X POST/PUT/PATCH/DELETE` or `--method POST/PUT/PATCH/DELETE` (including `-XPOST`, `--method=POST`) | DENY |
+| `gh api` with `-f` / `-F` / `--field` / `--raw-field` (except explicit `-X GET` or a read-only GraphQL query) | DENY |
+| `gh api` with `--input`; `gh api graphql` with `mutation`, `=@file`, or shell expansion in the query | DENY |
 | `curl` with `-X POST/PUT/PATCH/DELETE`, `--request POST/…`, `-d`/`--data`/`--data-raw`, `-F`/`--form` | DENY |
 | `wget` with any mutation flag | DENY |
-| `gh pr view`, `gh issue list`, `gh release list`, plain `gh api` GET | ALLOW |
+| `gh pr view`, `gh issue list`, `gh release list`, plain `gh api` GET, read-only `gh api graphql` queries, `gh api -X GET ... -f q=...` | ALLOW |
+| Heredoc bodies written to a file via `cat`/`tee` (data only; `bash <<EOF` bodies are still checked) | ALLOW |
 | `git clone`, `git status`, `git log`, `git diff`, `git fetch` | ALLOW |
 | All other read/build/test commands | ALLOW |
 

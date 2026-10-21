@@ -1,0 +1,124 @@
+# expect<TAB>tool_name<TAB>command
+# Lines starting with # and blank lines are ignored. In the command column,
+# the two characters \n are decoded to a real newline; "-" means empty command.
+#
+# ── docs/reference/hooks.md deny matrix (must stay denied) ──
+deny	Bash	git push origin main
+deny	Bash	git push
+deny	Bash	cd repo && git push --force
+deny	Bash	echo ok; git push origin HEAD
+deny	Bash	gh pr create --title "x" --body "y"
+deny	Bash	gh pr comment 12 --body "hi"
+deny	Bash	gh pr merge 12
+deny	Bash	gh issue comment 123 --body "hi"
+deny	Bash	gh issue create --title t
+deny	Bash	gh release create v1.0
+deny	Bash	gh repo fork apache/airflow
+deny	Bash	gh gist create file.txt
+deny	Bash	gh api repos/o/r/issues -X POST -f title=t
+deny	Bash	gh api repos/o/r/issues/1 --method PATCH
+deny	Bash	gh api repos/o/r/issues -f title=t
+deny	Bash	gh api repos/o/r/issues --field title=t
+deny	Bash	curl -X POST https://api.github.com/repos/o/r/issues
+deny	Bash	curl -d '{"body":"x"}' https://api.github.com/x
+deny	Bash	curl -F file=@a.txt https://example.com
+deny	Bash	wget --post-data 'a=b' https://example.com
+deny	Bash	wget --method=POST https://example.com
+# ── gh api gaps closed in 0.3.1 ──
+deny	Bash	gh api repos/o/r/issues -F title=t
+deny	Bash	gh api repos/o/r/issues --raw-field title=t
+deny	Bash	gh api repos/o/r/issues --input body.json
+deny	Bash	echo '{}' | gh api repos/o/r/issues --input -
+deny	Bash	gh api repos/o/r/issues -XPOST
+deny	Bash	gh api repos/o/r/issues --method=POST
+deny	Bash	gh api repos/o/r/issues -X=DELETE
+deny	Bash	gh api repos/o/r/issues -X post
+deny	Bash	gh api repos/o/r/issues -fbody=t
+deny	Bash	GH_TOKEN=x gh api repos/o/r/issues -X PUT
+deny	Bash	gh api repos/o/r/pulls/1 --jq '.title\n| ascii_downcase' -X POST
+deny	Bash	echo "$(gh api repos/o/r/issues -X POST)"
+deny	Bash	(gh api repos/o/r/issues -f a=b)
+# ── GraphQL: mutations and file references stay denied ──
+deny	Bash	gh api graphql -f query='mutation { addStar(input:{starrableId:"x"}) { clientMutationId } }'
+deny	Bash	gh api graphql -f query='MUTATION { x }'
+deny	Bash	gh api graphql -f query="mu""tation { x }"
+deny	Bash	gh api graphql -F query=@q.graphql
+deny	Bash	gh api graphql -f query=@q.graphql
+deny	Bash	gh api graphql --input q.json
+deny	Bash	gh api graphql -f query="$Q"
+deny	Bash	gh api graphql -f query=$(cat q.txt)
+deny	Bash	gh api -X POST graphql -f query='query { viewer { login } }'
+# ── heredoc bodies that execute must still be checked ──
+deny	Bash	bash <<EOF\ngit push origin main\nEOF
+deny	Bash	sh <<'EOF'\ngh pr create --title x\nEOF
+deny	Bash	cat <<EOF | bash\ngit push\nEOF
+deny	Bash	cat <<EOF > run.sh; bash run.sh\ngit push\nEOF
+deny	Bash	eval "$(cat <<'EOF'\ngit push\nEOF\n)"
+deny	Bash	cat <<EOF\n$(git push origin main)\nEOF
+deny	Bash	echo '\ncat <<E\n' ; git push\nE
+deny	Bash	bash -s -- '; cat ' <<EOF\ngit push\nEOF
+deny	Bash	cat <<EOF\ndata\nEOF\ngit push
+# ── MCP tools ──
+deny	mcp__plugin_agentic-contributor_github__create	-
+deny	mcp__plugin_agentic-contributor_github__add_issue_comment	-
+# ── allowed: false positives fixed in 0.3.1 ──
+allow	Bash	cat > notes.md <<'EOF'\ngh api repos/o/r/issues\ngit push origin main\ngh pr create --title x\ncurl -X POST https://x\nEOF
+allow	Bash	cat > notes.md <<'EOF'\ngh api repos/o/r/issues -f title=t\nEOF
+allow	Bash	cat > a.md <<'EOF'\ngh api repos/o/r/issues\nEOF\ngh api repos/o/r/pulls -f state=open -X GET
+allow	Bash	tee out.md <<'EOF'\ngit push origin main\nEOF
+allow	Bash	cat <<-'EOF' > x.md\n\tgit push\n\tEOF
+allow	Bash	cat > notes.md <<EOF\ngh pr create then -f x\nEOF
+allow	Bash	gh api graphql -f query='query { viewer { login } }'
+allow	Bash	gh api graphql -f query='query($owner:String!,$name:String!){ repository(owner:$owner,name:$name){ id } }' -f owner=o -f name=r
+allow	Bash	gh api graphql -F owner=o -f query='query { viewer { login } }'
+allow	Bash	gh api -X GET search/issues -f q=repo:o/r
+allow	Bash	gh api --method GET search/issues -f q=bug -F per_page=5
+allow	Bash	gh api repos/o/r/pulls --jq '.[]\n| .title'
+# ── allowed: ordinary read-only commands ──
+allow	Bash	git status
+allow	Bash	git clone https://github.com/o/r.git
+allow	Bash	git commit -m "git push later"
+allow	Bash	echo "git push origin main"
+allow	Bash	echo gh pr create
+allow	Bash	gh pr view 12
+allow	Bash	gh pr list --state open
+allow	Bash	gh issue view 5
+allow	Bash	gh release list
+allow	Bash	gh auth status
+allow	Bash	gh api repos/o/r/issues
+allow	Bash	gh api repos/o/r/pulls --jq '.[].title'
+allow	Bash	curl -s https://api.github.com/repos/o/r
+allow	Bash	wget -qO- https://example.com
+allow	Bash	pytest -k guard
+allow	Write	-
+allow	mcp__plugin_agentic-contributor_github__get_issue	-
+allow	mcp__plugin_agentic-contributor_github__list_pull_requests	-
+# ── review-fix round 1 ──
+deny	Bash	gh api repos/o/r/issues -f 'title=hello -X GET world'
+deny	Bash	gh api repos/o/r/issues -f 'title=hello graphql world'
+deny	Bash	gh api repos/o/r/issues --jq "$(printf .)" -X POST
+deny	Bash	gh api repos/o/r/issues --jq `printf .` -X POST
+deny	Bash	gh api repos/o/r/issues $(echo a | cat) -X POST
+deny	Bash	bash < <(\ncat <<'EOF'\ngit push origin main\nEOF\n)
+deny	Bash	gh api graphql -F query='@q.graphql'
+deny	Bash	gh api graphql -F query=@q.graphql
+deny	Bash	gh api graphql -F "query=@q.graphql"
+deny	Bash	gh api graphql -f query=mu'tation'{x}
+deny	Bash	echo ok; gh api repos/o/r/issues -X POST
+allow	Bash	gh api graphql -f query='query { viewer { login } }'
+allow	Bash	gh api repos/o/r/issues -X GET -f 'q=a b'
+allow	Bash	cat > n.md <<'EOF'\ngh api -X POST -f a=b\ngit push\nEOF
+# ── review round 2: redirections and nested substitutions ──
+deny	Bash	gh api repos/o/r/issues > -- -X POST
+deny	Bash	gh api repos/o/r/issues >-- -X POST
+deny	Bash	gh api repos/o/r/issues 2>&1 -X POST
+deny	Bash	gh api repos/o/r/issues '>' -X POST
+deny	Bash	gh api repos/o/r/issues 2> err.log -X POST
+deny	Bash	echo "$(gh api repos/o/r/issues --jq "$(printf .)" -X POST)"
+deny	Bash	echo "$(echo "$(gh api repos/o/r/issues --jq "$(printf .)" -X POST)")"
+deny	Bash	echo `gh api repos/o/r/issues --jq "$(printf .)" -X POST`
+allow	Bash	gh api repos/o/r/issues > out.json
+allow	Bash	gh api repos/o/r/issues 2>&1 | head
+allow	Bash	echo "$(gh api repos/o/r/issues --jq "$(printf .)")"
+deny	Bash	echo \>& gh api repos/o/r/issues -X POST
+allow	Bash	gh api 2>/dev/null graphql -f 'query=query { viewer { login } }'

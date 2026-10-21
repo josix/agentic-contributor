@@ -46,6 +46,8 @@ The script reads the tool-use JSON from stdin, extracts `tool_name` and `tool_in
 
 **Command-position safety:** Deny patterns for `git push` and `gh` subcommands use a shell regex that matches only at real command positions (start of string or after `;`, `|`, `&`, `&&`, `||`, `$(`, backtick, newline). This prevents false positives from strings like `echo "gh issue create"`.
 
+**Per-invocation and heredoc handling (v0.3.1):** `gh api` flags are evaluated per `gh api` invocation (the command is split into segments on newline, `;`, `|`, `&`, `(`, `)`, `$(` and backtick, ignoring separators inside quotes and dropping comments). Before the rules run, backslash-newline continuations are joined and a heredoc body is removed **only** when it is pure data: the consumer is `cat` or `tee`, nothing is piped or chained after the delimiter, the heredoc is terminated, and (for an unquoted delimiter) the body has no `$(` or backtick. Bodies fed to `bash`, `sh`, `zsh`, `eval`, `xargs`, `ssh`, `python`, `node` or anything else are still checked, so `bash <<EOF` with `git push` inside is denied. Heredocs nested in `$( )`, `<( )`, `( )` or backticks are never dropped. `gh api` options are parsed from unquoted tokens, and if segmentation fails a `gh api` command is denied. Any other preprocessing failure falls back to the raw command. Regression tests: `bash hooks/tests/run-guard-tests.sh`.
+
 ## Deny / Allow Matrix
 
 ### MCP Write Tools — DENY
@@ -75,9 +77,11 @@ Any `mcp__plugin_agentic-contributor_github__` tool whose suffix does not match 
 | `gh release create/edit/delete/upload` | `gh release create v1.0` |
 | `gh repo create/fork/delete/edit` | `gh repo fork apache/airflow` |
 | `gh gist create` | `gh gist create file.txt` |
-| `gh api` with `-X POST/PUT/PATCH/DELETE` | `gh api repos/… -X POST -f …` |
-| `gh api` with `--method POST/PUT/PATCH/DELETE` | `gh api repos/… --method PATCH` |
-| `gh api` with `-f` / `--field` flags | `gh api repos/… -f title=…` |
+| `gh api` with `-X POST/PUT/PATCH/DELETE` (also `-XPOST`, `-X=POST`, any case) | `gh api repos/… -X POST -f …` |
+| `gh api` with `--method POST/PUT/PATCH/DELETE` (also `--method=POST`) | `gh api repos/… --method PATCH` |
+| `gh api` with `-f` / `-F` / `--field` / `--raw-field` (unless explicit `-X GET`, or a read-only GraphQL query) | `gh api repos/… -f title=…` |
+| `gh api` with `--input` (always) | `gh api repos/… --input body.json` |
+| `gh api graphql` containing `mutation`, `=@file`, command substitution, or a `query=$VAR` value | `gh api graphql -f query='mutation {…}'` |
 | `curl` with `-X POST/PUT/PATCH/DELETE` or `--request POST/…` | `curl -X POST https://api.github.com/…` |
 | `curl` with `-d`/`--data`/`--data-raw` or `-F`/`--form` | `curl -d '{"body":"…"}' …` |
 | `wget` with mutation flags (`-X`, `--request`, `-d`, `--data`, `--data-raw`, `-F`, `--form`, `--method POST/…`, `--post-data`, `--post-file`) | `wget --post-data '…' …` |
@@ -91,6 +95,9 @@ Everything not matched by a deny pattern:
 - `gh issue view`, `gh issue list`
 - `gh release list`, `gh release view`
 - `gh api repos/…` (plain GET, no write flags)
+- `gh api graphql -f query='query {…}'` (read-only query: no `mutation`, no `=@file`, no `--input`)
+- `gh api -X GET search/issues -f q=…` (explicit GET; fields are query parameters)
+- Commands whose heredoc body is only data, e.g. `cat > notes.md <<'EOF' … EOF`, even if the text mentions `gh api` or `git push`
 - `gh auth status`
 - Build/test commands: `mvn`, `gradle`, `pytest`, `npm test`, `./breeze`, etc.
 - `cat`, `grep`, `find`, `jq`, and other read-only shell commands

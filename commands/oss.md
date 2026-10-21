@@ -178,7 +178,9 @@ The `guard-outbound.sh` PreToolUse hook is always active. It DENIES:
 
 - `git push` in any Bash command.
 - `gh pr/issue/release/repo` mutating subcommands.
-- `gh api` calls with POST/PUT/PATCH/DELETE methods or `-f`/`--field` flags.
+- `gh api` calls with POST/PUT/PATCH/DELETE methods (`-X`, `--method`, `-XPOST`, `--method=POST`), `--input`,
+  or `-f`/`-F`/`--field`/`--raw-field` flags (except an explicit `-X GET` or a read-only `gh api graphql` query
+  with no `mutation` and no `=@file`).
 - `curl`/`wget` with mutation flags (`-X POST`, `-d`, `--data`, `-F`, etc.).
 - Any `mcp__plugin_agentic-contributor_github__` tool with a write-verb suffix
   (create, update, delete, merge, add_comment, push, fork, and related verbs).
