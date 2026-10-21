@@ -1,13 +1,14 @@
 # Skills Reference
 
-The six skills in the `agentic-contributor` plugin. Each skill is a domain-expertise module loaded by the `/oss` command after scenario classification.
+The seven skills in the `agentic-contributor` plugin. Each skill is a domain-expertise module loaded by the `/oss` command after scenario classification.
 
 ## Overview
 
 | Skill | Trigger scenario | Purpose |
 |---|---|---|
 | `oss-scenario-routing` | Always (Step 2 of `/oss`) | Classifies intent into one of the 9 scenarios |
-| `issue-matching` | find | Contributor intake, heuristic scoring, ranked shortlist |
+| `issue-matching` | find | Contributor intake, heuristic scoring, track-record-first ranked shortlist, policy-reserved footer |
+| `contributor-readiness` | claim, find | Advisory, private self-check of how maintainers will likely see your PR (open PRs vs cap, merged PRs, account age, vouch) |
 | `smart-questions` | clarify, claim, engage, review-reply | DRAFT-ONLY contract for outbound-text scenarios 5–8; review-reply is brief + lint, never ghostwritten |
 | `contribution-norms` | norms | Surfaces CONTRIBUTING, CLA/DCO, PR conventions, governance |
 | `dev-env-setup` | setup | Step-by-step guided local dev environment |
@@ -37,13 +38,28 @@ The six skills in the `agentic-contributor` plugin. Each skill is a domain-exper
 
 **What it provides:**
 
-1. **Structured intake** — asks up to 5 questions: goal/intent, background skills, newcomer status, item type preference (issues/PRs/both), and target projects.
+1. **Structured intake** — asks up to 5 questions: goal/intent (including reproduce/triage, review, docs/tests), background skills, relationship with the project (use it / contributed before / neither), item type preference (issues/PRs/both), and target projects.
 2. **Data gathering** — directs `oss-researcher` to fetch open issues with relevant labels (`good first issue`, `help wanted`, `bug`, `enhancement`, `docs`) and stalled/review-requested PRs.
-3. **Exclusion filter** — removes closed, merged, assigned, locked, or "wontfix" items.
-4. **Heuristic scoring** — ranks items by: newcomer-friendly labels (+3/+2), tech-stack overlap (+2), recent activity (+1), maintainer engagement (+1), clear unblock opportunity for PRs (+1), intent match (+2).
-5. **Ranked shortlist** — top 5–10 items, each with link, type, labels, last-updated date, and a 1–2 sentence rationale. The orchestrator saves the shortlist to `.oss-drafts/find-…` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
+3. **Exclusion filter** — removes closed, merged, assigned, locked, or "wontfix" items. When the policy block has `gfi_ai_ban: true`, good first issues leave the ranking and appear in an unranked **Policy-reserved** footer.
+4. **Heuristic scoring** — ranks items by: newcomer-friendly labels (+3/+2), tech-stack overlap (+2), recent activity (+1), maintainer engagement (+1), clear unblock opportunity for PRs (+1), intent match (+2); good-first-issue bonuses apply only when `gfi_ai_ban` is not `true`; +3 for areas you use, +2 for repro/triage/review work at readiness tier 4-5 (or with 0 merged PRs), -2 for new-code items when at the open-PR cap, +1 for `help wanted` with a clear spec. Triage-labelled issues, un-triaged issues, and review-requested PRs are fetched too.
+5. **Ranked shortlist** — top 5–10 items, each with link, type, labels, last-updated date, and a work type (code, repro, triage, review, docs), a track-record value line, and a 1–2 sentence rationale, plus a private Readiness summary at the top. The orchestrator saves the shortlist to `.oss-drafts/find-…` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
 
 **References:** `skills/issue-matching/SKILL.md`
+
+---
+
+## `contributor-readiness`
+
+**Trigger phrases:** "am I ready to contribute", "will maintainers prioritise my PR", "check my readiness", "how do I build a track record". Runs by default inside claim and find; say "skip readiness" to opt out.
+
+**What it provides:**
+
+1. **Login resolution** — your request (`as @login`), then `contributor.github_login` in `config/targets.yaml`, then the authenticated account (`get_me` / `gh api user`). The login used is shown and recorded as `readiness_login`.
+2. **Signals** — open PRs in the repo vs the project's cap, merged PRs, prior involvement and `author_association`, account age and activity elsewhere, vouch status, and whether you use the project. About 5 read-only calls, for your own login only.
+3. **Tier mapping** (after Andrew Lamb's review-priority ordering) — actual user, prior contributor, endorsed, established account, new to the project, shown as how maintainers are likely to see your PR today, with steps to move up.
+4. **Advisory output** — Private notes only, never inside an `oss:send` block, never blocking a draft. Warns at the open-PR cap or when unvouched where vouching is required. Wording is about how maintainers see the contribution, never about you.
+
+**References:** `skills/contributor-readiness/SKILL.md`
 
 ---
 

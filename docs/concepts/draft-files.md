@@ -81,6 +81,8 @@ body_format: 2
 | `body_format` | Draft tier, v0.4.0+: `2` means only the `oss:send` block is sendable. Absent or `1` means legacy (whole body sendable) |
 | `mode` | `review-reply` only: `brief` (default) or `lint` |
 | `policy` | v0.5.0+, `find`, `norms`, and draft-tier scenarios: the project's detected AI-policy and contribution-limit block (see below) |
+| `readiness_login` | v0.6.0+, `claim` and `find`: the GitHub login the readiness check used (absent when skipped) |
+| `readiness` | v0.6.0+, `claim` and `find`: `{open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}`; `unknown` for anything not read. Advisory; also shown in private notes, never in a send block |
 | `routed_from` | v0.5.0+, only when a PR-intent request was rerouted to `report` (issue-first); names the original scenario |
 
 The `status: draft` field allows the separate execution/submission plugin to identify unreviewed

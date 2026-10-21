@@ -36,7 +36,7 @@ The `/oss` command in depth: intent classification, all 9 scenarios, the claim�
 /oss find a good first issue in apache/airflow
 ```
 
-The `issue-matching` skill runs a 5-question intake, directs `oss-researcher` to fetch candidate issues and PRs, applies heuristic scoring, and returns a ranked shortlist of up to 10 items with per-item rationale. The orchestrator saves the shortlist to `.oss-drafts/find-<owner>-<repo>-find-<UTC>.md` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it." See [Skills Reference](../reference/skills.md) for the scoring rubric.
+The `issue-matching` skill runs a 5-question intake, directs `oss-researcher` to fetch candidate issues and PRs, applies heuristic scoring, and returns a ranked shortlist of up to 10 items with per-item rationale. The orchestrator saves the shortlist to `.oss-drafts/find-<owner>-<repo>-find-<UTC>.md` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it." Contributors with no merged PRs in the project are steered toward repro, triage, and review work first, and a private readiness summary shows how maintainers are likely to see your PR (say "skip readiness" to omit it). Good first issues that the project reserves for unassisted newcomers are listed in a separate unranked footer. See [Skills Reference](../reference/skills.md) for the scoring rubric.
 
 ---
 
@@ -88,7 +88,7 @@ The `issue-matching` skill runs a 5-question intake, directs `oss-researcher` to
 /oss is issue #8765 in apache/spark free to claim?
 ```
 
-`oss-claim-analyst` checks three signals: assignee, linked open PRs (via "Fixes #N" / "Closes #N"), and recent intent comments (last 30 days). It returns one of two verdicts:
+Alongside, `oss-researcher` gathers a private readiness check (your open PRs vs the project's cap, vouch status; advisory, in Private notes only, "skip readiness" to omit). `oss-claim-analyst` checks three signals: assignee, linked open PRs (via "Fixes #N" / "Closes #N"), and recent intent comments (last 30 days). It returns one of two verdicts:
 
 - **"Appears free to take"** → `smart-questions` (Scenario D) drafts a polite claim comment (3–5 sentences; introduces contributor, states intent, asks if there are specific guidelines to keep in mind). The orchestrator saves the draft to `.oss-drafts/claim-<owner>-<repo>-issue<N>-<UTC>.md` and shows the mandatory draft notice.
 - **"Appears already claimed"** → the command switches to the **engage** scenario automatically (see claim→engage branch below).

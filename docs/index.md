@@ -17,6 +17,7 @@ flowchart TD
     OSS --> SR["skills/oss-scenario-routing<br/>classifies intent into 9 scenarios"]
 
     SR --> IM["skills/issue-matching<br/>scenario 2: find"]
+    SR --> CR["skills/contributor-readiness<br/>advisory self-check in claim / find"]
     SR --> CN["skills/contribution-norms<br/>scenario 3: norms"]
     SR --> DE["skills/dev-env-setup<br/>scenario 4: setup"]
     SR --> SQ["skills/smart-questions<br/>scenarios 5 / 6 / 7 / 8: drafting"]
@@ -56,7 +57,7 @@ flowchart TD
 
 - [Commands](reference/commands.md) — `/oss` frontmatter, arguments, behavior steps
 - [Agents](reference/agents.md) — `oss-researcher` and `oss-claim-analyst` specs
-- [Skills](reference/skills.md) — all 6 skills with trigger phrases
+- [Skills](reference/skills.md) — all 7 skills with trigger phrases
 - [Hooks](reference/hooks.md) — guardrail registration and full deny/allow matrix
 - [Scenarios](reference/scenarios.md) — canonical 9-scenario table with full detail
 

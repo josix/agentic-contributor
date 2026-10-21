@@ -55,6 +55,17 @@ Reminders appear in private notes only and are advisory. Where a project prefers
 PR-intent request is routed to `report`. Not found means "not found", never "no policy"; check the
 project website too.
 
+## Contributor readiness and track record
+
+Since v0.6.0, `claim` and `find` add a private, advisory readiness self-check, based on Andrew
+Lamb's review-priority tiers: actual users, then prior contributors, then contributors endorsed by a
+committer, then established accounts, then newcomers. It reads only your own public data (open PRs
+vs the project's cap, merged PRs, account age, vouch status), shows which login it used, and appears
+only in private notes. It never blocks a draft, and every gap comes with a next step such as
+reviewing a PR, confirming a bug, or finishing an open PR first. `find` then favours that kind of
+work when you are new to a project, and lists good first issues reserved for unassisted newcomers
+in a separate footer. Say "skip readiness" to opt out.
+
 ## Still draft-only
 
 Nothing here posts anything. The plugin saves files under `.oss-drafts/`; sending belongs to the

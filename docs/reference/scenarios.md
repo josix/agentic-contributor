@@ -30,7 +30,7 @@ No skill is loaded. `oss-researcher` returns findings directly as a timestamped 
 
 ### Scenario 2 — find
 
-`issue-matching` runs a 5-question structured intake before directing `oss-researcher` to fetch candidates. Items are filtered (no closed, assigned, locked, or wontfix) and scored using a heuristic rubric. The shortlist includes up to 10 items; each entry has a rationale sentence linking to the contributor's stated skills and goal. The orchestrator saves the shortlist to `.oss-drafts/find-<owner>-<repo>-find-<UTC>.md` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
+`issue-matching` runs a 5-question structured intake before directing `oss-researcher` to fetch candidates (including triage-labelled issues and review-requested PRs). Items are filtered (no closed, assigned, locked, or wontfix) and scored using a heuristic rubric that favours work that builds a track record (repro, triage, review) for contributors new to the project. When the project's policy bans AI on good first issues, those issues appear in an unranked "Policy-reserved" footer instead of the ranking. An advisory readiness summary (see `contributor-readiness`) is added at the top in private notes; say "skip readiness" to omit it. The shortlist includes up to 10 items; each entry has a rationale sentence linking to the contributor's stated skills and goal. The orchestrator saves the shortlist to `.oss-drafts/find-<owner>-<repo>-find-<UTC>.md` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
 
 ### Scenario 3 — norms
 
@@ -46,7 +46,7 @@ No skill is loaded. `oss-researcher` returns findings directly as a timestamped 
 
 ### Scenario 6 — claim
 
-`oss-claim-analyst` checks: (1) assignee field, (2) linked open PRs via "Fixes #N" / "Closes #N" in PR bodies, (3) intent comments in the last 30 days. Stale claims (comment older than 30 days, no follow-up PR, issue still open and unassigned) are flagged separately. If the verdict is "appears already claimed", the `/oss` command notifies the user and switches automatically to scenario 7 (engage). The orchestrator saves the verdict and draft claim comment (or engage draft) to `.oss-drafts/claim-<owner>-<repo>-issue<N>-<UTC>.md` and shows the mandatory draft-tier notice.
+`oss-researcher` (key `readiness`) runs in parallel and adds a private, advisory readiness block (open PRs vs the project's cap, vouch status, merged PRs, tier) to Private notes; being at the cap or unvouched adds a warning but never blocks the draft, and "skip readiness" omits it. `oss-claim-analyst` checks: (1) assignee field, (2) linked open PRs via "Fixes #N" / "Closes #N" in PR bodies, (3) intent comments in the last 30 days. Stale claims (comment older than 30 days, no follow-up PR, issue still open and unassigned) are flagged separately. If the verdict is "appears already claimed", the `/oss` command notifies the user and switches automatically to scenario 7 (engage). The orchestrator saves the verdict and draft claim comment (or engage draft) to `.oss-drafts/claim-<owner>-<repo>-issue<N>-<UTC>.md` and shows the mandatory draft-tier notice.
 
 ### Scenario 7 — engage
 

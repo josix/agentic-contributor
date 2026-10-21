@@ -60,6 +60,8 @@ body_format: 2            # draft tier only; omit on report tier. 1 or absent = 
 mode: <brief|lint>        # review-reply only
 policy: {...}             # find + scenarios 5-9 (and norms): the policy block, see Step 3a; includes fetched_at
 routed_from: <scenario>   # only when a PR-intent request was rerouted to report (issue-first)
+readiness_login: <login>  # claim + find (+ engage when switched from claim): login the readiness check used (omit if skipped)
+readiness: {...}          # claim + find (+ engage when switched from claim): {open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}
 ---
 ```
 
@@ -144,12 +146,19 @@ review-reply), dispatch the mapped subagent via the **Task tool**:
 
 - Pass: `owner/repo`, the specific item (issue/PR number or search intent), and the scenario key.
 - **status, find, norms, clarify, engage, review-reply, report** → dispatch `oss-researcher`.
-- **claim** → dispatch `oss-claim-analyst` first; then proceed based on the verdict (see claim
-  branch below).
+- **claim** → dispatch `oss-claim-analyst` **and** `oss-researcher` (key `readiness`) in parallel;
+  then proceed based on the verdict (see claim branch below).
 - **setup** → optionally dispatch `oss-researcher` (read-only) to fetch the project's
   CONTRIBUTING file and setup docs; the `dev-env-setup` skill then drives the step-by-step
   output. The researcher dispatch is optional — if the docs are already available inline,
   skip it.
+
+**Readiness (claim and find).** Unless the request says "skip readiness", also dispatch
+`oss-researcher` with scenario key `readiness` in parallel with the normal fetch. Resolve the login
+as the `contributor-readiness` skill says (request, then `contributor.github_login` in
+`config/targets.yaml`, then the authenticated account) and pass it with `owner/repo` and the
+policy block's `vouch_file`. It reads only the user's own public data. It is advisory: if it fails
+or no login resolves, continue and say so in one line.
 
 For **review-reply** in brief mode, the researcher also fetches the PR's commits with timestamps
 and each review comment's `path`, `line`, `diff_hunk`, and `created_at`. In lint mode (the user
@@ -169,7 +178,8 @@ review-reply, report) must put postable text inside `oss:send` markers with `bod
 
 - **status** → no skill; use oss-researcher findings directly as a timestamped report. Save to
   `.oss-drafts/status-<owner>-<repo>-status-<UTC>.md`.
-- **find** → load `issue-matching`; apply its ranking and intake questions. Save ranked shortlist
+- **find** → load `issue-matching` and `contributor-readiness` (unless "skip readiness"); apply the
+  ranking and intake questions. Save ranked shortlist
   to `.oss-drafts/find-<owner>-<repo>-find-<UTC>.md`.
 - **norms** → load `contribution-norms`; apply its briefing structure. Save briefing to
   `.oss-drafts/norms-<owner>-<repo>-norms-<UTC>.md`.
@@ -179,7 +189,10 @@ review-reply, report) must put postable text inside `oss:send` markers with `bod
   postable text inside `oss:send` markers and set `body_format: 2`. Save to
   `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`. Policy use: add a Private-notes reminder
   of the project's disclosure requirement, open-PR cap, and vouch rule when detected (never in the
-  send block).
+  send block). For **claim**, also load `contributor-readiness` (unless "skip readiness") and put
+  its readiness block first in Private notes, with the cap and vouch warnings leading it; set
+  `readiness_login` and `readiness` in the frontmatter. Readiness never goes inside an `oss:send`
+  block and never blocks or alters the claim draft.
 - **review-reply** → load `smart-questions` (Scenario C). Brief mode (default): the private
   understanding brief goes in Private notes and each send block holds only
   `TODO(you): reply in your own words`. Never write the reply. Lint mode: read the user's send
@@ -193,7 +206,10 @@ review-reply, report) must put postable text inside `oss:send` markers with `bod
   `issue-bug` for bug reports and `issue-feature` for feature requests. Policy use: note the
   project's issue-first status in Private notes; if `routed_from` is set, say so.
 - **find** policy use: record the `policy` block in frontmatter and mention any open-PR cap, vouch
-  requirement, or good-first-issue AI ban in the shortlist notes.
+  requirement, or good-first-issue AI ban in the shortlist notes. Put the readiness summary at the
+  top of the file (private, report tier), set `readiness_login` and `readiness`, and pass the tier,
+  open-PR count/cap, and `gfi_ai_ban` to the issue-matching ranking. When `gfi_ai_ban: true`, good
+  first issues go in the unranked "Policy-reserved" footer, not the ranking.
 
 Before writing any file: ensure `.git/info/exclude` (or equivalent) excludes `.oss-drafts/` as
 described in the convention block above.
@@ -204,10 +220,17 @@ Use the **Write tool** to create the file. Only write to paths under `.oss-draft
 
 After `oss-claim-analyst` returns its verdict:
 
-- **"Appears free to take"**: load `smart-questions` (Scenario D) and draft a claim comment.
+- **"Appears free to take"**: load `smart-questions` (Scenario D) and draft a claim comment. Still
+  draft it when readiness shows the user at the open-PR cap or unvouched; lead Private notes with
+  the warning instead: "At the project's open-PR cap (N/cap), consider finishing #A/#B first", or,
+  when `vouch_required` and the user is not vouched, that PRs from unvouched contributors are
+  closed, the project's vouch path, and a suggestion to take part first (clarify/engage-style
+  participation).
 - **"Appears already claimed"**: automatically switch to the **engage** scenario — load
   `smart-questions` (Scenario B) and dispatch `oss-researcher` to gather the linked PR context and
-  draft constructive feedback instead. Notify the user of the switch.
+  draft constructive feedback instead. Notify the user of the switch. Keep the readiness result
+  that was gathered for claim: put it in the engage draft's Private notes (never in the send block)
+  and keep `readiness_login` and `readiness` in its frontmatter.
 
 ### PR-intent → Report (Issue-First) Branch
 

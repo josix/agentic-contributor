@@ -8,10 +8,19 @@
 #
 # Note: v0.1 supports GitHub-hosted projects only.
 
+# Optional: your own GitHub identity, used by the advisory contributor-readiness check in the
+# claim and find scenarios. Local-only: this file is never sent anywhere. Omit the block to use the
+# authenticated gh/MCP account instead.
+contributor:
+  github_login: your-github-login   # overridden by "as @login" in a request
+  uses:                             # projects you use; boosts matching items in find
+    - apache/airflow
+
 projects:
   - owner: apache
     repo: airflow
     description: "Apache Airflow — workflow orchestration platform (Python)"
+    uses: true   # optional: you use this project (readiness tier 1; ranks matching areas higher)
     labels_of_interest:
       - "good first issue"
       - "help wanted"

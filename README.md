@@ -11,6 +11,7 @@ This is the **research-and-engagement half** of a two-plugin system. It surfaces
 - **Read-only GitHub research** — `oss-researcher` and `oss-claim-analyst` subagents access GitHub via the MCP server or `gh` CLI; neither ever mutates.
 - **Draft-only guardrail** — a `PreToolUse` hook actively denies all outbound and mutating actions; drafts are presented for human review before any separate execution step.
 - **MCP + `gh` fallback** — prefers the structured GitHub MCP server when `GITHUB_MCP_TOKEN` is set; falls back to `gh` CLI automatically.
+- **Contributor readiness** — claim and find add a private, advisory self-check of how maintainers will likely see your PR (open PRs vs the project's cap, merged PRs, vouch) and favour track-record-building work; it never blocks a draft. Say "skip readiness" to opt out.
 - **Configurable target projects** — copy `config/targets.example.yaml` to `config/targets.yaml` to set a personal shortlist of repos.
 
 ## Prerequisites
@@ -122,7 +123,8 @@ Both agents are read-only. The `PreToolUse` guardrail hook enforces this at the 
 | Skill | Purpose |
 |---|---|
 | `oss-scenario-routing` | Classifies intent into one of the 9 scenarios; handles the claim→engage branch switch |
-| `issue-matching` | Structured contributor intake (5 questions), heuristic scoring, ranked shortlist |
+| `issue-matching` | Structured contributor intake (5 questions), track-record-first heuristic scoring, ranked shortlist with a policy-reserved footer |
+| `contributor-readiness` | Advisory private self-check in claim and find: open PRs vs cap, merged PRs, account age, vouch, tier ("skip readiness" opts out) |
 | `smart-questions` | DRAFT-ONLY contract for clarify, engage, review-reply, and claim scenarios |
 | `contribution-norms` | Surfaces CONTRIBUTING, CLA/DCO, PR/commit conventions, Apache governance, and AI-use policy / contribution limits |
 | `dev-env-setup` | Step-by-step guided local setup from official docs with a verifiable checkpoint |
@@ -182,7 +184,7 @@ All GitHub data access is read-only. The MCP server is configured with a `repo:r
 - [docs/concepts/two-plugin-system.md](docs/concepts/two-plugin-system.md) — research half vs execution half
 - [docs/reference/commands.md](docs/reference/commands.md) — `/oss` frontmatter and behavior steps
 - [docs/reference/agents.md](docs/reference/agents.md) — `oss-researcher` and `oss-claim-analyst` specs
-- [docs/reference/skills.md](docs/reference/skills.md) — all 6 skills with trigger phrases
+- [docs/reference/skills.md](docs/reference/skills.md) — all 7 skills with trigger phrases
 - [docs/reference/hooks.md](docs/reference/hooks.md) — guardrail registration and deny/allow matrix
 - [docs/reference/scenarios.md](docs/reference/scenarios.md) — canonical 9-scenario table with full detail
 - [CHANGELOG.md](CHANGELOG.md) — version history

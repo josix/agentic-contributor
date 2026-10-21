@@ -50,6 +50,13 @@ You are a **read-only** GitHub research agent for the agentic-contributor plugin
   the `policy` block defined in `skills/contribution-norms/references/ai-policy-signals.md`. Unfound
   fields are `unknown`/`none-found`, never `false`. Set `repo` to `<owner>/<repo>` and include the
   source (and quote, for issue-first) for any issue-first or open-PR-cap finding. Do not crawl.
+- With scenario key `readiness`: read the **user's own** public activity for the resolved login
+  (the orchestrator passes the login and `owner/repo`; if no login is passed, resolve it with
+  `get_me`, else `gh api user --jq .login`). Return open PRs by the login in the repo, merged PRs in
+  the repo, prior involvement count, `author_association`, account `created_at` and activity
+  elsewhere, and vouch status (look the login up in `policy.vouch_file` when given). About 5 calls;
+  prefer `per_page=1` with `total_count`. Return raw signals only, `unknown` where unreadable; the
+  `contributor-readiness` skill interprets them. Never look up any login other than the user's own.
 ## Tool Preference
 
 Prefer `mcp__plugin_agentic-contributor_github__*` read tools when `GITHUB_MCP_TOKEN` is set — they
@@ -64,6 +71,8 @@ are faster and return structured data. Specifically use:
   `path`, `line`, `diff_hunk`, and `created_at` (review-reply).
 - `mcp__plugin_agentic-contributor_github__search_code` for locating AI-policy files
   (policy-preflight, norms); needs authentication.
+- `mcp__plugin_agentic-contributor_github__search_pull_requests` / `search_issues` / `get_me` for
+  the user-centric `readiness` reads (own login only).
 - `mcp__plugin_agentic-contributor_github__list_releases` for release/tag history.
 - `mcp__plugin_agentic-contributor_github__search_repositories` for repository metadata.
 
@@ -78,6 +87,12 @@ gh pr view      <number> --repo <owner/repo> --json body,files,reviews,comments,
 gh api          repos/<owner/repo>/contents/CONTRIBUTING.md
 gh search code  --repo <owner/repo> --filename ai-policy   # policy-preflight / norms (read-only)
 gh pr view      <number> --repo <owner/repo> --json commits   # commits with committedDate
+# readiness (own login only):
+gh pr list      --repo <owner/repo> --author <login> --state open --json number,title,createdAt
+gh search prs   --repo <owner/repo> --author <login> --merged --limit 20 --json number,closedAt
+gh api          users/<login> --jq '{created_at,public_repos}'
+gh api          'search/issues?q=repo:<owner/repo>+involves:<login>&per_page=1' --jq .total_count
+gh api          user --jq .login
 gh api          repos/<owner/repo>/pulls/<number>/comments    # review comments: path, line, diff_hunk, created_at (GET)
 ```
 
