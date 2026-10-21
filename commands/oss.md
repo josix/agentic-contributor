@@ -27,7 +27,7 @@ You are the single entry point for all OSS contribution tasks in this plugin.
 | 5 | **clarify** | DRAFT questions to ask a maintainer (review-before-send) |
 | 6 | **claim** | Claim check + DRAFT "I'd like to take this" comment |
 | 7 | **engage** | DRAFT feedback on someone else's in-progress PR |
-| 8 | **review-reply** | DRAFT replies to review comments on your own PR |
+| 8 | **review-reply** | Per-comment understanding brief + lint of your own reply (you write the reply) |
 | 9 | **report** | DRAFT new bug report or feature request |
 
 ---
@@ -56,8 +56,29 @@ repo: <owner/repo>
 item: <issueN|prN|status|find|norms|setup|issue-bug|issue-feature>
 generated_at: <ISO-8601 UTC>
 status: draft
+body_format: 2            # draft tier only; omit on report tier. 1 or absent = legacy (whole body sendable)
+mode: <brief|lint>        # review-reply only
 ---
 ```
+
+**Body format (`body_format: 2`):** draft-tier files separate postable text from private notes.
+Only text between the markers is sendable; everything else is for the user only:
+
+```markdown
+<!-- oss:send:start -->
+…text the user approves for posting…
+<!-- oss:send:end -->
+
+## Private notes (not sent)
+…understanding brief / lint findings / notes…
+```
+
+- Any `TODO(you):` left inside a send block means "not ready"; the execution plugin must refuse to
+  send while it remains.
+- A file with no `body_format` (or `1`) is legacy: the whole body is sendable.
+- Files with several independent messages (e.g. one reply per review comment) use one marker pair
+  per message, in order.
+- Report-tier files (status, find, norms, setup) have no send block.
 
 **Gitignore:** Before writing the first draft file in a run, ensure `.oss-drafts/` is excluded from version control in the user's project:
 
@@ -102,6 +123,11 @@ review-reply), dispatch the mapped subagent via the **Task tool**:
   output. The researcher dispatch is optional — if the docs are already available inline,
   skip it.
 
+For **review-reply** in brief mode, the researcher also fetches the PR's commits with timestamps
+and each review comment's `path`, `line`, `diff_hunk`, and `created_at`. In lint mode (the user
+asks to check their own reply in an existing draft file), skip the GitHub fetch unless a rule
+(AP5) needs commit data.
+
 Prefer `mcp__plugin_agentic-contributor_github__*` read tools inside subagents. If GITHUB_MCP_TOKEN
 is not set, the subagents fall back to `gh` CLI (they will run `gh auth status` first).
 
@@ -110,7 +136,8 @@ is not set, the subagents fall back to `gh` CLI (they will run `gh auth status` 
 ## Step 4 — Load the Mapped Skill, Produce Output, and Save Draft File
 
 Load the skill named in the scenario catalog and follow its guidance to produce the output. Then
-save it as a draft file per the convention above.
+save it as a draft file per the convention above. Draft-tier skills (clarify, claim, engage,
+review-reply, report) must put postable text inside `oss:send` markers with `body_format: 2`.
 
 - **status** → no skill; use oss-researcher findings directly as a timestamped report. Save to
   `.oss-drafts/status-<owner>-<repo>-status-<UTC>.md`.
@@ -120,8 +147,14 @@ save it as a draft file per the convention above.
   `.oss-drafts/norms-<owner>-<repo>-norms-<UTC>.md`.
 - **setup** → load `dev-env-setup`; follow its step-by-step and checkpoint guidance. Save
   walkthrough to `.oss-drafts/setup-<owner>-<repo>-setup-<UTC>.md`.
-- **clarify / engage / review-reply / claim** → load `smart-questions`; follow its DRAFT-ONLY
-  contract. Save draft text to `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`.
+- **clarify / engage / claim** → load `smart-questions`; follow its DRAFT-ONLY contract. Put the
+  postable text inside `oss:send` markers and set `body_format: 2`. Save to
+  `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`.
+- **review-reply** → load `smart-questions` (Scenario C). Brief mode (default): the private
+  understanding brief goes in Private notes and each send block holds only
+  `TODO(you): reply in your own words`. Never write the reply. Lint mode: read the user's send
+  blocks, add a Lint section to Private notes, and rewrite the same file without touching the send
+  blocks. Set `mode: brief|lint`.
 - **report** → load `issue-drafting`; run its Pre-flight (duplicate search + template fetch +
   convention extraction), then Procedure 2 (bug) or Procedure 3 (feature) based on the user's
   intent. Save draft to `.oss-drafts/report-<owner>-<repo>-<item>-<UTC>.md` where `item` is
@@ -155,8 +188,9 @@ Then briefly summarise the key findings in chat and ask the user if they want to
 
 ### Draft tier (scenarios 5, 6, 7, 8, 9 — clarify, claim, engage, review-reply, report)
 
-After saving the file, present the complete draft text in chat (clearly labelled), show the file
-path, and add this notice verbatim:
+After saving the file, present the **send block(s)** in chat (clearly labelled as DRAFT; for
+review-reply brief mode this is the brief plus the `TODO(you)` placeholders), say that the private
+notes are in the file and are never sent, show the file path, and add this notice verbatim:
 
 > **DRAFT — saved to `<path>`. Review and edit this file before sending.**
 > This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.

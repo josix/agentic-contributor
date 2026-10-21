@@ -5,6 +5,26 @@ All notable changes to the agentic-contributor plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-21
+
+### Changed
+
+- **`review-reply` no longer ghostwrites replies.** Maintainers (e.g. the Apache DataFusion AI policy, the "meat proxy" critique) reject AI-generated review replies. The default `brief` mode now produces a private per-comment understanding brief (quoted comment, code at the line, likely concern, conventions, commit-to-comment mapping, questions to ask yourself, optional bullet-only talking points) and a `TODO(you): reply in your own words` placeholder. There is no full-prose-reply option.
+- The postable "change-summary comment" is removed; a commit-to-comment mapping table in the private brief replaces it.
+- Translate/tidy is limited to text the user wrote, with no new claims.
+- **Draft-tier files now use `body_format: 2`**: only text inside `<!-- oss:send:start -->` / `<!-- oss:send:end -->` is sendable; a `## Private notes (not sent)` section holds briefs and lint findings. Frontmatter gains `body_format` and (review-reply) `mode: brief|lint`.
+- **Coordinated change required:** the separate execution/submission plugin must support `body_format: 2` (post only the send block, refuse while `TODO(you)` remains) before this release is used for posting. Otherwise private notes would be posted.
+- `oss-researcher` now fetches PR commits with timestamps and review comments with `diff_hunk`, `path`, `line`, `created_at` for review-reply.
+
+### Added
+
+- **Lint mode** for `review-reply` ("check my reply", "lint my reply"): checks the user's own reply against anti-patterns AP1-AP9 (each with a bad/good pair in `smart-questions-principles.md`), quoting spans and asking questions, never rewriting. AP9 is defined but inactive until a policy profile exists (v0.5.0).
+- New concept page `docs/concepts/maintainer-friendly-contributing.md` and nav entry; docs updated for the body format and the brief, write, lint flow.
+
+### Security
+
+- Removed v0.3.1 heredoc-body skipping in `guard-outbound.sh`: it allowed writing a script with a `cat`/`tee` heredoc and then executing it. Heredoc bodies are always checked again; use the Write tool to create files whose text mentions outbound commands.
+
 ## [0.3.1] - 2026-10-21
 
 ### Fixed

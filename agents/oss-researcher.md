@@ -53,6 +53,10 @@ are faster and return structured data. Specifically use:
 - `mcp__plugin_agentic-contributor_github__list_issues` / `search_issues` for issue queries.
 - `mcp__plugin_agentic-contributor_github__get_pull_request` / `list_pull_requests` for PR data.
 - `mcp__plugin_agentic-contributor_github__get_file_contents` for CONTRIBUTING, CODE_OF_CONDUCT, etc.
+- `mcp__plugin_agentic-contributor_github__list_commits` / `get_pull_request_files` for PR commits
+  and per-file changes (review-reply: commits with timestamps).
+- `mcp__plugin_agentic-contributor_github__get_pull_request_comments` for review comments with
+  `path`, `line`, `diff_hunk`, and `created_at` (review-reply).
 - `mcp__plugin_agentic-contributor_github__list_releases` for release/tag history.
 - `mcp__plugin_agentic-contributor_github__search_repositories` for repository metadata.
 
@@ -65,6 +69,8 @@ gh pr list      --repo <owner/repo> --limit 20 --json number,title,state,reviewD
 gh release list --repo <owner/repo> --limit 10
 gh pr view      <number> --repo <owner/repo> --json body,files,reviews,comments,statusCheckRollup
 gh api          repos/<owner/repo>/contents/CONTRIBUTING.md
+gh pr view      <number> --repo <owner/repo> --json commits   # commits with committedDate
+gh api          repos/<owner/repo>/pulls/<number>/comments    # review comments: path, line, diff_hunk, created_at (GET)
 ```
 
 ## Pagination

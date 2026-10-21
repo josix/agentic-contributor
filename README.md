@@ -7,7 +7,7 @@ This is the **research-and-engagement half** of a two-plugin system. It surfaces
 ## Features
 
 - **Single `/oss` entrypoint** — one command handles all 9 contribution scenarios; presents an interactive menu if arguments are omitted.
-- **9 built-in scenarios** — project status, issue/PR matching, contribution norms, dev environment setup, maintainer questions, issue claiming, PR feedback, review-reply drafting, and new-issue authoring (bug reports and feature requests).
+- **9 built-in scenarios** — project status, issue/PR matching, contribution norms, dev environment setup, maintainer questions, issue claiming, PR feedback, review-reply understanding briefs and reply linting, and new-issue authoring (bug reports and feature requests).
 - **Read-only GitHub research** — `oss-researcher` and `oss-claim-analyst` subagents access GitHub via the MCP server or `gh` CLI; neither ever mutates.
 - **Draft-only guardrail** — a `PreToolUse` hook actively denies all outbound and mutating actions; drafts are presented for human review before any separate execution step.
 - **MCP + `gh` fallback** — prefers the structured GitHub MCP server when `GITHUB_MCP_TOKEN` is set; falls back to `gh` CLI automatically.
@@ -99,7 +99,7 @@ If you omit arguments, `/oss` presents the full scenario menu and asks which app
 | 5 | **clarify** | Draft questions for a maintainer | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
 | 6 | **claim** | Issue availability check + draft claim comment | `smart-questions` | `oss-claim-analyst` | Assessment + DRAFT saved to `.oss-drafts/` |
 | 7 | **engage** | Draft feedback on someone else's PR | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
-| 8 | **review-reply** | Draft replies to review comments on your PR | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
+| 8 | **review-reply** | Understanding brief per review comment + lint of the reply you write (no ghostwriting) | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
 | 9 | **report** | Draft a new bug report or feature request | `issue-drafting` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
 
 Every scenario saves its output to `.oss-drafts/` in your current working directory as an editable

@@ -69,103 +69,40 @@ if [[ "$tool_name" == mcp__plugin_agentic-contributor_github__* ]]; then
 fi
 
 # ── Shell-text preprocessing (awk, bash 3.2 safe) ─────────────────────────────
-# AWK_PREPROCESS joins backslash-newline continuations and drops a heredoc body
-# ONLY when it is pure data: consumer is cat/tee, nothing piped or chained after
-# the delimiter, no quotes before the operator, no command substitution that
-# could execute, and the heredoc is terminated. Bodies fed to bash/sh/zsh/eval/
-# xargs/ssh/python/node (or anything else) are kept and still checked.
+# AWK_PREPROCESS joins backslash-newline continuations (outside single quotes).
+# Heredoc bodies are NOT skipped: they are ordinary lines and are always checked,
+# because a body written by cat/tee can be executed later (cat > run.sh <<EOF).
 read -r -d '' AWK_PREPROCESS <<'AWK' || true
-function trim(x) { sub(/^[ \t]+/, "", x); sub(/[ \t]+$/, "", x); return x }
 function endsbs(x,   k, c) {
   k = length(x); c = 0
   while (k > 0 && substr(x, k, 1) == "\\") { c++; k-- }
   return (c % 2 == 1)
 }
-function firstword(x) {
-  x = trim(x)
-  while (match(x, /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/)) x = substr(x, RLENGTH + 1)
-  if (match(x, /^[^ \t]+/)) return substr(x, 1, RLENGTH)
-  return ""
-}
-function ok_consumer(pre,   k, idx, piece, w) {
-  if (index(pre, "(") || index(pre, "`") || index(pre, "'") || index(pre, "\"") || index(pre, "\\")) return 0
-  idx = 0
-  for (k = length(pre); k >= 1; k--) {
-    if (index(";|&", substr(pre, k, 1))) { idx = k; break }
-  }
-  piece = substr(pre, idx + 1)
-  w = firstword(piece)
-  return (w == "cat" || w == "tee")
-}
-function ok_rest(rest) {
-  gsub(/[0-9]*>&[0-9-]*/, "", rest)
-  if (rest ~ /[|;&`$()<'"\\]/) return 0
-  return 1
-}
 BEGIN { sq = "\047"; dq = "\042" }
 { L[++n] = $0 }
 END {
-  q = ""; nodrop = 0; i = 1; cnt = 0; pdepth = 0; bt = 0
+  q = ""; i = 1
   while (i <= n) {
     line = L[i]; i++
-    d0 = pdepth; bt0 = bt
-    while (q != sq && endsbs(line) && i <= n) { line = substr(line, 1, length(line) - 1) L[i]; i++ }
-    len = length(line); j = 1; hd = 0
-    while (j <= len) {
-      c = substr(line, j, 1)
-      if (q == sq) { if (c == sq) q = ""; j++; continue }
-      if (c == "\\") { j += 2; continue }
-      if (q == dq) {
-        if (c == dq) q = ""
-        else if (c == "`" || (c == "$" && substr(line, j + 1, 1) == "(")) nodrop = 1
-        j++; continue
+    j = 1; cmt = 0
+    while (1) {
+      len = length(line)
+      while (j <= len) {
+        c = substr(line, j, 1)
+        if (q == sq) { if (c == sq) q = ""; j++; continue }
+        if (c == "\\") { j += 2; continue }
+        if (q == dq) { if (c == dq) q = ""; j++; continue }
+        if (c == sq || c == dq) { q = c; j++; continue }
+        if (c == "#" && (j == 1 || substr(line, j - 1, 1) ~ /[ \t;|&(]/)) { cmt = 1; break }
+        j++
       }
-      if (c == sq || c == dq) { q = c; j++; continue }
-      if (c == "(") pdepth++
-      else if (c == ")") { if (pdepth > 0) pdepth-- }
-      else if (c == "`") bt = !bt
-      if (c == "#" && (j == 1 || substr(line, j - 1, 1) ~ /[ \t;|&(]/)) break
-      if (c == "<" && substr(line, j + 1, 1) == "<" && substr(line, j - 1, 1) != "<" && substr(line, j + 2, 1) != "<") {
-        if (hd) { nodrop = 1; j += 2; continue }
-        k = j + 2; tabs = 0
-        if (substr(line, k, 1) == "-") { tabs = 1; k++ }
-        while (substr(line, k, 1) == " " || substr(line, k, 1) == "\t") k++
-        delim = ""; quoted = 0; qq = ""
-        while (k <= len) {
-          ch = substr(line, k, 1)
-          if (qq != "") { if (ch == qq) qq = ""; else delim = delim ch; k++; continue }
-          if (ch == sq || ch == dq) { qq = ch; quoted = 1; k++; continue }
-          if (ch == "\\") { quoted = 1; k++; delim = delim substr(line, k, 1); k++; continue }
-          if (ch ~ /[ \t;|&<>()]/) break
-          delim = delim ch; k++
-        }
-        if (qq != "") nodrop = 1
-        if (delim != "" && qq == "") { hd = 1; hpos = j; jend = k }
-        j = (k > j + 2 ? k : j + 2); continue
-      }
-      j++
+      # A backslash at the end of a comment does not continue the line.
+      if (cmt || q == sq || !endsbs(line) || i > n) break
+      line = substr(line, 1, len - 1) L[i]; i++
+      j = len
     }
-    out[++cnt] = line
-    # Inside an enclosing $( ), <( ), ( ) or backtick the body may be consumed
-    # by an outer command (e.g. bash < <(cat <<EOF ...)): keep it.
-    if (hd && q == "") {
-      t = 0
-      for (m = i; m <= n; m++) {
-        cmp = L[m]
-        if (tabs) sub(/^\t+/, "", cmp)
-        if (cmp == delim) { t = m; break }
-      }
-      if (t) {
-        drop = !nodrop && d0 == 0 && !bt0 && ok_consumer(substr(line, 1, hpos - 1)) && ok_rest(substr(line, jend))
-        if (drop && !quoted) {
-          for (m = i; m < t; m++) if (index(L[m], "$(") || index(L[m], "`")) { drop = 0; break }
-        }
-        if (!drop) { for (m = i; m <= t; m++) out[++cnt] = L[m] }
-        i = t + 1
-      }
-    }
+    print line
   }
-  for (m = 1; m <= cnt; m++) print out[m]
 }
 AWK
 
@@ -237,6 +174,8 @@ END {
     # (only after an unescaped, unquoted operator: `\>&` is a literal > then a separator)
     if (c == ">" || c == "<") lastop = i
     if (c == "&" && ((lastop == i - 1 && i > 1) || nx == ">")) { cur = cur c; continue }
+    # `>|` is the clobber redirection, not a pipe
+    if (c == "|" && lastop == i - 1 && i > 1 && substr(s, i - 1, 1) == ">") { cur = cur c; continue }
     if (c == "\n" || c == ";" || c == "|" || c == "&" || c == "`" || c == "(" || c == ")") { emit(); continue }
     if (c == "$" && nx == "(") { emit(); i++; continue }
     cur = cur c
@@ -286,7 +225,7 @@ function flush() {
 }
 AWK
 
-# Heredoc-stripped, continuation-joined text. Any awk failure -> raw command
+# Continuation-joined text. Any awk failure -> raw command
 # (never fail open).
 if ! stripped="$(printf '%s\n' "$command_str" | awk "$AWK_PREPROCESS" 2>/dev/null)"; then
   stripped="$command_str"
@@ -313,7 +252,7 @@ strip_prefix() {
 }
 
 # Read-only GraphQL allow-path. Returns 0 only when the call cannot mutate.
-# $1 = this gh api segment, $2 = the full (heredoc-stripped) command.
+# $1 = this gh api segment, $2 = the full (continuation-joined) command.
 # GH_FIELDS holds the parsed -f/-F/--field/--raw-field values (quotes removed).
 graphql_readonly() {
   local seg="$1" full="$2" full_nq unq v lv
@@ -321,6 +260,8 @@ graphql_readonly() {
   full_nq="$(printf '%s' "$full" | tr 'A-Z' 'a-z' | tr -d "\"'\\\\")"
   [[ "$full_nq" == *mutation* ]] && return 1
   [[ "$full" == *'$('* || "$full" == *'`'* ]] && return 1
+  # ANSI-C / locale quoting ($'..' $"..") can hide the keyword via escapes
+  [[ "$full" == *"\$'"* || "$full" == *'$"'* ]] && return 1
   for v in ${GH_FIELDS[@]+"${GH_FIELDS[@]}"}; do
     [[ "$v" == *=* ]] || return 1
     # gh reads the value from a file when it starts with @ (checked post-unquote)
@@ -447,8 +388,8 @@ if [[ "$tool_name" == "Bash" ]]; then
   # This prevents plain-space-separated words (e.g. "echo git push") from matching.
   SEP='(^|;|\||&|\&\&|\|\||\$\(|`|'$'\n'')[[:space:]]*'
 
-  # The rules below run on the heredoc-stripped text so that data written via
-  # `cat > file <<'EOF'` is not mistaken for commands.
+  # The rules below run on the continuation-joined text; heredoc bodies are
+  # included, so text mentioning outbound commands is denied (use the Write tool).
 
   # git push (any form)
   if [[ "$stripped" =~ $SEP'git'[[:space:]]+'push'([[:space:]]|$) ]]; then

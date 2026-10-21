@@ -66,7 +66,8 @@ The denial message states:
 | `curl` with `-X POST/PUT/PATCH/DELETE`, `--request POST/…`, `-d`/`--data`/`--data-raw`, `-F`/`--form` | DENY |
 | `wget` with any mutation flag | DENY |
 | `gh pr view`, `gh issue list`, `gh release list`, plain `gh api` GET, read-only `gh api graphql` queries, `gh api -X GET ... -f q=...` | ALLOW |
-| Heredoc bodies written to a file via `cat`/`tee` (data only; `bash <<EOF` bodies are still checked) | ALLOW |
+| Heredoc bodies are always checked: a body containing an outbound command (even via `cat > file <<EOF`) | DENY |
+| Heredoc whose body has no outbound command text | ALLOW |
 | `git clone`, `git status`, `git log`, `git diff`, `git fetch` | ALLOW |
 | All other read/build/test commands | ALLOW |
 

@@ -61,13 +61,13 @@ deny	Bash	cat <<EOF\ndata\nEOF\ngit push
 # ── MCP tools ──
 deny	mcp__plugin_agentic-contributor_github__create	-
 deny	mcp__plugin_agentic-contributor_github__add_issue_comment	-
-# ── allowed: false positives fixed in 0.3.1 ──
-allow	Bash	cat > notes.md <<'EOF'\ngh api repos/o/r/issues\ngit push origin main\ngh pr create --title x\ncurl -X POST https://x\nEOF
-allow	Bash	cat > notes.md <<'EOF'\ngh api repos/o/r/issues -f title=t\nEOF
+# ── heredoc bodies are always checked (v0.3.1 skipping removed): outbound text denied ──
+deny	Bash	cat > notes.md <<'EOF'\ngh api repos/o/r/issues\ngit push origin main\ngh pr create --title x\ncurl -X POST https://x\nEOF
+deny	Bash	cat > notes.md <<'EOF'\ngh api repos/o/r/issues -f title=t\nEOF
 allow	Bash	cat > a.md <<'EOF'\ngh api repos/o/r/issues\nEOF\ngh api repos/o/r/pulls -f state=open -X GET
-allow	Bash	tee out.md <<'EOF'\ngit push origin main\nEOF
-allow	Bash	cat <<-'EOF' > x.md\n\tgit push\n\tEOF
-allow	Bash	cat > notes.md <<EOF\ngh pr create then -f x\nEOF
+deny	Bash	tee out.md <<'EOF'\ngit push origin main\nEOF
+deny	Bash	cat <<-'EOF' > x.md\n\tgit push\n\tEOF
+deny	Bash	cat > notes.md <<EOF\ngh pr create then -f x\nEOF
 allow	Bash	gh api graphql -f query='query { viewer { login } }'
 allow	Bash	gh api graphql -f query='query($owner:String!,$name:String!){ repository(owner:$owner,name:$name){ id } }' -f owner=o -f name=r
 allow	Bash	gh api graphql -F owner=o -f query='query { viewer { login } }'
@@ -107,7 +107,7 @@ deny	Bash	gh api graphql -f query=mu'tation'{x}
 deny	Bash	echo ok; gh api repos/o/r/issues -X POST
 allow	Bash	gh api graphql -f query='query { viewer { login } }'
 allow	Bash	gh api repos/o/r/issues -X GET -f 'q=a b'
-allow	Bash	cat > n.md <<'EOF'\ngh api -X POST -f a=b\ngit push\nEOF
+deny	Bash	cat > n.md <<'EOF'\ngh api -X POST -f a=b\ngit push\nEOF
 # ── review round 2: redirections and nested substitutions ──
 deny	Bash	gh api repos/o/r/issues > -- -X POST
 deny	Bash	gh api repos/o/r/issues >-- -X POST
@@ -122,3 +122,28 @@ allow	Bash	gh api repos/o/r/issues 2>&1 | head
 allow	Bash	echo "$(gh api repos/o/r/issues --jq "$(printf .)")"
 deny	Bash	echo \>& gh api repos/o/r/issues -X POST
 allow	Bash	gh api 2>/dev/null graphql -f 'query=query { viewer { login } }'
+deny	Bash	gh api repos/o/r/issues >| /dev/null -X POST
+allow	Bash	gh api repos/o/r/issues >| out.json
+deny	Bash	gh api graphql -f $'query=\155utation { addStar(input:{starrableId:"x"}) { starrable { id } } }'
+deny	Bash	cat > run.sh <<'EOF'\ngit push origin main\nEOF\nbash run.sh
+deny	Bash	cat > /tmp/d/run.sh <<'EOF'\ngit push origin main\nEOF\ncd /tmp/d && sh ./run.sh
+deny	Bash	cat > notes.md <<'EOF'\ngit push origin main\nEOF\necho done
+deny	Bash	cat > run.sh <<'EOF'\ngit push origin main\nEOF\nbash r*
+deny	Bash	cat > run.sh <<'EOF'\ngit push origin main\nEOF\nbash ru""n.sh
+deny	Bash	cat > run.sh <<'EOF'\ngit push origin main\nEOF\nfor f in ./*.sh; do bash $f; done
+deny	Bash	script=run.sh\ncat > run.sh <<'EOF'\ngit push origin main\nEOF\nbash "$script"
+deny	Bash	cat > cat <<'EOF'\ngit push origin main\nEOF\nbash ./cat
+deny	Bash	tee tee <<'EOF'\ngit push origin main\nEOF\nsh tee
+deny	Bash	cat > Makefile <<'EOF'\n\tgit push origin main\nEOF\nmake
+deny	Bash	cat > justfile <<'EOF'\ngit push origin main\nEOF\njust
+deny	Bash	cat > x.php <<'EOF'\ngit push origin main\nEOF\nphp x.php
+deny	Bash	cat > notes.md <<'EOF'\ngit push origin main\nEOF\necho "done"
+deny	Bash	cat > notes.md <<'EOF'\ngit push origin main\nEOF\n# saved notes
+deny	Bash	cat > notes.md <<'EOF'\ngit push origin main\nEOF\necho 'saved'\nls
+deny	Bash	cat > notes.md <<'EOF'\ngit push origin main\nEOF\necho "$(sh notes.md)"
+deny	Bash	cat > run.sh <<'EOF'\ngit push origin main\nEOF\necho "\n#"; sh r*
+deny	Bash	cat > Makefile <<'EOF'\nall:\n\tgit push\nEOF\nmake
+deny	Bash	cat > notes.md <<'EOF'\ngit push is mentioned here\nEOF
+allow	Bash	cat > notes.md <<'EOF'\nplain notes with no outbound commands\nEOF
+deny	Bash	echo hi # note \\\ngit push origin main
+allow	Bash	echo hi \\\n  there

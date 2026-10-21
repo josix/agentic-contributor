@@ -71,6 +71,72 @@ question with a proposed starting point, respectful and concise.
 
 ---
 
+## Review-reply & PR-description anti-patterns (lint rules)
+
+Used by `review-reply` lint mode. Each finding quotes the user's text, gives a severity
+(`fix-before-sending` or `consider`), and asks a question. Lint never rewrites the user's text.
+
+### AP1 — Summarises the diff instead of answering
+Detect: restates what changed but never addresses the reviewer's question or concern.
+Ask: "What was the reviewer's concern here, and where does this sentence answer it?"
+- Bad: "I updated `parse()`, renamed two variables and added a test."
+- Good: "You're right that a null input could reach `parse()`; I now return early and cover it in `test_parse_null`."
+
+### AP2 — Lists local commands that passed
+Detect: "ran cargo fmt / cargo test / pytest, all pass".
+Ask: "Which specific test covers the concern the reviewer raised?"
+- Bad: "Ran cargo fmt, cargo clippy and cargo test, all green."
+- Good: "`test_retry_on_timeout` now covers the case you described."
+
+### AP3 — Statement that does not fit the context
+Detect: mentions files, APIs, or behaviour not in the PR diff or thread.
+Ask: "Where in this PR or thread does that appear?"
+- Bad: "This also fixes the cache invalidation in `Scheduler.flush`." (not in the diff)
+- Good: "This only changes `Executor.run`; `Scheduler.flush` is untouched."
+
+### AP4 — Unanswered direct question
+Detect: the reviewer's comment contains `?` and the reply does not answer it.
+Ask: "The reviewer asked '…?'. Which sentence answers it?"
+- Bad: (reviewer: "Why not reuse `retry_utils`?") "Updated, thanks."
+- Good: "`retry_utils` swallows `OperationalError`, which we need to surface, so I kept a local loop."
+
+### AP5 — Claims a change that is not pushed
+Detect: "fixed", "done", "updated" where the referenced change is not on the remote PR branch.
+Commit timestamps do not establish push times (a fix committed before the comment may be pushed
+after it), so verify against the PR itself: check the PR's commit list or diff for the change.
+If only local or timestamp evidence exists, treat the result as inconclusive, not as a failure.
+Ask: "Which commit on the PR makes this change? I cannot confirm one touching `<path>` is pushed."
+- Bad: "Done." (no new commit)
+- Good: "Fixed in `abc1234`." (commit exists), or "I'll push that change shortly."
+
+### AP6 — Assistant boilerplate
+Detect: "You're absolutely right", filler "Great catch!", "I apologize for the oversight",
+"Certainly!", headers or bullet walls in a one-line answer.
+Ask: "Is this how you would say it to this reviewer?"
+- Bad: "Great catch! You're absolutely right, I apologize for the oversight."
+- Good: "Good point, I missed the empty-list case."
+
+### AP7 — Length out of proportion to the question
+Detect: a long reply to a short question, or several paragraphs for a nit.
+Ask: "Could the answer to this one-line comment fit in one or two sentences?"
+- Bad: Three paragraphs answering "nit: rename to `count`".
+- Good: "Renamed."  (when it is true and pushed)
+
+### AP8 — Leftover `TODO(you)` or empty send block
+Detect: `TODO(you)` remains inside an `oss:send` block, or the block is empty.
+Ask: "This reply is not written yet. Is it ready to send?" Severity: `fix-before-sending`.
+- Bad: `TODO(you): reply in your own words`
+- Good: the user's own sentences.
+
+### AP9 — AI co-author trailer or "Generated with…" footer (active from v0.5.0)
+Inactive until a policy profile exists (v0.5.0). Then it applies when
+`policy.coauthor_trailer_forbidden` is true or `policy.ai_policy` is not `none-found`.
+Ask: "This project's policy restricts AI attribution trailers. Do you want this footer here?"
+- Bad: "Co-Authored-By: Claude …" in a reply or PR description.
+- Good: no trailer, or the disclosure the project's policy asks for.
+
+---
+
 ## Reference
 
 Full guide: https://github.com/ryanhanwu/How-To-Ask-Questions-The-Smart-Way

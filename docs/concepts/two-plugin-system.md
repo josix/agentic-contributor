@@ -38,14 +38,26 @@ gh issue comment 8765 --repo apache/spark --body "Hi, I'd like to take this issu
 gh pr create --repo apache/spark --title "[SPARK-8765] Fix null pointer in SparkContext" --body "…"
 ```
 
-The execution plugin reads the draft body from the `.oss-drafts/` file (the `status: draft` frontmatter identifies it as pending), presents it for final confirmation, and marks it `status: sent` after posting. See [Draft Files](draft-files.md) for the frontmatter schema.
+The execution plugin reads the draft from the `.oss-drafts/` file (the `status: draft` frontmatter identifies it as pending), presents it for final confirmation, and marks it `status: sent` after posting. See [Draft Files](draft-files.md) for the frontmatter schema.
+
+### Body format contract (`body_format: 2`)
+
+From v0.4.0, draft-tier files contain private material (understanding briefs, lint findings) that must never be posted. The execution plugin must therefore:
+
+- Check the `body_format` frontmatter. If it is absent or `1`, the whole body is sendable (legacy behaviour).
+- If it is `2`, post **only** the text between `<!-- oss:send:start -->` and `<!-- oss:send:end -->`. Everything else, including the `## Private notes (not sent)` section, is never posted.
+- **Refuse to send** while any `TODO(you):` remains inside a send block, or when a send block is empty.
+- Show the exact send-block text for final confirmation before posting.
+
+**Required coordinated change:** the execution/submission plugin lives outside this repository and must adopt `body_format: 2` before the v0.4.0 release is used for posting. Until it does, it would post the private notes along with the reply.
 
 ## What This Plugin Covers
 
 All 9 `/oss` scenarios stay on the research-and-drafting side of the boundary:
 
 - **status, find, norms, setup** — read-only reports and guided walkthroughs saved to `.oss-drafts/`; no outbound text produced.
-- **clarify, claim, engage, review-reply** — labeled DRAFTs saved to `.oss-drafts/` and shown for review; never posted.
+- **clarify, claim, engage** — labeled DRAFTs saved to `.oss-drafts/` and shown for review; never posted.
+- **review-reply** — a private understanding brief and a lint of the reply you write; the reply itself is yours, never generated. Saved to `.oss-drafts/`, never posted.
 - **report** — a labeled DRAFT new-issue body (bug report or feature request) saved to `.oss-drafts/` and shown for review; actually filing the issue (e.g. `gh issue create`) belongs to the execution/submission plugin or the human.
 
 ## What This Plugin Does Not Cover

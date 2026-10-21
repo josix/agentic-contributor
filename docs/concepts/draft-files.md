@@ -66,6 +66,7 @@ repo: apache/airflow
 item: pr9876
 generated_at: 2026-06-11T14:30:00Z
 status: draft
+body_format: 2
 ---
 ```
 
@@ -77,9 +78,32 @@ status: draft
 | `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, or `issue-feature` |
 | `generated_at` | ISO-8601 UTC timestamp |
 | `status` | Always `draft` — change to `sent` once the execution plugin posts it |
+| `body_format` | Draft tier, v0.4.0+: `2` means only the `oss:send` block is sendable. Absent or `1` means legacy (whole body sendable) |
+| `mode` | `review-reply` only: `brief` (default) or `lint` |
 
 The `status: draft` field allows the separate execution/submission plugin to identify unreviewed
 drafts and prompt for confirmation before acting on them.
+
+## Body Format
+
+Draft-tier files (`body_format: 2`) split sendable text from private notes:
+
+```markdown
+<!-- oss:send:start -->
+…text you approve for posting…
+<!-- oss:send:end -->
+
+## Private notes (not sent)
+…understanding brief / lint findings / notes…
+```
+
+- Only the text between the markers is ever posted. Private notes are for you.
+- A `TODO(you):` inside a send block means the text is not ready; the execution plugin must refuse to send while it remains (and lint reports it as AP8).
+- Files with several independent messages (one reply per review comment) use one marker pair per message.
+- Files with no `body_format`, or `1`, are legacy: the whole body is sendable.
+- Report-tier files have no send block.
+
+This is a handoff contract with the execution plugin; see [Two-Plugin System](two-plugin-system.md).
 
 ## Two-Tier Review Protocol
 
@@ -99,7 +123,7 @@ draft), then shows verbatim:
 > **DRAFT — saved to `<path>`. Review and edit this file before sending.**
 > This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
 
-Then it asks you to review and modify the file before confirming.
+Then it asks you to review and modify the file before confirming. For `review-reply`, the chat shows the understanding brief and `TODO(you)` placeholders; you write the reply yourself in the send block.
 
 ## Gitignore-Ensure Behavior
 
@@ -137,8 +161,8 @@ file has not yet been acted on. When you are ready to send a reviewed draft:
 
 1. Open the file in your editor, make any final edits.
 2. Switch to the execution/submission plugin and point it at the draft file.
-3. The execution plugin reads the frontmatter (`repo`, `item`, `scenario`) to determine the
-   correct GitHub API action, then asks for your final confirmation before posting.
+3. The execution plugin reads the frontmatter (`repo`, `item`, `scenario`, `body_format`) to determine the
+   correct GitHub API action, posts only the `oss:send` block(s) when `body_format` is `2`, refuses while `TODO(you)` remains, and asks for your final confirmation before posting.
 4. After posting, the execution plugin updates `status: draft` → `status: sent`.
 
 See [Two-Plugin System](two-plugin-system.md) for the full boundary description.

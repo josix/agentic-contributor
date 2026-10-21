@@ -46,7 +46,7 @@ The script reads the tool-use JSON from stdin, extracts `tool_name` and `tool_in
 
 **Command-position safety:** Deny patterns for `git push` and `gh` subcommands use a shell regex that matches only at real command positions (start of string or after `;`, `|`, `&`, `&&`, `||`, `$(`, backtick, newline). This prevents false positives from strings like `echo "gh issue create"`.
 
-**Per-invocation and heredoc handling (v0.3.1):** `gh api` flags are evaluated per `gh api` invocation (the command is split into segments on newline, `;`, `|`, `&`, `(`, `)`, `$(` and backtick, ignoring separators inside quotes and dropping comments). Before the rules run, backslash-newline continuations are joined and a heredoc body is removed **only** when it is pure data: the consumer is `cat` or `tee`, nothing is piped or chained after the delimiter, the heredoc is terminated, and (for an unquoted delimiter) the body has no `$(` or backtick. Bodies fed to `bash`, `sh`, `zsh`, `eval`, `xargs`, `ssh`, `python`, `node` or anything else are still checked, so `bash <<EOF` with `git push` inside is denied. Heredocs nested in `$( )`, `<( )`, `( )` or backticks are never dropped. `gh api` options are parsed from unquoted tokens, and if segmentation fails a `gh api` command is denied. Any other preprocessing failure falls back to the raw command. Regression tests: `bash hooks/tests/run-guard-tests.sh`.
+**Per-invocation handling (v0.3.1) and heredoc bodies (v0.4.0):** `gh api` flags are evaluated per `gh api` invocation (the command is split into segments on newline, `;`, `|`, `&`, `(`, `)`, `$(` and backtick, ignoring separators inside quotes and dropping comments). Before the rules run, backslash-newline continuations are joined. Heredoc bodies are **always checked** as ordinary lines (the v0.3.1 heredoc-body skipping was removed in v0.4.0 because `cat > run.sh <<'EOF' ... EOF` followed by `sh run.sh` could execute a script the guard never saw). A note whose heredoc text mentions an outbound command is therefore denied; use the Write tool to create such files. `gh api` options are parsed from unquoted tokens, and if segmentation fails a `gh api` command is denied. Any other preprocessing failure falls back to the raw command. Regression tests: `bash hooks/tests/run-guard-tests.sh`.
 
 ## Deny / Allow Matrix
 
@@ -97,7 +97,7 @@ Everything not matched by a deny pattern:
 - `gh api repos/…` (plain GET, no write flags)
 - `gh api graphql -f query='query {…}'` (read-only query: no `mutation`, no `=@file`, no `--input`)
 - `gh api -X GET search/issues -f q=…` (explicit GET; fields are query parameters)
-- Commands whose heredoc body is only data, e.g. `cat > notes.md <<'EOF' … EOF`, even if the text mentions `gh api` or `git push`
+- Heredocs whose body contains no outbound command text, e.g. `cat > notes.md <<'EOF' … EOF` with plain notes (a body that mentions `git push` or `gh pr create` is denied; use the Write tool)
 - `gh auth status`
 - Build/test commands: `mvn`, `gradle`, `pytest`, `npm test`, `./breeze`, etc.
 - `cat`, `grep`, `find`, `jq`, and other read-only shell commands

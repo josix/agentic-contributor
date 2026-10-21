@@ -107,6 +107,7 @@ nav:
       - Draft Files: concepts/draft-files.md
       - Draft-Only Guardrail: concepts/draft-only-guardrail.md
       - Two-Plugin System: concepts/two-plugin-system.md
+      - Maintainer-Friendly Contributing: concepts/maintainer-friendly-contributing.md
   - Guides:
       - Using /oss: guides/using-oss.md
       - GitHub Access (MCP & gh): guides/github-access.md

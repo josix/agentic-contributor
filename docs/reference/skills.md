@@ -8,7 +8,7 @@ The six skills in the `agentic-contributor` plugin. Each skill is a domain-exper
 |---|---|---|
 | `oss-scenario-routing` | Always (Step 2 of `/oss`) | Classifies intent into one of the 9 scenarios |
 | `issue-matching` | find | Contributor intake, heuristic scoring, ranked shortlist |
-| `smart-questions` | clarify, claim, engage, review-reply | DRAFT-ONLY contract for outbound-text scenarios 5–8 |
+| `smart-questions` | clarify, claim, engage, review-reply | DRAFT-ONLY contract for outbound-text scenarios 5–8; review-reply is brief + lint, never ghostwritten |
 | `contribution-norms` | norms | Surfaces CONTRIBUTING, CLA/DCO, PR conventions, governance |
 | `dev-env-setup` | setup | Step-by-step guided local dev environment |
 | `issue-drafting` | report | DRAFT-ONLY new issue (bug report or feature request) with pre-flight duplicate search and ISSUE_TEMPLATE application |
@@ -49,7 +49,7 @@ The six skills in the `agentic-contributor` plugin. Each skill is a domain-exper
 
 ## `smart-questions`
 
-**Trigger phrases:** "draft a question to maintainers", "I want to ask about this issue", "draft PR feedback", "help me review this PR", "draft a review reply", "respond to maintainer feedback", "draft a claim comment", "I want to take this issue".
+**Trigger phrases:** "draft a question to maintainers", "I want to ask about this issue", "draft PR feedback", "help me review this PR", "draft a review reply", "respond to maintainer feedback", "check my reply", "lint my reply", "draft a claim comment", "I want to take this issue".
 
 **What it provides:**
 
@@ -64,7 +64,7 @@ Four scenario-specific procedures:
 |---|---|---|
 | **A — clarify** | Draft questions for maintainers | Summarizes what is already known; drafts specific, research-first questions with source citations |
 | **B — engage** | Draft feedback on someone's PR | Scoped to the actual diff; identifies the most useful contribution based on PR state |
-| **C — review-reply** | Draft replies to review comments on your PR | Acknowledges feedback, states action or rationale, stays concise, never fabricates changes |
+| **C — review-reply** | Understanding brief per review comment, then lint of the reply you write | Brief mode: quoted comment, code, likely concern, commit mapping, self-questions, `TODO(you)` placeholder (no prose reply). Lint mode: AP1-AP9 findings as quoted spans + questions, never rewrites. Translates/tidies only your own text, no new claims |
 | **D — claim** | Draft a claim comment | Only proceeds if `oss-claim-analyst` returns "free to take"; 3–5 sentences; follows project's preferred claiming mechanism |
 
 **References:** `skills/smart-questions/SKILL.md`, `skills/smart-questions/references/smart-questions-principles.md`

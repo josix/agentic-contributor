@@ -110,14 +110,20 @@ The `issue-matching` skill runs a 5-question intake, directs `oss-researcher` to
 
 ### Scenario 8 — review-reply
 
-**Intent signals:** "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review"
+**Intent signals:** "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review"; to lint your own reply: "check my reply", "lint my reply"
 
 **Example:**
 ```
 /oss help me respond to the review on my apache/spark PR #4321
 ```
 
-`oss-researcher` fetches the review comments on your PR. The `smart-questions` skill (Scenario C) drafts a reply per comment: acknowledges the feedback, states what was changed or explains the disagreement, stays concise, and does not fabricate changes. It may also produce a combined reply for thematically grouped comments and an optional change-summary comment. The orchestrator saves the draft to `.oss-drafts/review-reply-<owner>-<repo>-pr<N>-<UTC>.md` and shows the mandatory draft notice.
+The plugin does not write your reply. Maintainers increasingly reject AI-generated review replies, so this scenario helps you understand the feedback and checks the reply you write. The flow is brief, write, lint:
+
+1. **Brief.** `oss-researcher` fetches the review comments (with the diff hunk and timestamp) and the PR's commits. The `smart-questions` skill (Scenario C) writes a private understanding brief per comment: the quoted comment, the code at that line, the likely concern, project conventions, which commits since the comment touch that file, and two or three questions to ask yourself. Each send block contains only `TODO(you): reply in your own words`. The orchestrator saves it to `.oss-drafts/review-reply-<owner>-<repo>-pr<N>-<UTC>.md` and shows the mandatory draft notice.
+2. **Write.** Open the file and write your reply in your own words inside the `oss:send` block. If you wrote rough notes or text in another language, you can ask the plugin to translate or tidy that text; it adds no new claims.
+3. **Lint.** Run `/oss check my reply in .oss-drafts/review-reply-<…>.md`. The plugin reads your send blocks and adds a Lint section to the private notes: findings (AP1-AP9) with the quoted span and a question, and a pass/fail summary. It never edits your text. Fix what you agree with and re-run.
+
+Only the `oss:send` block is ever posted; the brief and lint findings stay in the private notes.
 
 ---
 

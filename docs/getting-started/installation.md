@@ -68,7 +68,7 @@ Run these checks before your first `/oss` command:
 # 1. plugin.json is valid JSON and version matches marketplace.json
 jq .version /path/to/agentic-contributor/.claude-plugin/plugin.json
 jq '.plugins[0].version' /path/to/agentic-contributor/.claude-plugin/marketplace.json
-# Both should print "0.3.0"
+# Both should print "0.4.0"
 
 # 2. marketplace.json parses cleanly
 jq . /path/to/agentic-contributor/.claude-plugin/marketplace.json

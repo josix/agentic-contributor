@@ -13,7 +13,7 @@ Canonical 9-scenario table with full detail: intent signals, skill, agent, data 
 | 5 | **clarify** | "draft a question", "ask the maintainer", "clarify the issue", "what does this issue mean", "I don't understand the design" | `smart-questions` (Scenario A) | `oss-researcher` | Issue thread, linked docs | DRAFT questions | `.oss-drafts/clarify-…` |
 | 6 | **claim** | "claim an issue", "can I take this", "is this issue free", "I want to work on #N" | `smart-questions` (Scenario D) | `oss-claim-analyst`; `oss-researcher` on engage branch | Issue details, assignees, linked PRs | Verdict + DRAFT claim comment; or auto-switch to engage | `.oss-drafts/claim-…` |
 | 7 | **engage** | "give feedback on a PR", "help with someone's PR", "comment on PR", "review an in-progress PR", "there's a linked PR" | `smart-questions` (Scenario B) | `oss-researcher` | PR diff, CI status, comment thread | DRAFT feedback comment | `.oss-drafts/engage-…` |
-| 8 | **review-reply** | "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review" | `smart-questions` (Scenario C) | `oss-researcher` | PR review comments | DRAFT review replies | `.oss-drafts/review-reply-…` |
+| 8 | **review-reply** | "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review" | `smart-questions` (Scenario C) | `oss-researcher` | PR review comments | Understanding brief + lint of your reply (you write the reply) | `.oss-drafts/review-reply-…` |
 | 9 | **report** | "report a bug", "file an issue", "draft a bug report", "draft a feature request", "propose a feature", "write up a new issue" | `issue-drafting` | `oss-researcher` | ISSUE_TEMPLATE files + issue search results | DRAFT new issue (bug/feature) | `.oss-drafts/report-…` |
 
 All outputs are saved as editable markdown files in `.oss-drafts/` in the user's working
@@ -54,7 +54,7 @@ No skill is loaded. `oss-researcher` returns findings directly as a timestamped 
 
 ### Scenario 8 — review-reply
 
-`smart-questions` (Scenario C): one reply draft per review comment. Thematically grouped comments may be addressed in a combined reply. An optional change-summary comment is offered, recapping how the review round was addressed. Replies acknowledge feedback, state what was changed or explain the disagreement, stay concise, and assume good faith. The orchestrator saves the draft to `.oss-drafts/review-reply-<owner>-<repo>-pr<N>-<UTC>.md` and shows the mandatory draft-tier notice.
+`smart-questions` (Scenario C) never writes the reply for you. In **brief mode** (default) it produces a private per-comment understanding brief (the quoted comment, the code at that line, the likely concern, project conventions, a commit-to-comment mapping, and questions to ask yourself), optional bullet-only talking points, and a `TODO(you): reply in your own words` placeholder inside each `oss:send` block. It will translate or tidy text you wrote yourself on request, adding no new claims. In **lint mode** ("check my reply", "lint my reply") it reads your send blocks and reports anti-pattern findings (AP1-AP9) as quoted spans with questions, without rewriting your text. The commit recap "change-summary comment" is no longer produced. See [Maintainer-Friendly Contributing](../concepts/maintainer-friendly-contributing.md). The orchestrator saves the draft to `.oss-drafts/review-reply-<owner>-<repo>-pr<N>-<UTC>.md` and shows the mandatory draft-tier notice.
 
 ### Scenario 9 — report
 

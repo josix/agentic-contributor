@@ -1,0 +1,55 @@
+# Maintainer-Friendly Contributing
+
+Why `/oss` helps you understand and write, instead of writing for you.
+
+## The problem
+
+Maintainers are flooded with plausible-looking but low-effort contributions. Several projects now
+state policies against AI-generated communication (for example the Apache DataFusion AI policy
+rejects AI-generated review replies), and the "meat proxy" critique names the failure mode: a human
+relaying a model's words without understanding them. It wastes the reviewer's time and erodes trust.
+
+The same policies generally allow AI help with *understanding* and *translation*. This plugin sits
+on that line.
+
+## What the plugin does
+
+- **Helps you understand.** For each review comment, `review-reply` builds a private brief: the
+  quoted comment, the code at that line, the likely concern, project conventions, which commits
+  since the comment touch that file, and questions to ask yourself.
+- **Leaves the reply to you.** The send block holds only `TODO(you): reply in your own words`.
+  There is no option to generate a full reply.
+- **Checks your words.** Lint mode runs the anti-pattern rules (AP1-AP9) over what you wrote and
+  asks questions about quoted spans. It never rewrites your text.
+- **Translates or tidies only your own text**, on request, adding no new claims.
+
+## Anti-patterns checked
+
+| ID | Pattern |
+|----|---------|
+| AP1 | Summarises the diff instead of answering |
+| AP2 | Lists local commands that passed |
+| AP3 | Statement that does not fit the PR or thread |
+| AP4 | Unanswered direct question |
+| AP5 | Claims a change that is not pushed |
+| AP6 | Assistant boilerplate ("You're absolutely right", "Great catch!") |
+| AP7 | Length out of proportion to the question |
+| AP8 | Leftover `TODO(you)` or empty send block |
+| AP9 | AI co-author trailer or "Generated with" footer (active once a policy profile exists, planned v0.5.0) |
+
+Bad/good examples for each rule are in `skills/smart-questions/references/smart-questions-principles.md`.
+
+## Sendable vs private
+
+Draft files separate the text you may post (inside `oss:send` markers) from private notes. The
+execution plugin posts only the send block and refuses while `TODO(you)` remains. See
+[Draft Files](draft-files.md#body-format) and [Two-Plugin System](two-plugin-system.md).
+
+## Still draft-only
+
+Nothing here posts anything. The plugin saves files under `.oss-drafts/`; sending belongs to the
+separate execution plugin and to you.
+
+---
+
+[Back to docs index](../index.md) | Related: [Draft Files](draft-files.md) | [Two-Plugin System](two-plugin-system.md) | [Using /oss](../guides/using-oss.md)

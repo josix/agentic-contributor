@@ -25,7 +25,7 @@ the nine scenarios below, then route to the correct skill and subagent.
 | 5 | **clarify** | "draft a question", "ask the maintainer", "clarify the issue", "what does this issue mean", "I don't understand the design" | `smart-questions` | `oss-researcher` | DRAFT questions saved to `.oss-drafts/` (review-before-send) |
 | 6 | **claim** | "claim an issue", "can I take this", "is this issue free", "I want to work on #N" | `smart-questions` | `oss-claim-analyst` | Claim assessment + DRAFT claim comment saved to `.oss-drafts/` |
 | 7 | **engage** | "give feedback on a PR", "help with someone's PR", "comment on PR", "review an in-progress PR", "there's a linked PR" | `smart-questions` | `oss-researcher` | DRAFT feedback comment saved to `.oss-drafts/` |
-| 8 | **review-reply** | "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review" | `smart-questions` | `oss-researcher` | DRAFT review replies saved to `.oss-drafts/` |
+| 8 | **review-reply** | "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review"; lint mode: "check my reply", "lint my reply", "review my draft reply" | `smart-questions` | `oss-researcher` (skipped in lint mode unless commit data is needed) | Per-comment understanding brief + `TODO(you)` placeholders (brief mode) or a Lint section for your own reply (lint mode), saved to `.oss-drafts/` |
 | 9 | **report** | "report a bug", "file an issue", "draft a bug report", "draft a feature request", "propose a feature", "write up a new issue" | `issue-drafting` | `oss-researcher` | DRAFT new issue (bug/feature) saved to `.oss-drafts/` |
 
 ## Classification Rules
