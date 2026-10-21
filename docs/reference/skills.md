@@ -1,18 +1,20 @@
 # Skills Reference
 
-The seven skills in the `agentic-contributor` plugin. Each skill is a domain-expertise module loaded by the `/oss` command after scenario classification.
+The 9 skills in the `agentic-contributor` plugin. Each skill is a domain-expertise module loaded by the `/oss` command after scenario classification.
 
 ## Overview
 
 | Skill | Trigger scenario | Purpose |
 |---|---|---|
-| `oss-scenario-routing` | Always (Step 2 of `/oss`) | Classifies intent into one of the 9 scenarios |
+| `oss-scenario-routing` | Always (Step 2 of `/oss`) | Classifies intent into one of the 10 scenarios |
 | `issue-matching` | find | Contributor intake, heuristic scoring, track-record-first ranked shortlist, policy-reserved footer |
 | `contributor-readiness` | claim, find | Advisory, private self-check of how maintainers will likely see your PR (open PRs vs cap, merged PRs, account age, vouch) |
-| `smart-questions` | clarify, claim, engage, review-reply | DRAFT-ONLY contract for outbound-text scenarios 5–8; review-reply is brief + lint, never ghostwritten |
+| `smart-questions` | clarify, claim, engage, review-reply | DRAFT-ONLY contract for outbound-text scenarios 5–8 (prepare-pr uses `pr-preparation`); review-reply is brief + lint, never ghostwritten |
 | `contribution-norms` | norms | Surfaces CONTRIBUTING, CLA/DCO, PR conventions, governance |
 | `dev-env-setup` | setup | Step-by-step guided local dev environment |
 | `issue-drafting` | report | DRAFT-ONLY new issue (bug report or feature request) with pre-flight duplicate search and ISSUE_TEMPLATE application |
+| `pr-preparation` | prepare-pr | Size and shape check and a problem-first PR description scaffold you complete; never pushes or opens a PR |
+| `change-debrief` | prepare-pr (`mode: debrief`) | Private walkthrough of what changed, why, and impact, with explain-back questions; never PR text |
 
 ---
 
@@ -21,12 +23,12 @@ The seven skills in the `agentic-contributor` plugin. Each skill is a domain-exp
 **Trigger phrases:** "find an issue to contribute", "check project status", "draft a question to maintainers", "understand contribution norms", "set up the project locally", "claim an issue", "give feedback on a PR", "respond to PR review", and close variants.
 
 **What it provides:**
-- Matches `$ARGUMENTS` against 9 scenario intent signals. The first strong match wins.
+- Matches `$ARGUMENTS` against 10 scenario intent signals. The first strong match wins.
 - If no strong match: presents the scenario menu and asks one clarifying question (maximum one question before classifying and proceeding).
 - Specifies the skill and subagent to load/dispatch for the classified scenario.
 - Handles the claim→engage branch: if `oss-claim-analyst` returns "appears already claimed", the skill directs a switch to the **engage** scenario.
-- Enforces the DRAFT-ONLY rule for all 9 scenarios: report tier (1–4) saves to `.oss-drafts/` and shows a "Saved to…" notice; draft tier (5–9) additionally presents the draft in chat with the canonical draft notice.
-- Confirms that none of the 9 scenarios ever trigger write actions toward GitHub.
+- Enforces the DRAFT-ONLY rule for all 10 scenarios: report tier (1–4) saves to `.oss-drafts/` and shows a "Saved to…" notice; draft tier (5–10) additionally presents the draft in chat with the canonical draft notice.
+- Confirms that none of the 10 scenarios ever trigger write actions toward GitHub.
 
 **References:** `skills/oss-scenario-routing/SKILL.md`
 
@@ -162,3 +164,33 @@ Missing evidence is always marked with `TODO:` placeholders; required fields are
 ---
 
 [Back to docs index](../index.md) | Related: [Agents](agents.md) | [Commands](commands.md) | [Scenarios](scenarios.md) | [Draft Files](../concepts/draft-files.md)
+
+---
+
+## `pr-preparation`
+
+**Trigger phrases:** "prepare a PR", "get my PR ready", "draft a PR description", "open a PR for", "submit a fix for", "I have a patch", "send a PR".
+
+**What it provides:**
+- A DRAFT-ONLY contract: the plugin never pushes, opens a PR, edits code, or runs tests; local git reads only (`git diff`, `git log`, `git merge-base`, `git remote -v`).
+- Pre-flight: policy block, readiness, issue-first check, PR template fetch, duplicate open-PR search, remote/base check.
+- Size and shape check: more than 400 changed lines or 10 files (unless CONTRIBUTING says otherwise), mixed concerns, lockfile noise, split advice.
+- A problem-first description scaffold in an `oss:send` block: Why this approach, What changed, and Unknowns & assumptions are `TODO(you)`; "How it's tested" names tests, never commands that passed.
+- Disclosure text when policy requires it, and advice (never rewrites) on AI co-author trailers when forbidden.
+- Lint mode using the AP1-AP9 rules.
+
+**References:** `skills/pr-preparation/SKILL.md`, `skills/smart-questions/references/smart-questions-principles.md`
+
+---
+
+## `change-debrief`
+
+**Trigger phrases:** "help me understand what I changed", "debrief my change", "what did the agent change".
+
+**What it provides:**
+- A private, read-only debrief of a local change, saved to `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md` with no send block, never formatted as PR text.
+- Changes grouped by purpose with `file:line`; each traced to the issue, a commit message, or an agent transcript (opt-in only); untraceable changes flagged "unexplained, possibly out of scope".
+- The agent's implicit decisions, impact (callers, API/config, compatibility, test coverage), every statement marked evidenced or inferred.
+- 2-3 explain-back questions and an Unknowns list that seeds the PR description and the `review-reply` brief.
+
+**References:** `skills/change-debrief/SKILL.md`

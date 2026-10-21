@@ -10,8 +10,8 @@ The file is written by the orchestrator using the Write tool immediately after t
 skill have produced their output. You can open and edit the file in any text editor before
 deciding what to do with it.
 
-This applies to all 9 scenarios — both read-only report scenarios (1–4) and outbound-text draft
-scenarios (5–9).
+This applies to all 10 scenarios — both read-only report scenarios (1–4) and outbound-text draft
+scenarios (5–10).
 
 ## Output Directory
 
@@ -33,10 +33,10 @@ The directory is created automatically on the first write.
 
 | Part | Description | Example |
 |------|-------------|---------|
-| `scenario` | One of: `status`, `find`, `norms`, `setup`, `clarify`, `claim`, `engage`, `review-reply`, `report` | `engage` |
+| `scenario` | One of: `status`, `find`, `norms`, `setup`, `clarify`, `claim`, `engage`, `review-reply`, `report`, `prepare-pr` | `engage` |
 | `owner` | Repository owner (slashes in `owner/repo` become `-`) | `apache` |
 | `repo` | Repository name | `airflow` |
-| `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, or `issue-feature` | `pr9876` |
+| `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, or `debrief` | `pr9876` |
 | `UTC` | Timestamp in `YYYYMMDDThhmmssZ` format | `20260611T143000Z` |
 
 **Examples:**
@@ -53,6 +53,8 @@ The directory is created automatically on the first write.
 | review-reply PR #4321 in apache/spark | `.oss-drafts/review-reply-apache-spark-pr4321-20260611T143000Z.md` |
 | report bug in apache/airflow | `.oss-drafts/report-apache-airflow-issue-bug-20260612T100000Z.md` |
 | report feature request in apache/spark | `.oss-drafts/report-apache-spark-issue-feature-20260612T100000Z.md` |
+| prepare-pr for issue #1234 in apache/datafusion | `.oss-drafts/prepare-pr-apache-datafusion-issue1234-20260612T100000Z.md` |
+| prepare-pr debrief in apache/datafusion | `.oss-drafts/prepare-pr-apache-datafusion-debrief-20260612T100000Z.md` |
 
 ## Frontmatter
 
@@ -73,16 +75,17 @@ body_format: 2
 | Field | Value |
 |-------|-------|
 | `plugin` | Always `agentic-contributor` |
-| `scenario` | The scenario key (`status`, `find`, `norms`, `setup`, `clarify`, `claim`, `engage`, `review-reply`, `report`) |
+| `scenario` | The scenario key (`status`, `find`, `norms`, `setup`, `clarify`, `claim`, `engage`, `review-reply`, `report`, `prepare-pr`) |
 | `repo` | `owner/repo` (with slash, not hyphen) |
-| `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, or `issue-feature` |
+| `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, or `debrief` |
 | `generated_at` | ISO-8601 UTC timestamp |
 | `status` | Always `draft` — change to `sent` once the execution plugin posts it |
 | `body_format` | Draft tier, v0.4.0+: `2` means only the `oss:send` block is sendable. Absent or `1` means legacy (whole body sendable) |
-| `mode` | `review-reply` only: `brief` (default) or `lint` |
+| `mode` | `review-reply`: `brief` (default) or `lint`. `prepare-pr`: `debrief`, `draft` (default), or `lint` |
+| `base`, `head`, `diff_stats` | v0.7.0+, `prepare-pr` only: the refs diffed and `{files, insertions, deletions}` |
 | `policy` | v0.5.0+, `find`, `norms`, and draft-tier scenarios: the project's detected AI-policy and contribution-limit block (see below) |
-| `readiness_login` | v0.6.0+, `claim` and `find`: the GitHub login the readiness check used (absent when skipped) |
-| `readiness` | v0.6.0+, `claim` and `find`: `{open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}`; `unknown` for anything not read. Advisory; also shown in private notes, never in a send block |
+| `readiness_login` | v0.6.0+, `claim`, `find`, and `prepare-pr`: the GitHub login the readiness check used (absent when skipped) |
+| `readiness` | v0.6.0+, `claim`, `find`, and `prepare-pr`: `{open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}`; `unknown` for anything not read. Advisory; also shown in private notes, never in a send block |
 | `routed_from` | v0.5.0+, only when a PR-intent request was rerouted to `report` (issue-first); names the original scenario |
 
 The `status: draft` field allows the separate execution/submission plugin to identify unreviewed
@@ -142,7 +145,7 @@ After saving the file, the orchestrator shows:
 
 Then it presents a brief summary in chat and asks if you want to take any next step.
 
-### Draft tier (scenarios 5–9: clarify, claim, engage, review-reply, report)
+### Draft tier (scenarios 5–10: clarify, claim, engage, review-reply, report, prepare-pr)
 
 After saving the file, the orchestrator presents the complete draft in chat (clearly labelled as a
 draft), then shows verbatim:
@@ -150,7 +153,7 @@ draft), then shows verbatim:
 > **DRAFT — saved to `<path>`. Review and edit this file before sending.**
 > This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
 
-Then it asks you to review and modify the file before confirming. For `review-reply`, the chat shows the understanding brief and `TODO(you)` placeholders; you write the reply yourself in the send block.
+Then it asks you to review and modify the file before confirming. For `review-reply`, the chat shows the understanding brief and `TODO(you)` placeholders; you write the reply yourself in the send block. For `prepare-pr`, the send block is a problem-first scaffold whose Why, What changed, and Unknowns sections are `TODO(you)`; debrief mode writes a private file with no send block.
 
 ## Gitignore-Ensure Behavior
 

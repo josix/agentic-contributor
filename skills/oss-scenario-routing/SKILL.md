@@ -2,17 +2,17 @@
 name: oss-scenario-routing
 description: >
   This skill should be used when the orchestrator needs to classify a user's open-source
-  contribution intent into one of the nine supported scenarios. Trigger phrases include:
+  contribution intent into one of the ten supported scenarios. Trigger phrases include:
   "find an issue to contribute", "check project status", "draft a question to maintainers",
   "understand contribution norms", "set up the project locally", "claim an issue",
   "give feedback on a PR", "respond to PR review", "draft a bug report", "file a new issue",
-  "propose a feature", and close variants of each.
+  "propose a feature", "prepare a PR", "help me understand what I changed", and close variants of each.
 ---
 
 # OSS Scenario Routing
 
 Classify the user's intent from `$ARGUMENTS` (or from the clarifying answer) into exactly one of
-the nine scenarios below, then route to the correct skill and subagent.
+the ten scenarios below, then route to the correct skill and subagent.
 
 ## Scenario Catalog
 
@@ -27,6 +27,7 @@ the nine scenarios below, then route to the correct skill and subagent.
 | 7 | **engage** | "give feedback on a PR", "help with someone's PR", "comment on PR", "review an in-progress PR", "there's a linked PR" | `smart-questions` | `oss-researcher` | DRAFT feedback comment saved to `.oss-drafts/` |
 | 8 | **review-reply** | "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review"; lint mode: "check my reply", "lint my reply", "review my draft reply" | `smart-questions` | `oss-researcher` (skipped in lint mode unless commit data is needed) | Per-comment understanding brief + `TODO(you)` placeholders (brief mode) or a Lint section for your own reply (lint mode), saved to `.oss-drafts/` |
 | 9 | **report** | "report a bug", "file an issue", "draft a bug report", "draft a feature request", "propose a feature", "write up a new issue" | `issue-drafting` | `oss-researcher` | DRAFT new issue (bug/feature) saved to `.oss-drafts/` |
+| 10 | **prepare-pr** | "prepare a PR", "get my PR ready", "draft a PR description", "open a PR for", "submit a fix for", "I have a patch", "send a PR"; debrief mode: "help me understand what I changed", "debrief my change", "what did the agent change" | `pr-preparation` (+ `change-debrief` in debrief mode, `contributor-readiness`) | `oss-researcher` (PR template, duplicate PRs, issue body) plus local read-only git by the orchestrator | Size check + problem-first PR description scaffold with `TODO(you)` sections (draft mode), or a private change debrief with no PR text (`mode: debrief`), saved to `.oss-drafts/` |
 
 ## Classification Rules
 
@@ -35,12 +36,15 @@ To classify the user's intent:
 1. Match the `$ARGUMENTS` text against the intent signals column (exact phrases, close synonyms,
    or paraphrases). The first strong match wins.
 2. If no strong match is found, ask **one** clarifying question: present the scenario menu
-   (numbered list of the 9 scenarios) and ask the user which applies.
+   (numbered list of the 10 scenarios) and ask the user which applies.
 3. Never ask more than one clarifying question. After the answer, classify and proceed.
 4. **PR intent** ("open a PR for...", "submit a fix for...", "I have a patch...", "send a PR")
    with no issue number or URL triggers the policy preflight (Step 3a in `commands/oss.md`)
    **before** final routing. This is the only place routing is policy-aware; see the Issue-First
    Branch below.
+5. **Debrief signals** ("help me understand what I changed", "debrief my change", "what did the
+   agent change") route to scenario 10 with `mode: debrief`. This is an entry mode of `prepare-pr`,
+   not an 11th scenario.
 
 ### Claim → Engage Branch
 
@@ -54,14 +58,17 @@ After dispatching `oss-claim-analyst` for the **claim** scenario:
 
 ### Issue-First Branch
 
-Mirrors the claim → engage branch. For PR intent with no issue reference, after the policy
-preflight:
+Mirrors the claim → engage branch. For PR intent, after the policy preflight:
 
-- `policy.issue_first` is `required` or `recommended`: switch to **report** (load `issue-drafting`),
-  notify the user why and quote the policy source, and set `routed_from: <scenario>` in the draft
-  frontmatter. The user is never blocked: if they say they want to continue with the PR anyway,
-  say no PR scenario exists yet and offer the scenarios that do.
-- `policy.issue_first` is `unknown`: routing is unchanged; present the scenario menu as usual.
+- An issue number or URL is given: route to **prepare-pr**.
+- No issue reference and `policy.issue_first` is `required`: switch to **report** (load
+  `issue-drafting`), notify the user why and quote the policy source, and set
+  `routed_from: prepare-pr` in the draft frontmatter. The user is never blocked: if they say they
+  want to continue with the PR anyway, continue with **prepare-pr** (`item: pr-new`) and lead
+  Private notes with the warning.
+- No issue reference and `policy.issue_first` is `recommended`: route to **prepare-pr**, with a
+  leading warning in Private notes suggesting an issue first.
+- No issue reference and `policy.issue_first` is `unknown`: route to **prepare-pr** (`pr-new`).
 - This adds no clarifying question; the 1-question limit still holds.
 
 ## Routing Steps
@@ -77,7 +84,7 @@ Once the scenario is classified, the `/oss` command must:
 
 ## DRAFT-ONLY Rule
 
-All 9 scenarios save their output to `.oss-drafts/` in the user's working directory. The
+All 10 scenarios save their output to `.oss-drafts/` in the user's working directory. The
 orchestrator uses the Write tool to persist the file; subagents remain read-only.
 
 ### Report tier (scenarios 1–4)
@@ -88,7 +95,7 @@ The orchestrator saves the output file and shows:
 
 These scenarios never produce outbound text and never trigger any write action toward GitHub.
 
-### Draft tier (scenarios 5–9)
+### Draft tier (scenarios 5–10)
 
 The orchestrator saves the draft file and shows the complete draft in chat, then adds:
 

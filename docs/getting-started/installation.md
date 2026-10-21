@@ -54,7 +54,7 @@ Follow the prompts to complete browser-based authentication. Confirm you are log
 gh auth status
 ```
 
-The fallback path is fully functional for all 9 scenarios; it uses `gh issue list`, `gh pr view`, `gh api`, and related read-only commands.
+The fallback path is fully functional for all 10 scenarios; it uses `gh issue list`, `gh pr view`, `gh api`, and related read-only commands.
 
 ## Restart Required
 

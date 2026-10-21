@@ -29,6 +29,7 @@ You are the single entry point for all OSS contribution tasks in this plugin.
 | 7 | **engage** | DRAFT feedback on someone else's in-progress PR |
 | 8 | **review-reply** | Per-comment understanding brief + lint of your own reply (you write the reply) |
 | 9 | **report** | DRAFT new bug report or feature request |
+| 10 | **prepare-pr** | Change debrief, size check, and a problem-first PR description scaffold you complete (never opens a PR) |
 
 ---
 
@@ -41,27 +42,31 @@ All scenario outputs are saved to `.oss-drafts/` in the user's current working d
 **Naming:** `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`
 
 - `owner/repo` slashes become `-` (e.g. `apache-airflow`)
-- `item` is `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, etc.
+- `item` is `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, `debrief`, etc.
 - UTC timestamp in `YYYYMMDDThhmmssZ` format (e.g. `20260611T143000Z`)
 - Example: `.oss-drafts/engage-apache-airflow-pr9876-20260611T143000Z.md`
 - Example (report): `.oss-drafts/report-apache-airflow-issue-bug-20260612T100000Z.md`
+- Example (prepare-pr): `.oss-drafts/prepare-pr-apache-datafusion-issue1234-20260612T100000Z.md`; debrief mode: `.oss-drafts/prepare-pr-apache-datafusion-debrief-20260612T100000Z.md`
 
 **Frontmatter** (include at the top of every draft file):
 
 ```yaml
 ---
 plugin: agentic-contributor
-scenario: <scenario-key>  # status|find|norms|setup|clarify|claim|engage|review-reply|report
+scenario: <scenario-key>  # status|find|norms|setup|clarify|claim|engage|review-reply|report|prepare-pr
 repo: <owner/repo>
-item: <issueN|prN|status|find|norms|setup|issue-bug|issue-feature>
+item: <issueN|prN|status|find|norms|setup|issue-bug|issue-feature|pr-new|debrief>
 generated_at: <ISO-8601 UTC>
 status: draft
 body_format: 2            # draft tier only; omit on report tier. 1 or absent = legacy (whole body sendable)
-mode: <brief|lint>        # review-reply only
-policy: {...}             # find + scenarios 5-9 (and norms): the policy block, see Step 3a; includes fetched_at
+mode: <brief|lint|debrief|draft>  # review-reply: brief|lint; prepare-pr: debrief|draft|lint
+policy: {...}             # find + scenarios 5-10 (and norms): the policy block, see Step 3a; includes fetched_at
 routed_from: <scenario>   # only when a PR-intent request was rerouted to report (issue-first)
-readiness_login: <login>  # claim + find (+ engage when switched from claim): login the readiness check used (omit if skipped)
-readiness: {...}          # claim + find (+ engage when switched from claim): {open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}
+base: <ref>               # prepare-pr only: base ref used for the diff
+head: <ref>               # prepare-pr only
+diff_stats: {files, insertions, deletions}  # prepare-pr only
+readiness_login: <login>  # claim + find + prepare-pr (+ engage when switched from claim): login the readiness check used (omit if skipped)
+readiness: {...}          # claim + find + prepare-pr (+ engage when switched from claim): {open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}
 ---
 ```
 
@@ -105,20 +110,22 @@ If `$ARGUMENTS` is empty or unclear, present the scenario menu above and ask:
 ## Step 2 — Classify the Scenario
 
 Invoke the `oss-scenario-routing` skill to classify the intent from `$ARGUMENTS` into one of the
-9 scenarios. Follow the routing rules in that skill exactly:
+10 scenarios. Follow the routing rules in that skill exactly:
 
 - Match against intent signals.
 - If ambiguous, ask ONE clarifying question (the scenario menu).
-- If the intent is PR intent with no issue reference (see the routing skill), run the Step 3a
+- If the intent is PR intent (see the routing skill) with no issue reference, run the Step 3a
   policy preflight **before** final routing; this is the only policy-aware routing rule. See the
-  PR-intent -> Report (Issue-First) Branch below.
+  PR-intent -> prepare-pr / Report (Issue-First) Branch below.
+- Debrief signals ("help me understand what I changed", "debrief my change", "what did the agent
+  change") route to `prepare-pr` with `mode: debrief`; this is not an 11th scenario.
 - After classification, proceed immediately — do not ask additional questions at this stage.
 
 ---
 
 ## Step 3a — Policy Preflight
 
-Applies to `find`, `clarify`, `claim`, `engage`, `review-reply`, and `report`. It does not apply to
+Applies to `find`, `clarify`, `claim`, `engage`, `review-reply`, `report`, and `prepare-pr`. It does not apply to
 `status`, `norms` (which computes the policy in full), or `setup`. It runs before the Step 3
 dispatch, and also before final routing for PR-intent requests.
 
@@ -146,6 +153,10 @@ review-reply), dispatch the mapped subagent via the **Task tool**:
 
 - Pass: `owner/repo`, the specific item (issue/PR number or search intent), and the scenario key.
 - **status, find, norms, clarify, engage, review-reply, report** → dispatch `oss-researcher`.
+- **prepare-pr** → dispatch `oss-researcher` (PR template, duplicate open PRs, linked issue body) in
+  parallel with the `readiness` read; the orchestrator itself runs the local git reads (`git diff`,
+  `git diff --stat`, `git log`, `git merge-base`, `git remote -v`). Debrief mode needs no GitHub
+  fetch beyond the linked issue text. Local git is read-only: never commit, push, or run tests.
 - **claim** → dispatch `oss-claim-analyst` **and** `oss-researcher` (key `readiness`) in parallel;
   then proceed based on the verdict (see claim branch below).
 - **setup** → optionally dispatch `oss-researcher` (read-only) to fetch the project's
@@ -153,7 +164,7 @@ review-reply), dispatch the mapped subagent via the **Task tool**:
   output. The researcher dispatch is optional — if the docs are already available inline,
   skip it.
 
-**Readiness (claim and find).** Unless the request says "skip readiness", also dispatch
+**Readiness (claim, find, and prepare-pr).** Unless the request says "skip readiness", also dispatch
 `oss-researcher` with scenario key `readiness` in parallel with the normal fetch. Resolve the login
 as the `contributor-readiness` skill says (request, then `contributor.github_login` in
 `config/targets.yaml`, then the authenticated account) and pass it with `owner/repo` and the
@@ -174,7 +185,7 @@ is not set, the subagents fall back to `gh` CLI (they will run `gh auth status` 
 
 Load the skill named in the scenario catalog and follow its guidance to produce the output. Then
 save it as a draft file per the convention above. Draft-tier skills (clarify, claim, engage,
-review-reply, report) must put postable text inside `oss:send` markers with `body_format: 2`.
+review-reply, report, prepare-pr) must put postable text inside `oss:send` markers with `body_format: 2`.
 
 - **status** → no skill; use oss-researcher findings directly as a timestamped report. Save to
   `.oss-drafts/status-<owner>-<repo>-status-<UTC>.md`.
@@ -205,6 +216,17 @@ review-reply, report) must put postable text inside `oss:send` markers with `bod
   intent. Save draft to `.oss-drafts/report-<owner>-<repo>-<item>-<UTC>.md` where `item` is
   `issue-bug` for bug reports and `issue-feature` for feature requests. Policy use: note the
   project's issue-first status in Private notes; if `routed_from` is set, say so.
+- **prepare-pr** → load `pr-preparation` (and `change-debrief` for the debrief, and
+  `contributor-readiness` unless "skip readiness"). Draft mode saves to
+  `.oss-drafts/prepare-pr-<owner>-<repo>-<item>-<UTC>.md` (`item` is `issueN` or `pr-new`) with
+  `body_format: 2`, `mode`, `base`, `head`, `diff_stats`, `policy`, `readiness_login`, `readiness`.
+  The send block is a problem-first scaffold where Why this approach, What changed, and Unknowns &
+  assumptions are `TODO(you)`; the plugin fills only factual parts and never lists commands that
+  passed under "How it's tested". Debrief mode (`mode: debrief`) writes only a separate private file
+  `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md` with no send block, never formatted as
+  paste-ready PR text; a transcript is read only when the user points to one. Lint mode checks the
+  user's filled-in send block with AP1-AP9. Policy use: disclosure text when `disclosure: required`;
+  advise (never rewrite) on AI co-author trailers when `coauthor_trailer_forbidden: true`.
 - **find** policy use: record the `policy` block in frontmatter and mention any open-PR cap, vouch
   requirement, or good-first-issue AI ban in the shortlist notes. Put the readiness summary at the
   top of the file (private, report tier), set `readiness_login` and `readiness`, and pass the tier,
@@ -232,19 +254,27 @@ After `oss-claim-analyst` returns its verdict:
   that was gathered for claim: put it in the engage draft's Private notes (never in the send block)
   and keep `readiness_login` and `readiness` in its frontmatter.
 
-### PR-intent → Report (Issue-First) Branch
+### PR-intent → prepare-pr / Report (Issue-First) Branch
 
 Mirrors the claim → engage branch. When the request expresses PR intent ("open a PR for...",
-"submit a fix for...", "I have a patch...") with **no issue number or URL**, run the Step 3a
-preflight first, then:
+"submit a fix for...", "I have a patch...", "send a PR", "prepare a PR"), run the Step 3a preflight
+first, then:
 
-- `policy.issue_first` is `required` or `recommended`: switch to the **report** scenario, tell
-  the user why (quote `policy.issue_first_quote` and cite `policy.issue_first_source`), and set `routed_from: <original scenario>` in the draft
-  frontmatter. The issue is a DRAFT; nothing is filed. If the user says they want to continue with
-  the PR anyway, do not block them: explain that no PR scenario exists yet and offer the scenarios
-  that do (for example clarify or norms).
-- `policy.issue_first` is `unknown` (not found): routing is unchanged; present the scenario menu as
-  usual (still at most one clarifying question).
+- **An issue number or URL is given** (or the request is a PR for a linked issue): route to
+  **prepare-pr**.
+- **No issue reference** and `policy.issue_first` is `required`: switch to the **report**
+  scenario, tell the user why (quote `policy.issue_first_quote` and cite
+  `policy.issue_first_source`), and set `routed_from: prepare-pr` in the draft frontmatter. The
+  issue is a DRAFT; nothing is filed. If the user says they want to continue with the PR anyway, do
+  not block them: continue with **prepare-pr** (`item: pr-new`) and lead Private notes with the
+  issue-first warning.
+- **No issue reference** and `policy.issue_first` is `recommended`: route to **prepare-pr**, but
+  lead Private notes with a warning suggesting an issue first (quote and cite the source).
+- **No issue reference** and `policy.issue_first` is `unknown`: route to **prepare-pr**
+  (`item: pr-new`); no extra clarifying question.
+
+Debrief requests go to **prepare-pr** with `mode: debrief` without the issue-first check, because
+no PR text is produced.
 
 ---
 
@@ -258,7 +288,7 @@ After saving the file, show the file path and this notice:
 
 Then briefly summarise the key findings in chat and ask the user if they want to take any next step.
 
-### Draft tier (scenarios 5, 6, 7, 8, 9 — clarify, claim, engage, review-reply, report)
+### Draft tier (scenarios 5, 6, 7, 8, 9, 10 — clarify, claim, engage, review-reply, report, prepare-pr)
 
 After saving the file, present the **send block(s)** in chat (clearly labelled as DRAFT; for
 review-reply brief mode this is the brief plus the `TODO(you)` placeholders), say that the private
@@ -268,6 +298,9 @@ notes are in the file and are never sent, show the file path, and add this notic
 > This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
 
 Then ask the user to review and modify the file, and confirm whether they want any changes.
+
+**prepare-pr debrief mode** writes a private notes file with no send block: show the file path and a
+short summary in chat, say it is private and not PR text, and skip the "ready to send" framing.
 
 ### Hard rule
 

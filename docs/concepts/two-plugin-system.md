@@ -53,11 +53,12 @@ From v0.4.0, draft-tier files contain private material (understanding briefs, li
 
 ## What This Plugin Covers
 
-All 9 `/oss` scenarios stay on the research-and-drafting side of the boundary:
+All 10 `/oss` scenarios stay on the research-and-drafting side of the boundary:
 
 - **status, find, norms, setup** — read-only reports and guided walkthroughs saved to `.oss-drafts/`; no outbound text produced.
 - **clarify, claim, engage** — labeled DRAFTs saved to `.oss-drafts/` and shown for review; never posted.
 - **review-reply** — a private understanding brief and a lint of the reply you write; the reply itself is yours, never generated. Saved to `.oss-drafts/`, never posted.
+- **prepare-pr** — a private change debrief and a problem-first PR description scaffold you complete, from local read-only git. It never pushes or opens the PR; that belongs to the execution plugin.
 - **report** — a labeled DRAFT new-issue body (bug report or feature request) saved to `.oss-drafts/` and shown for review; actually filing the issue (e.g. `gh issue create`) belongs to the execution/submission plugin or the human.
 
 ## What This Plugin Does Not Cover

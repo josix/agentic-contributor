@@ -5,6 +5,20 @@ All notable changes to the agentic-contributor plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-10-21
+
+### Added
+
+- **Scenario 10, `prepare-pr`**, with the new **`pr-preparation` skill**: a size and shape check (default 400 lines / 10 files unless CONTRIBUTING says otherwise) and a problem-first PR description scaffold in an `oss:send` block. "Why this approach", "What changed", and "Unknowns & assumptions" are `TODO(you)`; the plugin fills only factual parts, and "How it's tested" names tests rather than commands that passed. Adds disclosure text when policy requires it, advice on AI co-author trailers when forbidden, and a lint mode (AP1-AP9). It reads local git only and never pushes, opens a PR, edits code, or runs tests.
+- **`change-debrief` skill** and `prepare-pr` `mode: debrief` ("help me understand what I changed", "debrief my change", "what did the agent change"): changes grouped by purpose with `file:line`, traced to issue/commit/opt-in agent transcript, untraceable changes flagged as possibly out of scope, evidenced vs inferred, impact and test coverage, explain-back questions, and an Unknowns list. Saved as a private `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md`, never PR text.
+- Frontmatter fields `base`, `head`, `diff_stats`; `mode` gains `debrief|draft|lint` for prepare-pr; `item` gains `pr-new` and `debrief`.
+- `oss-researcher` scenario key `prepare-pr` (PR template, duplicate open PRs, linked issue body).
+
+### Changed
+
+- The issue-first branch now covers `prepare-pr`: PR intent with an issue goes to prepare-pr; with no issue and `issue_first: required` it reroutes to `report` (`routed_from: prepare-pr`); `recommended` or `unknown` goes to prepare-pr (with a warning for `recommended`).
+- Scenario count 9 to 10 and skill count 7 to 9 across README, docs, commands, skills, and agents. No guard changes.
+
 ## [0.6.0] - 2026-10-21
 
 ### Added

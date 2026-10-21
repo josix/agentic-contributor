@@ -1,6 +1,6 @@
 # Scenarios Reference
 
-Canonical 9-scenario table with full detail: intent signals, skill, agent, data source, output type, and guardrail relevance.
+Canonical 10-scenario table with full detail: intent signals, skill, agent, data source, output type, and guardrail relevance.
 
 ## Scenario Catalog
 
@@ -15,10 +15,11 @@ Canonical 9-scenario table with full detail: intent signals, skill, agent, data 
 | 7 | **engage** | "give feedback on a PR", "help with someone's PR", "comment on PR", "review an in-progress PR", "there's a linked PR" | `smart-questions` (Scenario B) | `oss-researcher` | PR diff, CI status, comment thread | DRAFT feedback comment | `.oss-drafts/engage-…` |
 | 8 | **review-reply** | "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review" | `smart-questions` (Scenario C) | `oss-researcher` | PR review comments | Understanding brief + lint of your reply (you write the reply) | `.oss-drafts/review-reply-…` |
 | 9 | **report** | "report a bug", "file an issue", "draft a bug report", "draft a feature request", "propose a feature", "write up a new issue" | `issue-drafting` | `oss-researcher` | ISSUE_TEMPLATE files + issue search results | DRAFT new issue (bug/feature) | `.oss-drafts/report-…` |
+| 10 | **prepare-pr** | "prepare a PR", "get my PR ready", "draft a PR description", "open a PR for", "I have a patch"; debrief: "help me understand what I changed", "debrief my change", "what did the agent change" | `pr-preparation` (+ `change-debrief`) | `oss-researcher` + local read-only git | PR template, duplicate PRs, issue body, local diff | Size check + problem-first PR scaffold (`TODO(you)` sections), or private debrief | `.oss-drafts/prepare-pr-…` |
 
 All outputs are saved as editable markdown files in `.oss-drafts/` in the user's working
 directory. Report-tier scenarios (1–4) show a "Saved to `<path>`" notice. Draft-tier scenarios
-(5–9) show the draft in chat plus the mandatory "**DRAFT — saved to `<path>`. Review and edit
+(5–10) show the draft in chat plus the mandatory "**DRAFT — saved to `<path>`. Review and edit
 this file before sending.**" notice. See [Draft Files](../concepts/draft-files.md) for the full
 naming convention and frontmatter schema.
 
@@ -74,19 +75,30 @@ Missing required evidence is always marked with `TODO:` placeholders — version
 
 The draft includes a suggested title (following the repo's convention), suggested labels, and a complete body ready to paste. The orchestrator saves the draft to `.oss-drafts/report-<owner>-<repo>-issue-bug-<UTC>.md` (bug reports) or `.oss-drafts/report-<owner>-<repo>-issue-feature-<UTC>.md` (feature requests) and shows the mandatory draft-tier notice.
 
+### Scenario 10 — prepare-pr
+
+`pr-preparation` (with `change-debrief` as its entry mode) helps you understand and own a local change and send a PR maintainers prioritise. Local git reads only (`git diff`, `git log`, `git merge-base`, `git remote -v`); the plugin never pushes, opens a PR, edits code, or runs tests.
+
+- **Debrief (`mode: debrief`)**: changes grouped by purpose with `file:line`, each traced to an issue, commit, or an opt-in agent transcript; untraceable changes flagged "unexplained, possibly out of scope"; implicit agent decisions; impact and test coverage; evidenced vs inferred; 2-3 explain-back questions; an Unknowns list. Saved as a private `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md`, never PR text.
+- **Draft (`mode: draft`)**: size and shape verdict (default 400 lines / 10 files unless CONTRIBUTING says otherwise), then a problem-first scaffold in an `oss:send` block. Why this approach, What changed, and Unknowns & assumptions are `TODO(you)`; "How it's tested" names tests, never passed commands. Disclosure text when policy requires it; AI co-author trailers flagged when forbidden (advice only).
+- **Lint (`mode: lint`)**: AP1-AP9 on your filled-in text.
+
+File: `.oss-drafts/prepare-pr-<owner>-<repo>-<item>-<UTC>.md`, `item` is `issueN` or `pr-new`. Frontmatter adds `base`, `head`, `diff_stats`, `mode`, `policy`, `readiness`.
+
 ## Policy Preflight
 
-Before `find`, `clarify`, `claim`, `engage`, `review-reply`, and `report`, `/oss` resolves a `policy` block (AI policy, disclosure, co-author trailer rule, open-PR cap, vouch, issue-first). It reuses the block from the newest `.oss-drafts/` draft for the same repo whose `policy.fetched_at` is under 7 days old; otherwise `oss-researcher` (key `policy-preflight`) does a fixed 6-10 GET lookup. The block is written into every draft's frontmatter. Findings are advisory and never block a draft.
+Before `find`, `clarify`, `claim`, `engage`, `review-reply`, `report`, and `prepare-pr`, `/oss` resolves a `policy` block (AI policy, disclosure, co-author trailer rule, open-PR cap, vouch, issue-first). It reuses the block from the newest `.oss-drafts/` draft for the same repo whose `policy.fetched_at` is under 7 days old; otherwise `oss-researcher` (key `policy-preflight`) does a fixed 6-10 GET lookup. The block is written into every draft's frontmatter. Findings are advisory and never block a draft.
 
 ## The Issue-First Branch
 
-When you express PR intent ("open a PR for...", "submit a fix for...") with no issue reference and the project's policy says an issue is required or recommended first, `/oss` switches to **report**, quotes the policy source, and sets `routed_from` in the draft frontmatter. If the policy is unknown or not found, routing is unchanged. It never blocks you, and adds no extra clarifying question.
+When you express PR intent ("open a PR for...", "submit a fix for...") with no issue reference and the project's policy says an issue is required first, `/oss` switches to **report**, quotes the policy source, and sets `routed_from: prepare-pr` in the draft frontmatter. If you name an issue, or the policy is only recommended, unknown, or not found, the request goes to **prepare-pr** (with a leading warning in private notes when an issue is recommended). It never blocks you, and adds no extra clarifying question.
 
 ```
 /oss I want to submit a fix for <symptom> in apache/datafusion
   → policy preflight: issue_first
   → /oss notifies user, quotes the source
   → load issue-drafting → report DRAFT (routed_from set)
+  → (issue named / not required) → prepare-pr
 ```
 
 ## The Claim→Engage Branch
