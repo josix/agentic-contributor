@@ -54,8 +54,8 @@ The script reads the tool-use JSON from stdin, extracts `tool_name` and `tool_in
 
 Known gaps are recorded as `known-bypass` rows in `hooks/tests/guard-cases.tsv`. They are reported, not counted as failures, and the harness prints a note when one starts being denied. Two kinds:
 
-- **Forms an agent may write by accident** (planned fix in v0.5.1): global options before the subcommand (`git -C dir push`, `gh -R owner/repo pr create`), path-qualified binaries (`/usr/bin/git push`), wrapper prefixes (`env git push`), and `gh` write subcommands not yet in the deny list (`gh pr update-branch`, `gh label create`, `gh workflow run`).
-- **Deliberate obfuscation** (not planned): variables (`p=push; git $p`), quoting tricks inside heredocs, `eval`, aliases, and similar. These are realistic only if the agent is manipulated, for example by a prompt injection hidden in an issue, PR, or comment the plugin reads.
+- **Forms an agent may write by accident** (covered since v0.5.1): global options before the subcommand (`git -C dir push`, `git -c k=v push`, `gh -R owner/repo pr create`), path-qualified binaries (`/usr/bin/git push`, `./gh pr create`), wrapper prefixes and env assignments (`env git push`, `FOO=1 git push`, `command`, `exec`, `builtin`, `nohup`, `time`, `sudo`, `xargs`), and the extra `gh`, `git`, `curl`, and `wget` write forms listed in the matrix below. Each command segment is normalized (wrappers, assignments, path prefix, and global options removed) and checked in addition to the raw text, so normalization can only add denials.
+- **Deliberate obfuscation** (not planned): variables (`p=push; git $p`), `eval`, aliases, shell functions, `bash -c "…"` strings, `$(echo git)`, `IFS` and brace-expansion tricks, quoting tricks inside heredocs, and similar. These are realistic only if the agent is manipulated, for example by a prompt injection hidden in an issue, PR, or comment the plugin reads.
 
 **The real boundary is the credentials.** Give the plugin a GitHub token without write permissions (see [GitHub Access](../guides/github-access.md#use-a-read-only-token)). With a read-only token, GitHub itself rejects any write that slips past the guard. `git push` uses your local git credentials instead, which this plugin cannot restrict; keep Claude Code's permission prompts on for commands you have not allowed.
 
@@ -83,19 +83,22 @@ Any `mcp__plugin_agentic-contributor_github__` tool whose suffix does not match 
 | Pattern checked | Blocked example |
 |---|---|
 | `git push` at command position | `git push origin main` |
-| `gh pr create/comment/review/edit/merge/close/reopen/lock/unlock/ready/--fill` | `gh pr create --title "…"` |
-| `gh issue create/comment/edit/close/reopen/lock/unlock` | `gh issue comment 123 --body "…"` |
+| `git push`, `git send-email`, `git send-pack`, `git svn dcommit`, also after global options (`-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`, `--no-pager`, …), a path-qualified binary, or a wrapper prefix | `git -C dir push`, `/usr/bin/git push`, `env git push` |
+| `gh pr create/comment/review/edit/merge/close/reopen/lock/unlock/ready/update-branch/--fill` | `gh pr create --title "…"` |
+| `gh issue create/comment/edit/close/reopen/lock/unlock/delete/transfer/pin/unpin/develop` | `gh issue comment 123 --body "…"` |
 | `gh release create/edit/delete/upload` | `gh release create v1.0` |
-| `gh repo create/fork/delete/edit` | `gh repo fork apache/airflow` |
-| `gh gist create` | `gh gist create file.txt` |
+| `gh repo create/fork/delete/edit/sync/rename/archive/unarchive` | `gh repo fork apache/airflow` |
+| `gh gist create/edit/delete` | `gh gist create file.txt` |
+| `gh label create/edit/delete/clone`, `gh workflow run/enable/disable`, `gh run rerun/cancel/delete`, `gh secret set/delete`, `gh variable set/delete`, `gh alias set`, `gh codespace create` | `gh workflow run ci.yml` |
+| any `gh` form above or `gh api` with `-R`/`--repo`, a wrapper prefix, or a path-qualified binary | `gh -R owner/repo pr create`, `./gh pr create` |
 | `gh api` with `-X POST/PUT/PATCH/DELETE` (also `-XPOST`, `-X=POST`, any case) | `gh api repos/… -X POST -f …` |
 | `gh api` with `--method POST/PUT/PATCH/DELETE` (also `--method=POST`) | `gh api repos/… --method PATCH` |
 | `gh api` with `-f` / `-F` / `--field` / `--raw-field` (unless explicit `-X GET`, or a read-only GraphQL query) | `gh api repos/… -f title=…` |
 | `gh api` with `--input` (always) | `gh api repos/… --input body.json` |
 | `gh api graphql` containing `mutation`, `=@file`, command substitution, or a `query=$VAR` value | `gh api graphql -f query='mutation {…}'` |
-| `curl` with `-X POST/PUT/PATCH/DELETE` or `--request POST/…` | `curl -X POST https://api.github.com/…` |
-| `curl` with `-d`/`--data`/`--data-raw` or `-F`/`--form` | `curl -d '{"body":"…"}' …` |
-| `wget` with mutation flags (`-X`, `--request`, `-d`, `--data`, `--data-raw`, `-F`, `--form`, `--method POST/…`, `--post-data`, `--post-file`) | `wget --post-data '…' …` |
+| `curl` with `-X`/`--request` and any method other than GET/HEAD/OPTIONS (any case, also `-XPOST`, `--request=POST`) | `curl -X POST https://api.github.com/…` |
+| `curl` with `-d`/`--data`/`--data-raw`/`--data-binary`/`--data-urlencode`/`--data=…`/`-dVALUE`/`--json`, `-F`/`--form`/`--form-string`, `-T`/`--upload-file`, or `-K`/`--config` (also inside short-option bundles such as `-sd`) | `curl -d '{"body":"…"}' …` |
+| `wget` with mutation flags (`-X`, `--request`, `-d`, `--data`, `--data-raw`, `-F`, `--form`, `--method POST/…` in any case, `--post-data`, `--post-file`, `--body-data`, `--body-file`) | `wget --post-data '…' …` |
 
 ### Bash Commands — ALLOW
 
@@ -110,6 +113,7 @@ Everything not matched by a deny pattern:
 - `gh api -X GET search/issues -f q=…` (explicit GET; fields are query parameters)
 - Heredocs whose body contains no outbound command text, e.g. `cat > notes.md <<'EOF' … EOF` with plain notes (a body that mentions `git push` or `gh pr create` is denied; use the Write tool)
 - `gh auth status`
+- Read-only forms with the same prefixes: `git -C dir log`, `/usr/bin/git status`, `env git diff`, `gh -R o/r pr view 1`, `gh label list`, `gh workflow list`, `curl -X GET …`
 - Build/test commands: `mvn`, `gradle`, `pytest`, `npm test`, `./breeze`, etc.
 - `cat`, `grep`, `find`, `jq`, and other read-only shell commands
 

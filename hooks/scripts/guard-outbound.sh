@@ -295,13 +295,21 @@ check_gh_api() {
   local bad_method=0 get_seen=0 has_input=0 has_field=0 endopts=0 endpoint="" have_ep=0
   local toks=()
   GH_FIELDS=()
-  seg="$(strip_prefix "$raw")"
-  [[ "$seg" =~ ^gh[[:space:]]+api([[:space:]]|$) ]] || return 0
-
-  if ! tok_out="$(printf '%s\n' "$seg" | awk "$AWK_TOKENIZE" 2>/dev/null)"; then
-    deny "gh api (unparseable): $raw"
+  if [[ "${3:-}" == norm ]]; then
+    # Normalized mode: NT/NA come from normalize_segment (wrappers, path
+    # qualified binary and gh -R options already removed). $raw stays the
+    # original text for graphql_readonly's quote-sensitive scans.
+    [[ "${NT[0]:-}" == gh && "${NT[1]:-}" == api ]] || return 0
+    seg="$raw"
+    for t in "${NA[@]}"; do toks[${#toks[@]}]="$t"; done
+  else
+    seg="$(strip_prefix "$raw")"
+    [[ "$seg" =~ ^gh[[:space:]]+api([[:space:]]|$) ]] || return 0
+    if ! tok_out="$(printf '%s\n' "$seg" | awk "$AWK_TOKENIZE" 2>/dev/null)"; then
+      deny "gh api (unparseable): $raw"
+    fi
+    while IFS= read -r t; do toks[${#toks[@]}]="$t"; done <<< "$tok_out"
   fi
-  while IFS= read -r t; do toks[${#toks[@]}]="$t"; done <<< "$tok_out"
   n=${#toks[@]}
   i=2
   while [[ $i -lt $n ]]; do
@@ -362,21 +370,234 @@ check_gh_api() {
   return 0
 }
 
-# Segment $1 (outer + inner pass) and check every gh api invocation, recursing
-# into substitution bodies. $2 = full stripped command. Returns 1 if awk fails.
-check_gh_text() {
+# ── Segment normalization (accidental-form coverage, v0.5.1) ──────────────────
+# Rewrites one command segment into the form the deny rules expect, so wrapper
+# prefixes, env assignments, path-qualified binaries and global options do not
+# hide the real subcommand:
+#   env -i FOO=1 /usr/bin/git -C d -c k=v push   ->  git push
+#   command gh -R o/r pr create                   ->  gh pr create
+# Results (globals): NT = words without redirections, NA = words including
+# redirections (for gh api option parsing). Runs IN ADDITION to the raw-text
+# rules, never instead of them, so it can only add denials.
+NORM_RM=$'\001'
+
+# True when redirection token $1 carries no target of its own (target is next word).
+rd_is_bare() {
+  local rr="${1#"$NORM_RM"}"
+  rr="${rr#"${rr%%[!0-9]*}"}"
+  case "$rr" in
+    '&>>'*) rr="${rr#&>>}" ;; '&>'*) rr="${rr#&>}" ;;
+    '>>'*) rr="${rr#>>}" ;; '>|'*) rr="${rr#>|}" ;; '>&'*) rr="${rr#>&}" ;; '>'*) rr="${rr#>}" ;;
+    '<<<'*) rr="${rr#<<<}" ;; '<<-'*) rr="${rr#<<-}" ;; '<<'*) rr="${rr#<<}" ;;
+    '<&'*) rr="${rr#<&}" ;; '<>'*) rr="${rr#<>}" ;; '<'*) rr="${rr#<}" ;;
+  esac
+  [[ -z "$rr" ]]
+}
+
+# Advance p (caller's local) past redirection words (and bare-operator targets).
+nt_skip_rd() {
+  while [[ $p -lt $n && "${all[$p]}" == "$NORM_RM"* ]]; do
+    if rd_is_bare "${all[$p]}"; then p=$((p + 2)); else p=$((p + 1)); fi
+  done
+}
+
+# Skip the options of wrapper $1 (env, sudo, xargs, ...) starting at p.
+nt_skip_wrapper_opts() {
+  local argopts="" o
+  case "$1" in
+    env) argopts=" -u -C -S --unset --chdir --split-string " ;;
+    exec) argopts=" -a " ;;
+    time) argopts=" -f -o --format --output " ;;
+    sudo) argopts=" -u -g -h -p -C -D -r -t -U -R -T --user --group --host --prompt --close-from --chdir --role --type --other-user --chroot " ;;
+    xargs) argopts=" -a -d -E -I -L -n -P -s --arg-file --delimiter --eof --max-args --max-lines --max-procs --max-chars " ;;
+  esac
+  while :; do
+    nt_skip_rd
+    [[ $p -ge $n ]] && return 0
+    o="${all[$p]}"
+    if [[ "$o" == "--" ]]; then p=$((p + 1)); return 0; fi
+    [[ "$o" == -?* ]] || return 0
+    p=$((p + 1))
+    if [[ "$argopts" == *" $o "* ]]; then p=$((p + 1)); fi
+  done
+}
+
+# Skip git global options (before the subcommand) starting at p.
+nt_skip_git_globals() {
+  local o
+  while :; do
+    nt_skip_rd
+    [[ $p -ge $n ]] && return 0
+    o="${all[$p]}"
+    [[ "$o" == -?* ]] || return 0
+    p=$((p + 1))
+    case "$o" in
+      -C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--config-env|--attr-source) p=$((p + 1)) ;;
+    esac
+  done
+}
+
+normalize_segment() {
+  local seg="$1" tok_out t w base k all=() p=0 n
+  NT=(); NA=()
+  tok_out="$(printf '%s\n' "$seg" | awk "$AWK_TOKENIZE" 2>/dev/null)" || return 1
+  [[ -n "$tok_out" ]] || return 0
+  while IFS= read -r t; do all[${#all[@]}]="$t"; done <<< "$tok_out"
+  n=${#all[@]}
+  # Phase 1: drop leading keywords, assignments, wrappers; find the command word.
+  while :; do
+    nt_skip_rd
+    [[ $p -ge $n ]] && return 0
+    w="${all[$p]}"
+    if [[ "$w" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then p=$((p + 1)); continue; fi
+    base="${w##*/}"
+    case "$base" in
+      '{'|'!'|then|do|else|elif|if|while|until) p=$((p + 1)) ;;
+      env|command|exec|builtin|nohup|time|sudo|xargs)
+        p=$((p + 1)); nt_skip_wrapper_opts "$base" ;;
+      *) break ;;
+    esac
+  done
+  [[ -n "$base" ]] || return 0
+  p=$((p + 1))
+  [[ "$base" == git ]] && nt_skip_git_globals
+  NT[0]="$base"; NA[0]="$base"
+  k=$p
+  while [[ $k -lt $n ]]; do
+    t="${all[$k]}"; k=$((k + 1))
+    if [[ "$t" == "$NORM_RM"* ]]; then
+      NA[${#NA[@]}]="$t"
+      if rd_is_bare "$t" && [[ $k -lt $n ]]; then NA[${#NA[@]}]="${all[$k]}"; k=$((k + 1)); fi
+      continue
+    fi
+    if [[ "$base" == gh ]]; then
+      case "$t" in
+        -R|--repo) k=$((k + 1)); continue ;;
+        --repo=*|-R?*) continue ;;
+      esac
+    fi
+    NT[${#NT[@]}]="$t"; NA[${#NA[@]}]="$t"
+  done
+  return 0
+}
+
+# gh group/verb pairs that write to GitHub (or the local gh config).
+gh_is_write() {
+  local verbs=""
+  case "$1" in
+    pr) verbs=" create comment review edit merge close reopen lock unlock ready update-branch --fill " ;;
+    issue) verbs=" create comment edit close reopen lock unlock delete transfer pin unpin develop " ;;
+    release) verbs=" create edit delete upload " ;;
+    repo) verbs=" create fork delete edit sync rename archive unarchive " ;;
+    gist) verbs=" create edit delete " ;;
+    label) verbs=" create edit delete clone " ;;
+    workflow) verbs=" run enable disable " ;;
+    run) verbs=" rerun cancel delete " ;;
+    secret|variable) verbs=" set delete " ;;
+    alias) verbs=" set " ;;
+    codespace) verbs=" create " ;;
+  esac
+  [[ -n "$verbs" && "$verbs" == *" $2 "* ]]
+}
+
+curl_mutating_method() {
+  local lm
+  lm="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
+  [[ "$lm" != get && "$lm" != head && "$lm" != options ]]
+}
+
+# curl: any payload / upload / config-file / non-read method option denies.
+check_curl_norm() {
+  local raw="$1" i=1 n=${#NT[@]} t rest c val
+  while [[ $i -lt $n ]]; do
+    t="${NT[$i]}"; i=$((i + 1))
+    case "$t" in
+      --) break ;;
+      --request|--request=*)
+        if [[ "$t" == --request ]]; then val="${NT[$i]:-}"; i=$((i + 1)); else val="${t#*=}"; fi
+        curl_mutating_method "$val" && deny "curl non-read method: $raw" ;;
+      --data|--data=*|--data-*|--json|--json=*|--form|--form=*|--form-*|--upload-file|--upload-file=*|--config|--config=*)
+        deny "curl outbound mutation: $raw" ;;
+      --*) ;;
+      -?*)
+        rest="${t#-}"
+        while [[ -n "$rest" ]]; do
+          c="${rest:0:1}"; rest="${rest:1}"
+          case "$c" in
+            d|F|T|K) deny "curl outbound mutation: $raw" ;;
+            X)
+              val="$rest"
+              if [[ -z "$val" ]]; then val="${NT[$i]:-}"; i=$((i + 1)); fi
+              curl_mutating_method "$val" && deny "curl non-read method: $raw"
+              rest="" ;;
+            A|b|c|C|D|e|E|H|m|o|P|Q|r|t|u|U|w|x|y|Y|z)
+              if [[ -z "$rest" ]]; then i=$((i + 1)); fi
+              rest="" ;;
+          esac
+        done ;;
+    esac
+  done
+  return 0
+}
+
+check_wget_norm() {
+  local raw="$1" i=1 n=${#NT[@]} t val
+  while [[ $i -lt $n ]]; do
+    t="${NT[$i]}"; i=$((i + 1))
+    case "$t" in
+      --body-data|--body-data=*|--body-file|--body-file=*|--post-data|--post-data=*|--post-file|--post-file=*)
+        deny "wget outbound mutation: $raw" ;;
+      --method|--method=*)
+        if [[ "$t" == --method ]]; then val="${NT[$i]:-}"; i=$((i + 1)); else val="${t#*=}"; fi
+        curl_mutating_method "$val" && deny "wget non-read method: $raw" ;;
+    esac
+  done
+  return 0
+}
+
+# Deny rules on the normalized segment (NT). $1 = original segment text.
+check_norm_rules() {
+  local raw="$1"
+  case "${NT[0]:-}" in
+    git)
+      case "${NT[1]:-}" in
+        push|send-email|send-pack) deny "git ${NT[1]}: $raw" ;;
+        svn) [[ "${NT[2]:-}" == dcommit ]] && deny "git svn dcommit: $raw" ;;
+      esac ;;
+    gh)
+      if gh_is_write "${NT[1]:-}" "${NT[2]:-}"; then deny "gh ${NT[1]} ${NT[2]}: $raw"; fi ;;
+    curl) check_curl_norm "$raw" ;;
+    wget) check_wget_norm "$raw" ;;
+  esac
+  return 0
+}
+
+# Raw (original) and normalized checks for one segment.
+check_segment() {
+  local seg="$1" full="$2"
+  check_gh_api "$seg" "$full"
+  [[ "$seg" =~ [^[:space:]] ]] || return 0
+  normalize_segment "$seg" || deny "command segment could not be analysed: $seg"
+  [[ ${#NT[@]} -gt 0 ]] || return 0
+  check_norm_rules "$seg"
+  check_gh_api "$seg" "$full" norm
+}
+
+# Segment $1 (outer + inner pass) and check every segment, recursing into
+# substitution bodies. $2 = full stripped command. Returns 1 if awk fails.
+check_cmd_text() {
   local text="$1" full="$2" segments outer_out segment body
   segments="$(printf '%s\n' "$text" | awk "$AWK_SEGMENT" 2>/dev/null)" || return 1
   outer_out="$(printf '%s\n' "$text" | awk -v outer=1 "$AWK_SEGMENT" 2>/dev/null)" || return 1
   while IFS= read -r segment; do
-    check_gh_api "$segment" "$full"
+    check_segment "$segment" "$full"
   done <<< "$segments"
   while IFS= read -r segment; do
     if [[ "$segment" == $'\002'* ]]; then
       body="${segment#?}"; body="${body//$'\003'/$'\n'}"
-      check_gh_text "$body" "$full" || return 1
+      check_cmd_text "$body" "$full" || return 1
     else
-      check_gh_api "$segment" "$full"
+      check_segment "$segment" "$full"
     fi
   done <<< "$outer_out"
   return 0
@@ -425,13 +646,13 @@ if [[ "$tool_name" == "Bash" ]]; then
 
   # gh api: evaluated per invocation (segment), not across the whole string.
   # Inner pass splits on substitutions; outer pass keeps substitutions inline so
-  # flags after them stay attached, and check_gh_text recurses into each
+  # flags after them stay attached, and check_cmd_text recurses into each
   # substitution body the same way. Segmenter failure fails closed.
-  if [[ "$stripped" == *api* ]]; then
-    if ! check_gh_text "$stripped" "$stripped" &&
-       [[ "$stripped" =~ (^|[^[:alnum:]_.-])gh[[:space:]] ]]; then
-      deny "gh api (command could not be analysed): $command_str"
-    fi
+  # The same walk also runs the normalized-segment rules (wrappers, path-qualified
+  # binaries, git/gh global options) for git, gh, curl and wget.
+  if ! check_cmd_text "$stripped" "$stripped" &&
+     [[ "$stripped" =~ (^|[^[:alnum:]_.-])(gh|git|curl|wget)[[:space:]] ]]; then
+    deny "command could not be analysed: $command_str"
   fi
 
   # curl with mutating methods or data payloads

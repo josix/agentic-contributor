@@ -5,6 +5,19 @@ All notable changes to the agentic-contributor plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-10-21
+
+### Security
+
+- **`guard-outbound.sh` now denies the outbound command forms an agent may write by accident.** Each command segment is normalized (leading keywords and `VAR=value` assignments dropped; `env`, `command`, `exec`, `builtin`, `nohup`, `time`, `sudo`, `xargs` and their options stripped; a path-qualified binary reduced to its basename; `git` global options such as `-C`, `-c`, `--git-dir`, `--work-tree` and `gh` `-R`/`--repo` skipped) and checked in addition to the raw text, so no existing deny is loosened. Covers `git -C dir push`, `gh -R o/r pr create`, `/usr/bin/git push`, `env git push`, and `gh api` behind the same prefixes.
+- New deny forms: `gh pr update-branch`; `gh label create/edit/delete/clone`; `gh workflow run/enable/disable`; `gh run rerun/cancel/delete`; `gh repo sync/rename/archive/unarchive`; `gh issue delete/transfer/pin/unpin/develop`; `gh secret`/`gh variable set/delete`; `gh gist edit/delete`; `gh alias set`; `gh codespace create`; `git send-email`, `git send-pack`, `git svn dcommit`; `curl --json/--data-binary/--data-urlencode/--data=`, `-dVALUE` and short-option bundles (`-sd`), `-T`/`--upload-file`, `-K`/`--config`, `--request=POST`, lowercase and any non-GET/HEAD/OPTIONS methods; `wget --body-data/--body-file` and lowercase `--method`.
+- Heredoc handling and quote-aware segmentation are unchanged.
+
+### Changed
+
+- The 7 accidental-form `known-bypass` rows are promoted to `deny`, with about 130 new deny and allow rows (read-only forms such as `git -C dir log`, `gh -R o/r pr view`, `/usr/bin/git status`, `env git diff`, `gh label list`, `curl` GET still pass). Deliberate obfuscation (variables, `eval`, aliases, `bash -c`, heredoc quote tricks) stays documented as known-bypass.
+- `docs/reference/hooks.md` Limits section and the deny matrices updated.
+
 ## [0.5.0] - 2026-10-21
 
 ### Added

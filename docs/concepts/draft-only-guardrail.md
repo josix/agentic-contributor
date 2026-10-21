@@ -54,18 +54,19 @@ The denial message states:
 
 | Pattern | Decision |
 |---|---|
-| `git push` (any form, at command position) | DENY |
-| `gh pr create / comment / review / edit / merge / close / reopen / lock / unlock / ready / --fill` | DENY |
-| `gh issue create / comment / edit / close / reopen / lock / unlock` | DENY |
+| `git push` (any form, at command position, also after global options like `-C`, a path-qualified binary, or a wrapper such as `env`/`sudo`/`xargs`); `git send-email`, `git send-pack`, `git svn dcommit` | DENY |
+| `gh pr create / comment / review / edit / merge / close / reopen / lock / unlock / ready / update-branch / --fill` | DENY |
+| `gh issue create / comment / edit / close / reopen / lock / unlock / delete / transfer / pin / unpin / develop` | DENY |
 | `gh release create / edit / delete / upload` | DENY |
-| `gh repo create / fork / delete / edit` | DENY |
-| `gh gist create` | DENY |
+| `gh repo create / fork / delete / edit / sync / rename / archive / unarchive` | DENY |
+| `gh gist create / edit / delete` | DENY |
+| `gh label create / edit / delete / clone`, `gh workflow run / enable / disable`, `gh run rerun / cancel / delete`, `gh secret` and `gh variable set / delete`, `gh alias set`, `gh codespace create` (also with `-R`/`--repo`) | DENY |
 | `gh api` with `-X POST/PUT/PATCH/DELETE` or `--method POST/PUT/PATCH/DELETE` (including `-XPOST`, `--method=POST`) | DENY |
 | `gh api` with `-f` / `-F` / `--field` / `--raw-field` (except explicit `-X GET` or a read-only GraphQL query) | DENY |
 | `gh api` with `--input`; `gh api graphql` with `mutation`, `=@file`, or shell expansion in the query | DENY |
-| `curl` with `-X POST/PUT/PATCH/DELETE`, `--request POST/…`, `-d`/`--data`/`--data-raw`, `-F`/`--form` | DENY |
+| `curl` with a non-read `-X`/`--request` method, `-d`/`--data*`/`--json`, `-F`/`--form*`, `-T`/`--upload-file`, or `-K`/`--config` | DENY |
 | `wget` with any mutation flag | DENY |
-| `gh pr view`, `gh issue list`, `gh release list`, plain `gh api` GET, read-only `gh api graphql` queries, `gh api -X GET ... -f q=...` | ALLOW |
+| `git -C dir log`, `/usr/bin/git status`, `env git diff`, `gh -R o/r pr view`, `gh label list`, `gh workflow list`, `curl` GET, `gh pr view`, `gh issue list`, `gh release list`, plain `gh api` GET, read-only `gh api graphql` queries, `gh api -X GET ... -f q=...` | ALLOW |
 | Heredoc bodies are always checked: a body containing an outbound command (even via `cat > file <<EOF`) | DENY |
 | Heredoc whose body has no outbound command text | ALLOW |
 | `git clone`, `git status`, `git log`, `git diff`, `git fetch` | ALLOW |

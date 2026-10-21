@@ -152,15 +152,145 @@ deny	Bash	read -r q < q.graphql; set -- "$q"; gh api graphql -f query=" $1"
 deny	Bash	gh api graphql -f query="$@"
 allow	Bash	cat <<A\n"\nA\ngh api repos/o/r/issues\ncat <<B\n"\nB
 #
+# ── v0.5.1: accidental forms (global options, path-qualified binaries, wrappers) ──
+deny	Bash	git -C some/dir push origin main
+deny	Bash	git -c user.name=x push
+deny	Bash	git --git-dir=.git push
+deny	Bash	git --git-dir .git --work-tree . push
+deny	Bash	git --no-pager -C d push origin main
+deny	Bash	git -P push
+deny	Bash	git -Csome/dir push
+deny	Bash	git send-email --to a@b.c patch.mbox
+deny	Bash	git -C d send-email x.patch
+deny	Bash	git svn dcommit
+deny	Bash	git send-pack origin master
+deny	Bash	gh -R owner/repo pr create --title t --body b
+deny	Bash	gh --repo owner/repo issue comment 1 --body hi
+deny	Bash	gh --repo=owner/repo pr merge 3
+deny	Bash	gh pr -R owner/repo comment 3 --body hi
+deny	Bash	gh -R o/r api repos/o/r/issues -X POST
+deny	Bash	gh -R o/r api repos/o/r/issues -f title=t
+deny	Bash	/usr/bin/git push origin main
+deny	Bash	./gh pr create --title t
+deny	Bash	/opt/homebrew/bin/gh issue create --title t
+deny	Bash	env git push origin main
+deny	Bash	env -i FOO=1 git push
+deny	Bash	env -u HOME git push
+deny	Bash	FOO=bar git push
+deny	Bash	command git push origin main
+deny	Bash	exec git push
+deny	Bash	builtin git push
+deny	Bash	nohup git push origin main
+deny	Bash	time git push
+deny	Bash	time -p git push
+deny	Bash	sudo git push
+deny	Bash	sudo -u deploy git push
+deny	Bash	echo x | xargs git push
+deny	Bash	echo x | xargs -I {} git -C {} push
+deny	Bash	/usr/bin/env git -C d push
+deny	Bash	if true; then git push; fi
+deny	Bash	env GH_TOKEN=x /usr/local/bin/gh -R o/r api repos/o/r/issues -X PATCH
+deny	Bash	gh pr update-branch 12
+deny	Bash	gh issue transfer 1 o/other
+deny	Bash	gh issue pin 1
+deny	Bash	gh issue unpin 1
+deny	Bash	gh issue develop 1 --name b
+deny	Bash	gh issue lock 1
+deny	Bash	gh label create bug
+deny	Bash	gh label edit bug --color ff0000
+deny	Bash	gh label delete bug
+deny	Bash	gh workflow run ci.yml
+deny	Bash	gh workflow enable ci.yml
+deny	Bash	gh workflow disable ci.yml
+deny	Bash	gh run rerun 123
+deny	Bash	gh run cancel 123
+deny	Bash	gh repo sync o/r
+deny	Bash	gh repo rename newname
+deny	Bash	gh repo archive o/r
+deny	Bash	gh repo edit --description x
+deny	Bash	gh repo delete o/r --yes
+deny	Bash	gh secret set TOKEN
+deny	Bash	gh secret delete TOKEN
+deny	Bash	gh variable set X --body 1
+deny	Bash	gh variable delete X
+deny	Bash	gh gist edit abc123
+deny	Bash	gh gist delete abc123
+deny	Bash	gh release edit v1 --notes x
+deny	Bash	gh release upload v1 a.zip
+deny	Bash	gh release delete v1
+deny	Bash	gh alias set co 'pr checkout'
+deny	Bash	gh codespace create -R o/r
+deny	Bash	curl --json '{"a":1}' https://example.com
+deny	Bash	curl --data-binary @a.bin https://example.com
+deny	Bash	curl --data-urlencode a=b https://example.com
+deny	Bash	curl --data=a=b https://example.com
+deny	Bash	curl -da=b https://example.com
+deny	Bash	curl -sd a=b https://example.com
+deny	Bash	curl -T file.txt https://example.com/up
+deny	Bash	curl --upload-file file.txt https://example.com/up
+deny	Bash	curl --request=POST https://example.com
+deny	Bash	curl -X post https://example.com
+deny	Bash	curl -sXPUT https://example.com
+deny	Bash	curl -K curl.cfg
+deny	Bash	curl --config curl.cfg
+deny	Bash	curl --form-string a=b https://example.com
+deny	Bash	/usr/bin/curl -d a=b https://example.com
+deny	Bash	env curl -X DELETE https://example.com
+deny	Bash	wget --body-data a=b https://example.com
+deny	Bash	wget --body-data=a=b https://example.com
+deny	Bash	wget --method=post https://example.com
+deny	Bash	wget --method PUT https://example.com
+# ── v0.5.1: read-only forms must still pass ──
+allow	Bash	git -C some/dir log --oneline
+allow	Bash	git --no-pager -c core.pager=cat diff
+allow	Bash	git --git-dir=.git status
+allow	Bash	git svn info
+allow	Bash	gh -R o/r pr view 12
+allow	Bash	gh --repo o/r issue list
+allow	Bash	gh -R o/r api repos/o/r/issues
+allow	Bash	gh -R o/r api graphql -f query='query($owner:String!){ repository(owner:$owner,name:"r"){ id } }' -f owner=o
+allow	Bash	/usr/bin/git status
+allow	Bash	./gh pr view 1
+allow	Bash	env git diff
+allow	Bash	env -i FOO=1 git log
+allow	Bash	FOO=bar git status
+allow	Bash	command git status
+allow	Bash	command -v git
+allow	Bash	nohup git fetch
+allow	Bash	time git status
+allow	Bash	sudo -u deploy git log
+allow	Bash	echo x | xargs git log
+allow	Bash	echo x | xargs -I {} git -C {} status
+allow	Bash	/usr/bin/env git -C d log
+allow	Bash	gh label list
+allow	Bash	gh workflow list
+allow	Bash	gh workflow view ci.yml
+allow	Bash	gh run list
+allow	Bash	gh run view 123
+allow	Bash	gh secret list
+allow	Bash	gh variable list
+allow	Bash	gh gist view abc123
+allow	Bash	gh release view v1
+allow	Bash	gh repo view o/r
+allow	Bash	gh codespace list
+allow	Bash	gh alias list
+allow	Bash	curl https://example.com
+allow	Bash	curl -sL -o out.html https://example.com
+allow	Bash	curl -X GET https://example.com
+allow	Bash	curl -sXGET https://example.com
+allow	Bash	curl -I https://example.com
+allow	Bash	curl -H 'Accept: application/json' https://example.com
+allow	Bash	curl -H '-d' https://example.com
+allow	Bash	/usr/bin/curl -s https://example.com
+allow	Bash	wget --method=GET https://example.com
+allow	Bash	wget -q https://example.com/f.tgz
+allow	Bash	echo git -C d push
+allow	Bash	git commit -m "env git push"
+#
 # ── Known bypasses (documented; the guard is a tripwire, not a security boundary) ──
-# Forms an agent may plausibly write by accident; planned for v0.5.1 → promote to deny.
-known-bypass	Bash	git -C some/dir push origin main
-known-bypass	Bash	gh -R owner/repo pr create --title t --body b
-known-bypass	Bash	/usr/bin/git push origin main
-known-bypass	Bash	env git push origin main
-known-bypass	Bash	gh pr update-branch 12
-known-bypass	Bash	gh label create bug
-known-bypass	Bash	gh workflow run ci.yml
 # Deliberate obfuscation (realistic only under prompt injection; not planned —
 # use a read-only token as the real boundary).
 known-bypass	Bash	p=push; git $p origin main
+known-bypass	Bash	eval "g""it push origin main"
+known-bypass	Bash	alias gp='git push'; gp
+known-bypass	Bash	bash -c "git push origin main"
