@@ -48,6 +48,17 @@ The script reads the tool-use JSON from stdin, extracts `tool_name` and `tool_in
 
 **Per-invocation handling (v0.3.1) and heredoc bodies (v0.4.0):** `gh api` flags are evaluated per `gh api` invocation (the command is split into segments on newline, `;`, `|`, `&`, `(`, `)`, `$(` and backtick, ignoring separators inside quotes and dropping comments). Before the rules run, backslash-newline continuations are joined. Heredoc bodies are **always checked** as ordinary lines (the v0.3.1 heredoc-body skipping was removed in v0.4.0 because `cat > run.sh <<'EOF' ... EOF` followed by `sh run.sh` could execute a script the guard never saw). A note whose heredoc text mentions an outbound command is therefore denied; use the Write tool to create such files. `gh api` options are parsed from unquoted tokens, and if segmentation fails a `gh api` command is denied. Any other preprocessing failure falls back to the raw command. Regression tests: `bash hooks/tests/run-guard-tests.sh`.
 
+### Limits: a tripwire, not a security boundary
+
+`guard-outbound.sh` reads command **text**. A shell command can be written in endlessly many ways, so text matching cannot block every outbound action. The guard is designed to stop an agent from *accidentally* pushing or posting while it follows normal draft-only instructions. It is not designed to stop a command that is deliberately written to get past it.
+
+Known gaps are recorded as `known-bypass` rows in `hooks/tests/guard-cases.tsv`. They are reported, not counted as failures, and the harness prints a note when one starts being denied. Two kinds:
+
+- **Forms an agent may write by accident** (planned fix in v0.5.1): global options before the subcommand (`git -C dir push`, `gh -R owner/repo pr create`), path-qualified binaries (`/usr/bin/git push`), wrapper prefixes (`env git push`), and `gh` write subcommands not yet in the deny list (`gh pr update-branch`, `gh label create`, `gh workflow run`).
+- **Deliberate obfuscation** (not planned): variables (`p=push; git $p`), quoting tricks inside heredocs, `eval`, aliases, and similar. These are realistic only if the agent is manipulated, for example by a prompt injection hidden in an issue, PR, or comment the plugin reads.
+
+**The real boundary is the credentials.** Give the plugin a GitHub token without write permissions (see [GitHub Access](../guides/github-access.md#use-a-read-only-token)). With a read-only token, GitHub itself rejects any write that slips past the guard. `git push` uses your local git credentials instead, which this plugin cannot restrict; keep Claude Code's permission prompts on for commands you have not allowed.
+
 ## Deny / Allow Matrix
 
 ### MCP Write Tools — DENY

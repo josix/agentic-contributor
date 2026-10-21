@@ -80,9 +80,34 @@ body_format: 2
 | `status` | Always `draft` — change to `sent` once the execution plugin posts it |
 | `body_format` | Draft tier, v0.4.0+: `2` means only the `oss:send` block is sendable. Absent or `1` means legacy (whole body sendable) |
 | `mode` | `review-reply` only: `brief` (default) or `lint` |
+| `policy` | v0.5.0+, `find`, `norms`, and draft-tier scenarios: the project's detected AI-policy and contribution-limit block (see below) |
+| `routed_from` | v0.5.0+, only when a PR-intent request was rerouted to `report` (issue-first); names the original scenario |
 
 The `status: draft` field allows the separate execution/submission plugin to identify unreviewed
 drafts and prompt for confirmation before acting on them.
+
+### The `policy` block
+
+```yaml
+policy:
+  ai_policy: none-found|disclosure-required|restricted|banned
+  ai_policy_sources: [<path-or-url>]
+  disclosure: required|recommended|none-found
+  disclosure_mechanism: pr-template-checkbox|statement|trailer|unknown
+  coauthor_trailer_forbidden: true|false|unknown
+  open_pr_cap: <int>|unknown
+  open_pr_cap_applies_to: non-committers|all|unknown
+  vouch_required: true|false|unknown
+  vouch_file: <path>|none-found
+  gfi_ai_ban: true|false|unknown
+  issue_first: required|recommended|unknown
+  confidence: high|medium|low
+  fetched_at: 2026-10-21T10:00:00Z
+```
+
+Heuristic and advisory: `none-found`/`unknown` means the plugin did not find a signal, not that the
+project has no policy. `/oss` reuses the block from the newest draft for the same repo when
+`fetched_at` is under 7 days old. Readers that do not know the field ignore it.
 
 ## Body Format
 

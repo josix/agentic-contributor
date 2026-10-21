@@ -5,6 +5,27 @@ All notable changes to the agentic-contributor plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-21
+
+### Added
+
+- **Policy detection** in `contribution-norms`: AI policy files, CONTRIBUTING AI sections, PR-template disclosure checkboxes, AI co-author trailer rules, open-PR caps, vouch lists, good-first-issue AI rules, and issue-first rules. The `norms` briefing gains "AI Use Policy" and "Contribution Limits & Trust Gates" sections with sources and confidence. New `references/ai-policy-signals.md` holds the signal catalog, the `policy` block schema, and facts verified against live repos: DataFusion's `.asf.yaml` key `github.pull_requests.creation_cap.max_open_pull_requests`, Ghostty's `.github/VOUCHED.td` format, and the DataFusion AI policy source. Unverified project claims are listed as unverified.
+- **Policy Preflight** (`/oss` Step 3a) for `find`, `clarify`, `claim`, `engage`, `review-reply`, and `report`: reuses a `policy` block from `.oss-drafts/` frontmatter when under 7 days old, otherwise dispatches `oss-researcher` (key `policy-preflight`). Advisory only; never blocks a draft. Absence is reported as not found, never "no policy".
+- **Issue-first routing**: a PR-intent request with no issue reference routes to `report` when the project requires or recommends an issue first; the draft records `routed_from`. Routing is unchanged when the policy is unknown.
+- Frontmatter fields `policy` and `routed_from`.
+
+### Changed
+
+- **AP9** (AI co-author trailer or "Generated with" footer) in review-reply lint is now active when the draft's `policy` has `coauthor_trailer_forbidden: true` or `ai_policy` other than `none-found`; otherwise it is reported as unevaluated.
+- `oss-researcher` supports the `policy-preflight` key and may use `search_code` / `gh search code` (read-only).
+- `issue-drafting` adds an issue-first / AI-policy note to Private notes and a `routed_from` message.
+- Docs, README, and manifests updated for 0.5.0. Still 9 scenarios and a single `/oss` entrypoint.
+- **The guard is documented as a tripwire, not a security boundary.** `docs/reference/hooks.md` gains a "Limits" section; `docs/guides/github-access.md` recommends a read-only fine-grained token as the real boundary. The test harness supports `known-bypass` rows: documented gaps that are reported but not counted as failures (9 recorded, including a heredoc-quote case already present in 0.4.0).
+
+### Security
+
+- `gh api graphql` read-only detection now rejects any `$` outside single quotes (positional and special parameters such as `$1`, `$@`, `$*`), not only `$NAME` / `${NAME}`.
+
 ## [0.4.0] - 2026-10-21
 
 ### Changed

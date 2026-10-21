@@ -58,6 +58,8 @@ generated_at: <ISO-8601 UTC>
 status: draft
 body_format: 2            # draft tier only; omit on report tier. 1 or absent = legacy (whole body sendable)
 mode: <brief|lint>        # review-reply only
+policy: {...}             # find + scenarios 5-9 (and norms): the policy block, see Step 3a; includes fetched_at
+routed_from: <scenario>   # only when a PR-intent request was rerouted to report (issue-first)
 ---
 ```
 
@@ -105,7 +107,33 @@ Invoke the `oss-scenario-routing` skill to classify the intent from `$ARGUMENTS`
 
 - Match against intent signals.
 - If ambiguous, ask ONE clarifying question (the scenario menu).
+- If the intent is PR intent with no issue reference (see the routing skill), run the Step 3a
+  policy preflight **before** final routing; this is the only policy-aware routing rule. See the
+  PR-intent -> Report (Issue-First) Branch below.
 - After classification, proceed immediately — do not ask additional questions at this stage.
+
+---
+
+## Step 3a — Policy Preflight
+
+Applies to `find`, `clarify`, `claim`, `engage`, `review-reply`, and `report`. It does not apply to
+`status`, `norms` (which computes the policy in full), or `setup`. It runs before the Step 3
+dispatch, and also before final routing for PR-intent requests.
+
+1. **Cache lookup.** Glob `.oss-drafts/*-<owner>-<repo>-*.md` as a candidate list only: filename
+   flattening is ambiguous (`a-b/c` and `a/b-c` collide). Read the `policy:` frontmatter of
+   candidates, newest first, and reuse the first whose `policy.repo` equals `<owner>/<repo>` exactly
+   (case-insensitive) and whose `policy.fetched_at` is less than 7 days old. A block without
+   `policy.repo` is never reused. If found, reuse that block and do not dispatch. If the user asks to refresh the policy
+   ("refresh policy for X"), skip the cache.
+2. **Otherwise dispatch** `oss-researcher` with scenario key `policy-preflight`. It reads a fixed
+   path list (about 6-10 GETs) and returns only the policy block, using the `contribution-norms`
+   skill's "Policy Preflight" section and `references/ai-policy-signals.md`.
+3. **Record** the resolved block in the frontmatter `policy:` of every draft written in this run.
+   Cached blocks keep their original `fetched_at`.
+4. Findings are **advisory**: never block or delay a draft because of a policy finding. If the
+   preflight fails or finds nothing, set fields to `unknown`/`none-found` and continue. Absence is
+   never reported as "no policy".
 
 ---
 
@@ -149,16 +177,23 @@ review-reply, report) must put postable text inside `oss:send` markers with `bod
   walkthrough to `.oss-drafts/setup-<owner>-<repo>-setup-<UTC>.md`.
 - **clarify / engage / claim** → load `smart-questions`; follow its DRAFT-ONLY contract. Put the
   postable text inside `oss:send` markers and set `body_format: 2`. Save to
-  `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`.
+  `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`. Policy use: add a Private-notes reminder
+  of the project's disclosure requirement, open-PR cap, and vouch rule when detected (never in the
+  send block).
 - **review-reply** → load `smart-questions` (Scenario C). Brief mode (default): the private
   understanding brief goes in Private notes and each send block holds only
   `TODO(you): reply in your own words`. Never write the reply. Lint mode: read the user's send
   blocks, add a Lint section to Private notes, and rewrite the same file without touching the send
-  blocks. Set `mode: brief|lint`.
+  blocks. Set `mode: brief|lint`. Policy use: activates AP9 in lint mode when the frontmatter
+  `policy` has `coauthor_trailer_forbidden: true` or `ai_policy` other than `none-found`; AP9
+  evaluates the actual trailer rule and disclosure mechanism, not just the presence of a policy.
 - **report** → load `issue-drafting`; run its Pre-flight (duplicate search + template fetch +
   convention extraction), then Procedure 2 (bug) or Procedure 3 (feature) based on the user's
   intent. Save draft to `.oss-drafts/report-<owner>-<repo>-<item>-<UTC>.md` where `item` is
-  `issue-bug` for bug reports and `issue-feature` for feature requests.
+  `issue-bug` for bug reports and `issue-feature` for feature requests. Policy use: note the
+  project's issue-first status in Private notes; if `routed_from` is set, say so.
+- **find** policy use: record the `policy` block in frontmatter and mention any open-PR cap, vouch
+  requirement, or good-first-issue AI ban in the shortlist notes.
 
 Before writing any file: ensure `.git/info/exclude` (or equivalent) excludes `.oss-drafts/` as
 described in the convention block above.
@@ -173,6 +208,20 @@ After `oss-claim-analyst` returns its verdict:
 - **"Appears already claimed"**: automatically switch to the **engage** scenario — load
   `smart-questions` (Scenario B) and dispatch `oss-researcher` to gather the linked PR context and
   draft constructive feedback instead. Notify the user of the switch.
+
+### PR-intent → Report (Issue-First) Branch
+
+Mirrors the claim → engage branch. When the request expresses PR intent ("open a PR for...",
+"submit a fix for...", "I have a patch...") with **no issue number or URL**, run the Step 3a
+preflight first, then:
+
+- `policy.issue_first` is `required` or `recommended`: switch to the **report** scenario, tell
+  the user why (quote `policy.issue_first_quote` and cite `policy.issue_first_source`), and set `routed_from: <original scenario>` in the draft
+  frontmatter. The issue is a DRAFT; nothing is filed. If the user says they want to continue with
+  the PR anyway, do not block them: explain that no PR scenario exists yet and offer the scenarios
+  that do (for example clarify or norms).
+- `policy.issue_first` is `unknown` (not found): routing is unchanged; present the scenario menu as
+  usual (still at most one clarifying question).
 
 ---
 

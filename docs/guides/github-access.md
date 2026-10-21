@@ -47,6 +47,12 @@ export GITHUB_MCP_TOKEN=ghp_your_token_here
 
 Use a personal access token (classic) with **`repo:read`** scope, or a fine-grained token with read-only repository permissions. No write permissions are needed or used.
 
+### Use a read-only token
+
+A read-only token is the plugin's real safety boundary. The `PreToolUse` guard only matches command text and has known gaps (see [Hooks Reference — Limits](../reference/hooks.md#limits-a-tripwire-not-a-security-boundary)). With a read-only token, GitHub rejects any write that gets past the guard.
+
+Recommended: a **fine-grained personal access token** with only *Contents: Read*, *Issues: Read*, *Pull requests: Read* and *Metadata: Read* (no write permissions). Use it for `GITHUB_MCP_TOKEN`. If you rely on the `gh` fallback, note that `gh` uses whatever account you are logged in with; for strict draft-only use, log `gh` in with the same read-only token (`gh auth login --with-token`) in the environment where you run the plugin.
+
 Persist across sessions by adding the export to your shell profile.
 
 ## `gh` CLI Fallback
@@ -59,6 +65,7 @@ gh pr list      --repo <owner/repo> --limit 20 --json number,title,state,reviewD
 gh release list --repo <owner/repo> --limit 10
 gh pr view      <number> --repo <owner/repo> --json body,files,reviews,comments,statusCheckRollup
 gh api          repos/<owner/repo>/contents/CONTRIBUTING.md
+gh search code  --repo <owner/repo> --filename ai-policy   # AI-policy lookup; needs authentication
 ```
 
 Authenticate once with:

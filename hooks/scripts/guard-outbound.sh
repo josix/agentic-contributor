@@ -274,7 +274,9 @@ graphql_readonly() {
   # no shell expansion outside single quotes ($VAR / ${VAR}); GraphQL $vars
   # inside single quotes are fine.
   unq="$(printf '%s' "$seg" | sed "s/'[^']*'//g")"
-  [[ "$unq" =~ \$[A-Za-z_\{] ]] && return 1
+  # Any unquoted-by-single-quote `$` (names, positional $1, $@, $*, $#, $?, ...) is
+  # an expansion the guard cannot resolve.
+  [[ "$unq" == *'$'* ]] && return 1
   return 0
 }
 

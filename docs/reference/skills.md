@@ -83,9 +83,10 @@ Four scenario-specific procedures:
 4. **Commit and PR title conventions** — required title format (e.g., `[SPARK-NNNN][COMPONENT]`), commit message format, bot checks, required issue links.
 5. **Code of conduct** — summary and link (ASF CoC for Apache projects).
 6. **Apache-specific notes** — ICLA, DCO sign-off, JIRA vs GitHub workflow, lazy consensus, and `[PROJECT-NNNN]`-style title conventions from `references/apache-governance.md`.
-7. **What's missing** — explicitly states when a governing document cannot be found; never fabricates norms. The orchestrator saves the briefing to `.oss-drafts/norms-…` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
+7. **AI & contribution-limit policy (step 6b)** — detects AI policy documents, CONTRIBUTING AI sections, PR-template disclosure checkboxes, AI co-author trailer rules, open-PR caps (e.g. `.asf.yaml` `github.pull_requests.creation_cap`), vouch lists (`VOUCHED*`), good-first-issue AI rules, and issue-first rules. The `norms` briefing gets "AI Use Policy" and "Contribution Limits & Trust Gates" sections, each finding with a source and confidence. Absence is reported as "not found", never "no policy". A **Policy Preflight** procedure returns only the `policy` block for other scenarios.
+8. **What's missing** — explicitly states when a governing document cannot be found; never fabricates norms. The orchestrator saves the briefing to `.oss-drafts/norms-…` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
 
-**References:** `skills/contribution-norms/SKILL.md`, `skills/contribution-norms/references/apache-governance.md`
+**References:** `skills/contribution-norms/SKILL.md`, `skills/contribution-norms/references/apache-governance.md`, `skills/contribution-norms/references/ai-policy-signals.md`
 
 ---
 

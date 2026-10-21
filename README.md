@@ -7,7 +7,7 @@ This is the **research-and-engagement half** of a two-plugin system. It surfaces
 ## Features
 
 - **Single `/oss` entrypoint** — one command handles all 9 contribution scenarios; presents an interactive menu if arguments are omitted.
-- **9 built-in scenarios** — project status, issue/PR matching, contribution norms, dev environment setup, maintainer questions, issue claiming, PR feedback, review-reply understanding briefs and reply linting, and new-issue authoring (bug reports and feature requests).
+- **9 built-in scenarios** — project status, issue/PR matching, contribution norms, dev environment setup, maintainer questions, issue claiming, PR feedback, review-reply understanding briefs and reply linting, and new-issue authoring (bug reports and feature requests). Every draft scenario carries a cached, advisory project policy preflight (AI-use policy, open-PR cap, vouch, issue-first), and PR-intent requests are routed to a new-issue draft when the project wants an issue first.
 - **Read-only GitHub research** — `oss-researcher` and `oss-claim-analyst` subagents access GitHub via the MCP server or `gh` CLI; neither ever mutates.
 - **Draft-only guardrail** — a `PreToolUse` hook actively denies all outbound and mutating actions; drafts are presented for human review before any separate execution step.
 - **MCP + `gh` fallback** — prefers the structured GitHub MCP server when `GITHUB_MCP_TOKEN` is set; falls back to `gh` CLI automatically.
@@ -124,7 +124,7 @@ Both agents are read-only. The `PreToolUse` guardrail hook enforces this at the 
 | `oss-scenario-routing` | Classifies intent into one of the 9 scenarios; handles the claim→engage branch switch |
 | `issue-matching` | Structured contributor intake (5 questions), heuristic scoring, ranked shortlist |
 | `smart-questions` | DRAFT-ONLY contract for clarify, engage, review-reply, and claim scenarios |
-| `contribution-norms` | Surfaces CONTRIBUTING, CLA/DCO, PR/commit conventions, and Apache governance |
+| `contribution-norms` | Surfaces CONTRIBUTING, CLA/DCO, PR/commit conventions, Apache governance, and AI-use policy / contribution limits |
 | `dev-env-setup` | Step-by-step guided local setup from official docs with a verifiable checkpoint |
 | `issue-drafting` | DRAFT-ONLY new bug reports and feature requests with duplicate search, ISSUE_TEMPLATE application, and evidence checklists |
 

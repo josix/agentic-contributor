@@ -137,7 +137,9 @@ with understanding and translation.
    context; the saved brief holds only selected hunks. In a fresh session, fetch the PR diff,
    thread, and commits (read-only) first. If a fetch is not possible, mark the affected rules
    **unevaluated** in the Lint section rather than passing them, and never report an overall
-   pass while any rule is unevaluated.
+   pass while any rule is unevaluated. AP9 is active only when the draft frontmatter `policy`
+   has `coauthor_trailer_forbidden: true` or `ai_policy` not `none-found`; otherwise it is
+   unevaluated, not passed.
 3. Report findings in a **Lint** section inside Private notes: for each finding give the rule ID,
    severity (`fix-before-sending` or `consider`), the **quoted span** of the user's text, and a
    **question** back to the user. End with a pass/fail summary.

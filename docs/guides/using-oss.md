@@ -157,6 +157,10 @@ When the **claim** scenario dispatches `oss-claim-analyst` and the verdict is **
 
 This prevents a redundant claim comment on an issue already being worked on and redirects your energy where it is most useful.
 
+## The Issue-First Branch
+
+If you say you want to open a PR (for example "submit a fix for X in apache/datafusion") without naming an issue, `/oss` first checks the project's policy (cached for 7 days). When the project requires or recommends an issue first, it switches to the **report** scenario, tells you why and quotes the policy source, and drafts an issue instead. The draft's frontmatter records `routed_from`. Nothing is filed; you can still say you want to continue with the PR. If the policy cannot be determined, nothing changes. To force a fresh policy lookup, say "refresh policy for owner/repo".
+
 ## Draft-Review Behavior
 
 All 9 scenarios save their output to `.oss-drafts/` in your current working directory as an editable markdown file. The `.oss-drafts/` directory is automatically excluded from version control via `.git/info/exclude` when `/oss` first writes a file in a git repo.

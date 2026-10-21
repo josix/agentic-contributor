@@ -85,6 +85,14 @@ Use the fetched template metadata and any available `contribution-norms` output 
   pick a component when the symptom is ambiguous rather than guessing. Present the available
   component labels or prefixes and ask the user which applies before drafting.
 
+**Policy note.** If the policy block (frontmatter `policy`, from the orchestrator's preflight)
+shows `issue_first` as `required` or `recommended`, or the project's AI policy prefers a
+high-quality issue with a minimal reproducer over an AI-generated PR (as DataFusion's does), add a
+line to Private notes saying so and citing the source. If `routed_from` is set, say the draft was
+rerouted from a PR request and that the user can come back to `prepare-pr` (planned, not yet
+available) once maintainers acknowledge the issue. Policy notes are advisory, belong only in
+Private notes, and never block the draft.
+
 ## Procedure 2 — Bug Report
 
 After Pre-flight completes, draft a bug report with the following evidence checklist. Map each

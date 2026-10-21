@@ -27,6 +27,7 @@ fi
 
 pass=0
 fail=0
+known=0
 lineno=0
 tab="$(printf '\t')"
 
@@ -41,6 +42,18 @@ while IFS="$tab" read -r expect tool cmd || [ -n "${expect:-}" ]; do
   json="$(jq -n --arg t "$tool" --arg c "$cmd" '{tool_name:$t, tool_input:{command:$c}}')"
   printf '%s' "$json" | "$runner" "$guard" >/dev/null 2>&1
   rc=$?
+
+  # known-bypass: documented gap (the guard is a tripwire, not a security
+  # boundary). Not counted as a failure; flagged when the guard starts denying
+  # it so the row can be promoted to "deny".
+  if [ "$expect" = "known-bypass" ]; then
+    known=$((known + 1))
+    if [ "$rc" -eq 2 ]; then
+      printf 'NOTE line %d: known-bypass is now denied; promote to deny: [%s] %s\n' \
+        "$lineno" "$tool" "$cmd"
+    fi
+    continue
+  fi
 
   case "$expect" in
     allow) want=0 ;;
@@ -58,5 +71,5 @@ while IFS="$tab" read -r expect tool cmd || [ -n "${expect:-}" ]; do
 done < "$cases"
 
 total=$((pass + fail))
-echo "guard tests ($runner): $pass/$total passed"
+echo "guard tests ($runner): $pass/$total passed ($known known bypasses documented, see docs/reference/hooks.md)"
 [ "$fail" -eq 0 ]

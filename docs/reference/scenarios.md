@@ -34,7 +34,7 @@ No skill is loaded. `oss-researcher` returns findings directly as a timestamped 
 
 ### Scenario 3 — norms
 
-`contribution-norms` directs `oss-researcher` to fetch CONTRIBUTING, CODE_OF_CONDUCT, PR/issue templates, and DCO files. For Apache Software Foundation projects, `references/apache-governance.md` provides additional context on ICLA, JIRA workflows, and lazy-consensus voting. Documents that cannot be found are explicitly noted — nothing is fabricated. The orchestrator saves the briefing to `.oss-drafts/norms-<owner>-<repo>-norms-<UTC>.md` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
+`contribution-norms` directs `oss-researcher` to fetch CONTRIBUTING, CODE_OF_CONDUCT, PR/issue templates, and DCO files. For Apache Software Foundation projects, `references/apache-governance.md` provides additional context on ICLA, JIRA workflows, and lazy-consensus voting. It also detects the project's AI-use policy and contribution limits (AI policy files, CONTRIBUTING AI sections, PR-template disclosure, open-PR caps, vouch lists, co-author trailer rules, good-first-issue AI rules, issue-first rules) in "AI Use Policy" and "Contribution Limits & Trust Gates" sections, each citing its source. Documents or signals that cannot be found are explicitly noted ("not found", never "no policy") — nothing is fabricated. The orchestrator saves the briefing to `.oss-drafts/norms-<owner>-<repo>-norms-<UTC>.md` and shows: "Saved to `<path>`. Review and edit this report file as needed before using it."
 
 ### Scenario 4 — setup
 
@@ -73,6 +73,21 @@ After Pre-flight, the skill applies one of four template-application cases:
 Missing required evidence is always marked with `TODO:` placeholders — version info, reproduction steps, stack traces are never fabricated.
 
 The draft includes a suggested title (following the repo's convention), suggested labels, and a complete body ready to paste. The orchestrator saves the draft to `.oss-drafts/report-<owner>-<repo>-issue-bug-<UTC>.md` (bug reports) or `.oss-drafts/report-<owner>-<repo>-issue-feature-<UTC>.md` (feature requests) and shows the mandatory draft-tier notice.
+
+## Policy Preflight
+
+Before `find`, `clarify`, `claim`, `engage`, `review-reply`, and `report`, `/oss` resolves a `policy` block (AI policy, disclosure, co-author trailer rule, open-PR cap, vouch, issue-first). It reuses the block from the newest `.oss-drafts/` draft for the same repo whose `policy.fetched_at` is under 7 days old; otherwise `oss-researcher` (key `policy-preflight`) does a fixed 6-10 GET lookup. The block is written into every draft's frontmatter. Findings are advisory and never block a draft.
+
+## The Issue-First Branch
+
+When you express PR intent ("open a PR for...", "submit a fix for...") with no issue reference and the project's policy says an issue is required or recommended first, `/oss` switches to **report**, quotes the policy source, and sets `routed_from` in the draft frontmatter. If the policy is unknown or not found, routing is unchanged. It never blocks you, and adds no extra clarifying question.
+
+```
+/oss I want to submit a fix for <symptom> in apache/datafusion
+  → policy preflight: issue_first
+  → /oss notifies user, quotes the source
+  → load issue-drafting → report DRAFT (routed_from set)
+```
 
 ## The Claim→Engage Branch
 

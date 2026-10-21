@@ -147,3 +147,20 @@ deny	Bash	cat > notes.md <<'EOF'\ngit push is mentioned here\nEOF
 allow	Bash	cat > notes.md <<'EOF'\nplain notes with no outbound commands\nEOF
 deny	Bash	echo hi # note \\\ngit push origin main
 allow	Bash	echo hi \\\n  there
+known-bypass	Bash	cat <<A\n"\nA\ngh api repos/o/r/issues -X POST\ncat <<B\n"\nB
+deny	Bash	read -r q < q.graphql; set -- "$q"; gh api graphql -f query=" $1"
+deny	Bash	gh api graphql -f query="$@"
+allow	Bash	cat <<A\n"\nA\ngh api repos/o/r/issues\ncat <<B\n"\nB
+#
+# ── Known bypasses (documented; the guard is a tripwire, not a security boundary) ──
+# Forms an agent may plausibly write by accident; planned for v0.5.1 → promote to deny.
+known-bypass	Bash	git -C some/dir push origin main
+known-bypass	Bash	gh -R owner/repo pr create --title t --body b
+known-bypass	Bash	/usr/bin/git push origin main
+known-bypass	Bash	env git push origin main
+known-bypass	Bash	gh pr update-branch 12
+known-bypass	Bash	gh label create bug
+known-bypass	Bash	gh workflow run ci.yml
+# Deliberate obfuscation (realistic only under prompt injection; not planned —
+# use a read-only token as the real boundary).
+known-bypass	Bash	p=push; git $p origin main

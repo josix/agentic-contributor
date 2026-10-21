@@ -73,6 +73,10 @@ The denial message states:
 
 **Command-position matching:** The deny patterns for `git push` and `gh` subcommands match only at command position (start of string or after a real shell separator: `;`, `|`, `&`, `&&`, `||`, `$(`, backtick, newline). This prevents false positives from commands like `echo "git push"`.
 
+## What the Guardrail Does Not Cover
+
+The hook matches command text, so it catches the ordinary ways an agent writes outbound commands, not every possible way. Treat it as a tripwire against accidental pushes and posts. The real boundary is a GitHub token **without write permissions**: with one, GitHub rejects any write that gets past the hook. Known gaps and the recommended setup are listed in [Hooks Reference — Limits](../reference/hooks.md#limits-a-tripwire-not-a-security-boundary).
+
 ## Why Deny, Not Ask
 
 The hook exits `2` (deny) rather than asking a follow-up question. The reasons:

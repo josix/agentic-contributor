@@ -37,6 +37,10 @@ To classify the user's intent:
 2. If no strong match is found, ask **one** clarifying question: present the scenario menu
    (numbered list of the 9 scenarios) and ask the user which applies.
 3. Never ask more than one clarifying question. After the answer, classify and proceed.
+4. **PR intent** ("open a PR for...", "submit a fix for...", "I have a patch...", "send a PR")
+   with no issue number or URL triggers the policy preflight (Step 3a in `commands/oss.md`)
+   **before** final routing. This is the only place routing is policy-aware; see the Issue-First
+   Branch below.
 
 ### Claim → Engage Branch
 
@@ -47,6 +51,18 @@ After dispatching `oss-claim-analyst` for the **claim** scenario:
 - If the analyst's verdict is **"appears already claimed"** (assignee, active PR, or recent intent
   comment): automatically switch to the **engage** scenario — load `smart-questions` and dispatch
   `oss-researcher` to gather the linked PR context and draft constructive feedback instead.
+
+### Issue-First Branch
+
+Mirrors the claim → engage branch. For PR intent with no issue reference, after the policy
+preflight:
+
+- `policy.issue_first` is `required` or `recommended`: switch to **report** (load `issue-drafting`),
+  notify the user why and quote the policy source, and set `routed_from: <scenario>` in the draft
+  frontmatter. The user is never blocked: if they say they want to continue with the PR anyway,
+  say no PR scenario exists yet and offer the scenarios that do.
+- `policy.issue_first` is `unknown`: routing is unchanged; present the scenario menu as usual.
+- This adds no clarifying question; the 1-question limit still holds.
 
 ## Routing Steps
 

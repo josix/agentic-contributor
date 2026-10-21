@@ -35,7 +35,7 @@ on that line.
 | AP6 | Assistant boilerplate ("You're absolutely right", "Great catch!") |
 | AP7 | Length out of proportion to the question |
 | AP8 | Leftover `TODO(you)` or empty send block |
-| AP9 | AI co-author trailer or "Generated with" footer (active once a policy profile exists, planned v0.5.0) |
+| AP9 | AI co-author trailer or "Generated with" footer (active when the draft's `policy` shows a co-author trailer ban or an AI policy) |
 
 Bad/good examples for each rule are in `skills/smart-questions/references/smart-questions-principles.md`.
 
@@ -44,6 +44,16 @@ Bad/good examples for each rule are in `skills/smart-questions/references/smart-
 Draft files separate the text you may post (inside `oss:send` markers) from private notes. The
 execution plugin posts only the send block and refuses while `TODO(you)` remains. See
 [Draft Files](draft-files.md#body-format) and [Two-Plugin System](two-plugin-system.md).
+
+## Project policy awareness
+
+Since v0.5.0 the plugin also detects a project's AI-use policy and contribution limits (AI policy
+files, PR-template disclosure, open-PR caps, vouch lists, issue-first rules) and carries them into
+every draft as a `policy` block. Examples: Apache DataFusion's AI policy and its cap of 3 open PRs
+for non-committers (`.asf.yaml`), and Ghostty's AI policy and vouch list (`.github/VOUCHED.td`).
+Reminders appear in private notes only and are advisory. Where a project prefers an issue first, a
+PR-intent request is routed to `report`. Not found means "not found", never "no policy"; check the
+project website too.
 
 ## Still draft-only
 

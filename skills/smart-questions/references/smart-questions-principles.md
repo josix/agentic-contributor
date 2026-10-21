@@ -129,10 +129,18 @@ Ask: "This reply is not written yet. Is it ready to send?" Severity: `fix-before
 - Good: the user's own sentences.
 
 ### AP9 — AI co-author trailer or "Generated with…" footer (active from v0.5.0)
-Inactive until a policy profile exists (v0.5.0). Then it applies when
-`policy.coauthor_trailer_forbidden` is true or `policy.ai_policy` is not `none-found`.
-Ask: "This project's policy restricts AI attribution trailers. Do you want this footer here?"
-- Bad: "Co-Authored-By: Claude …" in a reply or PR description.
+Active when the draft frontmatter has a `policy` block and either `coauthor_trailer_forbidden: true`
+or `ai_policy` is other than `none-found`. If there is no `policy` block, or neither holds, mark AP9
+**unevaluated** (not passed) and say why in the Lint section.
+Evaluate the actual rule before flagging:
+- `coauthor_trailer_forbidden: true`: flag any AI trailer or footer ("Co-Authored-By: Claude …",
+  "Generated with …").
+- `coauthor_trailer_forbidden: false` or `unknown` with `disclosure_mechanism: trailer`: a trailer is
+  the project's disclosure mechanism, so do not flag it; flag its absence only if `disclosure: required`.
+- Otherwise (disclosure by statement or checkbox, or mechanism unknown): flag a trailer or footer
+  only as a question, since the project may not want it; do not claim it is forbidden.
+Ask (when flagging a forbidden trailer): "This project's policy restricts AI attribution trailers. Do you want this footer here?"
+- Bad: an AI trailer where `coauthor_trailer_forbidden: true`.
 - Good: no trailer, or the disclosure the project's policy asks for.
 
 ---
