@@ -55,3 +55,37 @@ noop	active	RAW	not json	-
 noop	active	RAW	-	-
 noop	active	RAW	{"hook_event_name":"Stop","cwd":"<root>	-
 silent	pending-noedit	Stop	-	m advanced
+# predict-then-reveal (UserPromptSubmit)
+noop	none	Prompt	-	-
+noop	active	Prompt	-	-
+noop	predict-off	Prompt	-	-
+predict-ctx	predict-on	Prompt	-	0/4 predict:1
+predict-ctx	predict-2	Prompt	-	2/4 predict:3
+predict-ctx	predict-mixed	Prompt	-	1/4 predict:2
+noop	predict-max2	Prompt	-	-
+noop	predict-full	Prompt	-	-
+noop	predict-b0	Prompt	-	-
+noop	predict-stopped	Prompt	-	-
+noop	predict-on	PromptSlash	-	-
+noop	predict-on	PromptSpaceSlash	-	-
+noop	predict-on	PromptEmpty	-	-
+noop	predict-on	RAW	{"hook_event_name":"UserPromptSubmit","cwd":"<root>	-
+noop	predict-on	RAW	{"hook_event_name":"UserPromptSubmit","cwd":"<root>","prompt":	-
+silent	predict-stop	Stop	-	m advanced
+# predict: auto (UserPromptSubmit). auto-ctx "<reason> <markers>" | auto-silent "<markers> [last marker state]"
+auto-ctx	auto-new	Prompt	-	newcomer 1
+auto-silent	auto-vet	Prompt	-	0
+auto-silent	auto-vet-marker	Prompt	-	2 off
+auto-ctx	auto-explain-skip	Prompt	-	explain-skipped 1
+auto-ctx	auto-explain-nr	Prompt	-	explain-not-requested 1
+auto-ctx	auto-prior3	Prompt	-	prior-unknowns 1
+auto-silent	auto-noidea	Prompt	-	0
+auto-silent	auto-noidea-marker	Prompt	-	2 off
+auto-silent	auto-unknown	Prompt	-	0
+auto-silent	auto-nokey	Prompt	-	0
+auto-silent	auto-new-b0	Prompt	-	0
+auto-silent	auto-new-cap	Prompt	-	0
+auto-silent	auto-slash	PromptSlash	-	0
+auto-ctx	auto-busy	Prompt	-	newcomer 0
+predict-ctx	auto-alias-on	Prompt	-	0/4 predict:1
+noop	auto-alias-off	Prompt	-	-

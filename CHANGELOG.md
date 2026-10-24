@@ -5,6 +5,24 @@ All notable changes to the agentic-contributor plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-10-24
+
+### Added
+
+- **Predict-then-reveal** inside tracked sessions, `predict: auto` by default for new sessions: fixed rules switch it on (newcomer to the repo, a skipped or not-requested explain-back, 3+ unknowns in the previous session) and off (two consecutive "no idea" predictions), and every switch is logged in the ledger with its reason. Flags: `--predict[=on|off|auto]`, `--no-predict`; `/oss track predict on|off|auto`. A ledger without a `predict` key stays off.
+- A `UserPromptSubmit` hook (handled by `track-breakpoint.sh`) adds an `additionalContext` instruction so that, only for diagnosis or planning prompts, the agent asks for your prediction first, then shows where it matched or differed (`file:line`) and records it privately (`predict:<n>`). Never blocks, never scores; the only write is the auto switch marker (under the ledger lock, fail open). Silent when predict is off, `budget: 0`, the cap `predict_max` (default 4) is reached, the prompt starts with `/`, or on any parse error.
+- Ledger: frontmatter `predict`, `predict_max`, `user_commits`, `prior_unknowns`; `track:predict-auto` marker; predict entry format; `change-debrief` gets a private "Your predictions" subsection.
+- Harness cases for the new event in `hooks/tests/run-breakpoint-tests.sh`.
+
+### Changed
+
+- A predict entry counts as a question in the Stop explain-back watermark, so a prediction and an explain-back are not asked in the same turn.
+- `hooks/hooks.json` registers `UserPromptSubmit`.
+
+### Notes
+
+- Guard untouched (271/271). No scenario or skill count change.
+
 ## [0.9.0] - 2026-10-24
 
 ### Added

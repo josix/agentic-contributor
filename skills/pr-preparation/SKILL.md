@@ -83,6 +83,14 @@ into a send block.
    replaces `drift_lines` / `drift_files`, with `drift_source: contributing:<path>:<line>`. Vague
    wording ("keep PRs small") is never turned into a number. A user-given limit sets
    `drift_source: user`.
+   Predict settings: write `predict: auto` and `predict_max: 4` (auto is the default). `--predict`,
+   `--predict=on` or "with predictions" writes `predict: true`; `--predict=off` or `--no-predict`
+   writes `predict: false`; `--predict=auto` writes `auto`. Also record two facts, local reads only:
+   `user_commits: <n>`: run `git config user.email` first; if it prints an email, count
+   `git log --oneline --author="<that email>" | wc -l` (quote the email). No email, or no git: `-1`,
+   which alone never turns predict on. `prior_unknowns: <n>` = the count of
+   `status=skipped` plus `logged-over-budget` entries in the most recent stopped `track-*.md` ledger
+   in `.oss-drafts/` for the same repo (none: `0`).
 6. Write the ledger (Write tool, `decision-ledger.md` sections 1 to 3), then the pointer
    `.oss-drafts/.track-active` (one line, ledger path relative to root).
 7. Tell the user in chat: the four triggers (test weakening, dependencies, opt-in `api_paths`,
@@ -91,7 +99,10 @@ into a send block.
    out-of-scope modules; at most `drift_max`) ask keep / separate PR / drop / skip, that a
    breakpoint question after a stop asks about one `file:line` (at most `explain_max`,
    `explain_interval_min` minutes apart, skippable), that `budget: 0`, `explain_max: 0`, or
-   `drift_max: 0` quiets them,
+   `drift_max: 0` quiets them, that predict mode (`auto` by default: on for a newcomer to the repo, after a skipped
+   explain-back, or after a session with many Unknowns, off after two "no idea" answers; force it
+   with `--predict` / `--no-predict` or `/oss track predict on|off|auto`) makes the agent ask for your
+   guess before it reveals a diagnosis or plan (at most `predict_max`, never scored, private),
    `/oss track stop`, that "log this decision" appends a manual entry (best effort in plain chat),
    `OSS_TRACK_DISABLE=1` as the kill switch, and to restart Claude Code if the plugin was just
    enabled.
@@ -106,7 +117,12 @@ the count of explain answers. Offer the debrief in one line.
 **Status:** task, age, base, branch (warn on mismatch with the current branch), scope, budget used
 (asked / budget), drift (asked / `drift_max`, plus logged), breakpoint questions (asked /
 `explain_max`, time of the last), the current `git diff --numstat <base_commit>` size against the
-limits, and a table of entries. No auto-close of abandoned sessions; show the age.
+limits, `predict: on/off/auto` (for auto: the current state and reason, for example `auto (on: newcomer)`, plus the recorded switches) and `<used>/<predict_max>`, and a table of entries. No auto-close of abandoned sessions; show the age.
+
+**Predict on|off|auto:** `/oss track predict on|off|auto` edits `predict:` in the active ledger
+frontmatter (`on` = `true`, `off` = `false`; Edit, already auto-allowed) and confirms in one line.
+The `UserPromptSubmit` hook reads it from the next prompt on. In `auto` the hook alone appends the
+switch markers (`<!-- track:predict-auto ... -->`); never write them by hand.
 
 **Log:** append a manual entry with Edit per `decision-ledger.md` section 4 (`id=manual:<UTC>`).
 
@@ -167,6 +183,7 @@ a PR template, map these sections onto its headings and keep its checkboxes; oth
   that are `TODO(you)` stay `TODO(you)`). Never copy ledger text into the send block. Private
   notes also get "Your explanations (from breakpoint questions)": answered `explain:<k>` entries,
   your words verbatim with their `file:line`, as a hint for you to rewrite; never paste them.
+  Predictions (`predict:<n>`) are not PR material and are never listed in the send block.
 - **What changed:** `TODO(you): one or two lines in your own words`. Show the AP1 warning in
   Private notes (do not summarise the diff instead of the problem).
 - **How it's tested:** name the tests that cover the change (the plugin may list test files from

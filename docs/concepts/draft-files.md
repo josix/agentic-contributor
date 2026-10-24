@@ -93,6 +93,7 @@ body_format: 2
 | `readiness_login` | v0.6.0+, `claim`, `find`, and `prepare-pr`: the GitHub login the readiness check used (absent when skipped) |
 | `readiness` | v0.6.0+, `claim`, `find`, and `prepare-pr`: `{open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}`; `unknown` for anything not read. Advisory; also shown in private notes, never in a send block |
 | `task`, `issue`, `branch`, `base_commit`, `started_at`, `stopped_at`, `scope`, `scope_source`, `api_paths`, `budget` | v0.8.0+, track ledgers only (see below); `status` is `active` or `stopped` there |
+| `predict`, `predict_max` | v0.10.0+, track ledgers only: opt-in predict-then-reveal (default `false`) and its per-session cap (default 4) |
 | `drift_lines`, `drift_files`, `drift_source`, `drift_max`, `explain_max`, `explain_interval_min` | v0.9.0+, track ledgers only: scope-drift thresholds and caps, and breakpoint-question limits (a v0.8.0 ledger without them uses the defaults 400 / 10 / default / 2 / 4 / 20) |
 | `routed_from` | v0.5.0+, only when a PR-intent request was rerouted to `report` (issue-first); names the original scenario |
 
@@ -200,7 +201,7 @@ write to paths under `.oss-drafts/` in the user's working directory — never to
 
 The `PreToolUse` guardrail hook does **not** block Write tool calls — it matches only `Bash` and
 `mcp__plugin_agentic-contributor_github__*` tool calls. A separate advisory hook
-(`track-checkpoint.sh`, and from v0.9.0 `track-breakpoint.sh` on `PostToolUse`/`Stop`) does match Edit/Write, but only inside a tracked session, and it never acts
+(`track-checkpoint.sh`, and from v0.9.0 `track-breakpoint.sh` on `PostToolUse`/`Stop`/`UserPromptSubmit`) does match Edit/Write, but only inside a tracked session, and it never acts
 on files in `.oss-drafts/` except to auto-allow an Edit of the active ledger. `/oss` gains `Edit` for
 the ledger only. Therefore:
 

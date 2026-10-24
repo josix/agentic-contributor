@@ -47,7 +47,7 @@ To classify the user's intent:
    agent change") route to scenario 10 with `mode: debrief`. This is an entry mode of `prepare-pr`,
    not an 11th scenario.
 6. **Track signals** ("track …", "start tracking", "stop tracking", "track status", "log this
-   decision") route to scenario 10 with `mode: track` (sub-action start/stop/status/log). No policy
+   decision") route to scenario 10 with `mode: track` (sub-action start/stop/status/log; `--predict[=on|off|auto]`, `--no-predict` and "track predict on|off|auto" set predict mode). No policy
    preflight and no issue-first check; not an 11th scenario.
 
 ### Claim → Engage Branch

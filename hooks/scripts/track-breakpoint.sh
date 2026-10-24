@@ -2,13 +2,18 @@
 # track-breakpoint.sh — advisory scope-drift alerts and explain-back breakpoint questions for
 # tracked /oss sessions.
 #
-# Registered as a SEPARATE hook on two events:
+# Registered as a SEPARATE hook on three events:
 #   PostToolUse (Edit|Write|MultiEdit|NotebookEdit)  log the edit; throttled scope-drift check;
 #                                                    a new alert is delivered as additionalContext
 #                                                    (never a block, never a revert)
 #   Stop                                             drift check once per turn end, then at most ONE
 #                                                    explain-back question; delivered as a block so
 #                                                    the agent asks the user before it finishes
+#   UserPromptSubmit                                 predict-then-reveal (predict: auto | true | false):
+#                                                    additionalContext asking the agent to collect the
+#                                                    user's prediction first; never blocks, no git. The
+#                                                    only write is a predict-auto switch marker, under
+#                                                    the ledger lock, fail open
 # It is NOT the draft-only safety guard (guard-outbound.sh) and never replaces it. It fails OPEN:
 # any internal error means "no output, exit 0". It never edits code, reverts, stashes, or runs git
 # commands that write.
@@ -31,7 +36,7 @@ IFS= read -r -d '' input || true
 [ -n "$input" ] || exit 0
 
 # ── FAST PATH: event + session pointer using only builtins ───────────────────
-re_ev='"hook_event_name"[[:space:]]*:[[:space:]]*"(PostToolUse|Stop)"'
+re_ev='"hook_event_name"[[:space:]]*:[[:space:]]*"(PostToolUse|Stop|UserPromptSubmit)"'
 [[ $input =~ $re_ev ]] || exit 0
 ev="${BASH_REMATCH[1]}"
 if [ "$ev" = Stop ]; then
@@ -96,7 +101,7 @@ state="${ledger%.md}.state"
 
 # Frontmatter (builtin reads, no fork).
 fm_plugin=""; fm_mode=""; fm_status=""; fm_scope=""; fm_budget=""; fm_base=""
-fm_dl=""; fm_df=""; fm_dmax=""; fm_emax=""; fm_eint=""; fm_dsrc=""
+fm_dl=""; fm_df=""; fm_dmax=""; fm_emax=""; fm_eint=""; fm_dsrc=""; fm_predict=""; fm_pmax=""; fm_ucommits=""; fm_punk=""
 n=0
 while IFS= read -r line; do
   n=$((n + 1))
@@ -116,6 +121,10 @@ while IFS= read -r line; do
     "drift_files: "*) v="${line#drift_files: }"; fm_df="${v%%[[:space:]]*}" ;;
     "drift_max: "*) v="${line#drift_max: }"; fm_dmax="${v%%[[:space:]]*}" ;;
     "drift_source: "*) v="${line#drift_source: }"; fm_dsrc="${v%%[[:space:]]*}" ;;
+    "predict: "*) v="${line#predict: }"; fm_predict="${v%%[[:space:]]*}" ;;
+    "user_commits: "*) v="${line#user_commits: }"; fm_ucommits="${v%%[[:space:]]*}" ;;
+    "prior_unknowns: "*) v="${line#prior_unknowns: }"; fm_punk="${v%%[[:space:]]*}" ;;
+    "predict_max: "*) v="${line#predict_max: }"; fm_pmax="${v%%[[:space:]]*}" ;;
     "explain_max: "*) v="${line#explain_max: }"; fm_emax="${v%%[[:space:]]*}" ;;
     "explain_interval_min: "*) v="${line#explain_interval_min: }"; fm_eint="${v%%[[:space:]]*}" ;;
     "scope: "*) fm_scope="${line#scope: }" ;;
@@ -144,6 +153,7 @@ drift_files="$(int_or "$fm_df" 10)"
 drift_max="$(int_or "$fm_dmax" 2)"
 explain_max="$(int_or "$fm_emax" 4)"
 explain_int="$(int_or "$fm_eint" 20)"
+predict_max="$(int_or "$fm_pmax" 4)"
 drift_source="${fm_dsrc:-default}"
 base=""
 re_sha7='^[0-9a-f]{7,64}$'
@@ -155,14 +165,16 @@ command -v jq > /dev/null 2>&1 && have_jq=1
 command -v python3 > /dev/null 2>&1 && have_py=1
 [ "$have_jq" -eq 1 ] || [ "$have_py" -eq 1 ] || exit 0
 
-# parse_input: US-separated event, path, permission_mode, session_id, stop_hook_active, agent_id, last char.
+# parse_input: US-separated event, path, permission_mode, session_id, stop_hook_active, agent_id, last char,
+# first non-space char of the prompt.
 parse_input() {
   if [ "$have_jq" -eq 1 ]; then
     printf '%s' "$input" | jq -r '
       (.tool_input // {}) as $ti
       | [(.hook_event_name // ""), ($ti.file_path // $ti.notebook_path // ""), (.permission_mode // ""),
          (.session_id // ""), ((.stop_hook_active // false) | tostring), (.agent_id // ""),
-         ((.last_assistant_message // "") | tostring | sub("[[:space:]]+$"; "") | .[-1:])]
+         ((.last_assistant_message // "") | tostring | sub("[[:space:]]+$"; "") | .[-1:]),
+         ((.prompt // "") | tostring | sub("^[[:space:]]+"; "") | .[0:1])]
       | map(tostring) | join("\u001f")' 2> /dev/null
   else
     printf '%s' "$input" | python3 -c '
@@ -170,16 +182,17 @@ import sys, json
 d = json.load(sys.stdin)
 ti = d.get("tool_input") or {}
 m = str(d.get("last_assistant_message") or "").rstrip()
+pr = str(d.get("prompt") or "").lstrip()
 print("\x1f".join([d.get("hook_event_name") or "", ti.get("file_path") or ti.get("notebook_path") or "",
   d.get("permission_mode") or "", d.get("session_id") or "",
-  "true" if d.get("stop_hook_active") else "false", d.get("agent_id") or "", m[-1:]]))
+  "true" if d.get("stop_hook_active") else "false", d.get("agent_id") or "", m[-1:], pr[:1]]))
 ' 2> /dev/null
   fi
 }
 
 parsed="$(parse_input)" || exit 0
 [ -n "$parsed" ] || exit 0
-IFS=$'\037' read -r p_ev path perm_mode sid sha_active agent_id last_char <<< "$parsed"
+IFS=$'\037' read -r p_ev path perm_mode sid sha_active agent_id last_char p_first <<< "$parsed"
 [ "$p_ev" = "$ev" ] || exit 0
 [ "$perm_mode" = "plan" ] && exit 0
 [ "$ev" = Stop ] && [ "$sha_active" = true ] && exit 0
@@ -257,22 +270,24 @@ AWK_DQ='function dq(s,   o, i, c, n, m) {
   return o
 }'
 
-emit_json() { # $1 = post|stop, $2 = text
+emit_json() { # $1 = post|prompt|stop, $2 = text
+  local hev=PostToolUse
+  [ "$1" = prompt ] && hev=UserPromptSubmit
   if [ "$have_jq" -eq 1 ]; then
-    if [ "$1" = post ]; then
-      jq -nc --arg c "$2" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $c}}' 2> /dev/null
+    if [ "$1" != stop ]; then
+      jq -nc --arg e "$hev" --arg c "$2" '{hookSpecificOutput: {hookEventName: $e, additionalContext: $c}}' 2> /dev/null
     else
       jq -nc --arg c "$2" '{decision: "block", reason: $c}' 2> /dev/null
     fi
   else
     python3 -c '
 import sys, json
-if sys.argv[1] == "post":
-    o = {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": sys.argv[2]}}
+if sys.argv[1] != "stop":
+    o = {"hookSpecificOutput": {"hookEventName": sys.argv[3], "additionalContext": sys.argv[2]}}
 else:
     o = {"decision": "block", "reason": sys.argv[2]}
 print(json.dumps(o))
-' "$1" "$2" 2> /dev/null
+' "$1" "$2" "$hev" 2> /dev/null
   fi
   exit 0
 }
@@ -297,7 +312,7 @@ release_lock() { rmdir "$lock" 2> /dev/null; trap - EXIT; }
 # ledger_state: one awk pass over the ledger -> globals (see decision-ledger.md section 5)
 ledger_state() {
   local out k v
-  pend_n=0; drift_n=0; drift_asked=0; bp_n=0; bp_last=0; latch=0
+  pend_n=0; drift_n=0; drift_asked=0; bp_n=0; bp_last=0; latch=0; predict_n=0
   alerted_c=","; alerted_m=","; covered=$'\n'; targets="|"
   out="$(TRACK_SID="$sid" TRACK_NOW_S="$now_s" awk '
 function lastid(l,   q, res, found) {
@@ -315,6 +330,7 @@ function mark_cov(i) { if (i ~ /^(test|dependency|api|scope):/) cov[substr(i, in
 /^<!-- track:entry / {
   i = lastid($0); mark_cov(i)
   if (index($0, " source=breakpoint ") && index($0, " reason=non-interactive ")) ni[i] = 1
+  if (i ~ /^predict:/) pn++
 }
 /^<!-- track:drift / {
   dn++; if (index($0, " asked=yes ")) da++
@@ -331,18 +347,18 @@ END {
   sid = ENVIRON["TRACK_SID"]; lt = 0
   if (sid != "-" && sid != "") for (i in bs) if (bs[i] == sid && (i in ni)) lt = 1
   print "P\t" pend + 0; print "D\t" dn + 0; print "A\t" da + 0; print "B\t" bn + 0; print "E\t" bl + 0
-  print "L\t" lt; print "C\t," ac; print "M\t," am
+  print "L\t" lt; print "R\t" pn + 0; print "C\t," ac; print "M\t," am
   for (r in cov) print "V\t" r
   for (k = 1; k <= nt; k++) print "T\t" tg[k]
 }' "$ledger" 2> /dev/null)" || return 1
   while IFS=$'\t' read -r k v; do
     case "$k" in
       P) pend_n="$v" ;; D) drift_n="$v" ;; A) drift_asked="$v" ;; B) bp_n="$v" ;; E) bp_last="$v" ;;
-      L) latch="$v" ;; C) alerted_c="$v" ;; M) alerted_m="$v" ;;
+      L) latch="$v" ;; R) predict_n="$v" ;; C) alerted_c="$v" ;; M) alerted_m="$v" ;;
       V) covered="$covered$v"$'\n' ;; T) targets="$targets$v|" ;;
     esac
   done <<< "$out"
-  case "$pend_n$drift_n$drift_asked$bp_n$bp_last$latch" in '' | *[!0-9]*) return 1 ;; esac
+  case "$pend_n$drift_n$drift_asked$bp_n$bp_last$latch$predict_n" in '' | *[!0-9]*) return 1 ;; esac
   return 0
 }
 
@@ -481,7 +497,7 @@ drift_text() { # $1 = post|stop, $2 = alert number, $3 = drift id number
   mt="$(mod_text)"
   [ -n "$mt" ] && t="$t${nl}Out-of-scope modules with changes no checkpoint covered: $mt"
   [ -n "$d_top" ] && t="$t${nl}Largest files: $d_top"
-  t="$t${nl}Drift id: drift:$3${nl}${nl}This is advisory: nothing was blocked. Before your next edit:${nl}1. Ask the user with AskUserQuestion (header \"Scope drift\"): ONE question, \"The change is growing beyond the task. What should happen to <the part you name>?\", naming the files concerned (at most 10). Options, each with a one-line trade-off, your recommendation first and marked \"(Recommended)\":${nl}   A) Keep it in this change | B) Set it aside for a separate PR | C) Drop it | D) Skip — decide later${nl}2. Read $rel_ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### drift:$3 · <UTC now>${nl}<!-- track:entry status=<decided|skipped> source=drift asked=<yes|no> at=<UTC now> id=drift:$3 -->${nl}- trigger: drift — $d_lines lines / $d_files files${nl}- files: <files the question named, at most 10>${nl}- options: A) Keep in this change | B) Set aside for a separate PR | C) Drop | D) Skip — decide later${nl}- chosen: <A|B|C|Skip>${nl}- decided_by: <user|user-on-recommendation>${nl}- reason: <the user's own words, verbatim, or TODO(you) if none>${nl}- follow-up: <B only: one line naming the set-aside work and its files>${nl}   For B, write the follow-up line. Use status=skipped, reason: TODO(you) for D.${nl}3. If AskUserQuestion is unavailable (non-interactive run or subagent): write the entry with status=skipped, asked=no, chosen: none, decided_by: agent, reason: non-interactive.${nl}4. Follow the choice. Never revert, stash, reset, check out, or move changes on your own. For B or C, stop extending that work and tell the user which files hold it; undo edits only if the user explicitly asks, using Edit.${nl}Write \"decided_by: user…\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
+  t="$t${nl}Drift id: drift:$3${nl}${nl}This is advisory: nothing was blocked. Before your next edit:${nl}1. Ask the user with AskUserQuestion (header \"Scope drift\"): ONE question, \"The change is growing beyond the task. What should happen to <the part you name>?\", naming the files concerned (at most 10). Options, each with a one-line trade-off, your recommendation first and marked \"(Recommended)\":${nl}   A) Keep it in this change | B) Set it aside for a separate PR | C) Drop it | D) Skip — decide later${nl}2. Read $ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### drift:$3 · <UTC now>${nl}<!-- track:entry status=<decided|skipped> source=drift asked=<yes|no> at=<UTC now> id=drift:$3 -->${nl}- trigger: drift — $d_lines lines / $d_files files${nl}- files: <files the question named, at most 10>${nl}- options: A) Keep in this change | B) Set aside for a separate PR | C) Drop | D) Skip — decide later${nl}- chosen: <A|B|C|Skip>${nl}- decided_by: <user|user-on-recommendation>${nl}- reason: <the user's own words, verbatim, or TODO(you) if none>${nl}- follow-up: <B only: one line naming the set-aside work and its files>${nl}   For B, write the follow-up line. Use status=skipped, reason: TODO(you) for D.${nl}3. If AskUserQuestion is unavailable (non-interactive run or subagent): write the entry with status=skipped, asked=no, chosen: none, decided_by: agent, reason: non-interactive.${nl}4. Follow the choice. Never revert, stash, reset, check out, or move changes on your own. For B or C, stop extending that work and tell the user which files hold it; undo edits only if the user explicitly asks, using Edit.${nl}Write \"decided_by: user…\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
   printf '%s' "$t"
 }
 
@@ -628,7 +644,7 @@ END {
 
 explain_text() { # uses k t_rel t_line t_size
   local nl=$'\n'
-  printf '%s' "[agentic-contributor · tracked session] Breakpoint question $1/$explain_max (explain-back). Before ending your turn:${nl}Target: $t_rel:$t_line. This is the largest change since the session base ($t_size lines) that no checkpoint or earlier question covered.${nl}1. Read $t_rel around line $t_line and pick the one specific change there (a function, condition, value, or call).${nl}2. Ask the user with AskUserQuestion (header \"Explain\"): ONE question, \"In one sentence, why does <that specific change>? Type your answer under Other, or pick an option.\" Do not hint at the answer. Options:${nl}   A) Skip — not sure (recorded as an Unknown)${nl}   B) I didn't ask for this change${nl}3. Read $rel_ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### explain:$1 · <UTC now>${nl}<!-- track:entry status=<answered|skipped> source=breakpoint asked=<yes|no> at=<UTC now> id=explain:$1 -->${nl}- trigger: explain — $t_rel:$t_line${nl}- files: $t_rel${nl}- question: <the question exactly as asked>${nl}- chosen: <typed|not-requested|skip>${nl}- reason: <the user's typed words verbatim | not requested by the user | TODO(you)>${nl}- answered_by: user${nl}   Typed answer: status=answered, chosen: typed, reason = their words verbatim. B: status=answered, chosen: not-requested, reason: not requested by the user. A: status=skipped, chosen: skip, reason: TODO(you).${nl}4. If AskUserQuestion is unavailable (non-interactive run or subagent): do not ask. Write \`<!-- track:entry status=skipped source=breakpoint asked=no reason=non-interactive at=<UTC now> id=explain:$1 -->\` with chosen: none, reason: non-interactive, answered_by: agent.${nl}5. Do not grade or correct the answer and make no code edits now. End your turn with one short line.${nl}Write \"answered_by: user\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
+  printf '%s' "[agentic-contributor · tracked session] Breakpoint question $1/$explain_max (explain-back). Before ending your turn:${nl}Target: $t_rel:$t_line. This is the largest change since the session base ($t_size lines) that no checkpoint or earlier question covered.${nl}1. Read $t_rel around line $t_line and pick the one specific change there (a function, condition, value, or call).${nl}2. Ask the user with AskUserQuestion (header \"Explain\"): ONE question, \"In one sentence, why does <that specific change>? Type your answer under Other, or pick an option.\" Do not hint at the answer. Options:${nl}   A) Skip — not sure (recorded as an Unknown)${nl}   B) I didn't ask for this change${nl}3. Read $ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### explain:$1 · <UTC now>${nl}<!-- track:entry status=<answered|skipped> source=breakpoint asked=<yes|no> at=<UTC now> id=explain:$1 -->${nl}- trigger: explain — $t_rel:$t_line${nl}- files: $t_rel${nl}- question: <the question exactly as asked>${nl}- chosen: <typed|not-requested|skip>${nl}- reason: <the user's typed words verbatim | not requested by the user | TODO(you)>${nl}- answered_by: user${nl}   Typed answer: status=answered, chosen: typed, reason = their words verbatim. B: status=answered, chosen: not-requested, reason: not requested by the user. A: status=skipped, chosen: skip, reason: TODO(you).${nl}4. If AskUserQuestion is unavailable (non-interactive run or subagent): do not ask. Write \`<!-- track:entry status=skipped source=breakpoint asked=no reason=non-interactive at=<UTC now> id=explain:$1 -->\` with chosen: none, reason: non-interactive, answered_by: agent.${nl}5. Do not grade or correct the answer and make no code edits now. End your turn with one short line.${nl}Write \"answered_by: user\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
 }
 
 read_edits() { # sets q_mark, edited from the edit log (a breakpoint marker resets the list)
@@ -665,7 +681,7 @@ stop_event() {
   [ "$budget" -gt 0 ] && [ "$explain_max" -gt 0 ] && [ -n "$base" ] || exit 0
   [ -f "$state" ] || exit 0
   read_edits || exit 0
-  q_now=$((pend_n + drift_asked))
+  q_now=$((pend_n + drift_asked + predict_n))
   printf 'm\t%s\n' "$q_now" >> "$state" 2> /dev/null || exit 0
   [ -n "$edited" ] || exit 0
   [ "$q_now" -gt "$q_mark" ] && exit 0 # a question already interrupted since the last stop
@@ -687,7 +703,7 @@ stop_event() {
   # revalidate under the lock: a concurrent Stop may have consumed the edits or targeted this spot
   read_edits || exit 0
   [ -n "$edited" ] || exit 0
-  q_now=$((pend_n + drift_asked))
+  q_now=$((pend_n + drift_asked + predict_n))
   [ "$q_now" -gt "$q_mark" ] && exit 0 # a checkpoint/drift question landed after the first check
   pick_target "$edited" || exit 0
   k=$((bp_n + 1))
@@ -699,8 +715,107 @@ stop_event() {
   emit_json stop "$(explain_text "$k")"
 }
 
+predict_text() { # $1 = used count, $2 = auto reason (empty when explicit)
+  local nl=$'\n'
+  printf '%s' "[agentic-contributor · tracked session] Predict mode is on${2:+ (auto: $2)} ($1/$predict_max used). Only if this prompt asks you to diagnose a problem (a bug, failure, or unexpected behaviour) or to propose a plan or approach for a code change, and you have not already asked for a prediction about this same problem in this conversation:${nl}1. Before investigating deeply or revealing your diagnosis or plan, ask the user with AskUserQuestion (header \"Predict\"): ONE question. For a diagnosis: \"Where do you think the problem is?\" For a plan: \"Which files or parts do you expect need to change?\" Options: A) No idea — go ahead | B) Skip predictions for this task. Ask them to type their guess under Other. Do not hint.${nl}2. Do the work. When you reveal your diagnosis or plan, add a short \"Your prediction vs. what I found\" section: where the prediction matched and where it differed, each with file:line. Never score or judge it.${nl}3. Read $ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### predict:$(($1 + 1)) · <UTC now>${nl}<!-- track:entry status=<answered|skipped> source=predict asked=yes at=<UTC now> id=predict:$(($1 + 1)) -->${nl}- phase: <diagnosis|plan>${nl}- prediction: <the user's words verbatim | no idea>${nl}- outcome: <one line: matched / partly / differed, with file:line>${nl}- answered_by: user${nl}   For B use status=skipped and also set \`predict: false\` in the ledger frontmatter (the user opted out).${nl}4. If AskUserQuestion is unavailable (non-interactive run or subagent): do not ask and do not record anything.${nl}Otherwise ignore this note. The ledger is private: never copy it into any sendable text."
+}
+
+# ── UserPromptSubmit ─────────────────────────────────────────────────────────
+# predict: auto rules (decision-ledger.md section 15). Facts: user_commits and prior_unknowns from the
+# frontmatter, explain/predict entries and the last predict-auto marker from one awk pass. No git.
+# Sets a_state (on|off), a_reason, a_last (state of the last marker; none = off).
+auto_eval() {
+  local out k v uc pu a_expl a_noidea
+  a_expl=""; a_noidea=0; a_last=off
+  out="$(awk '
+function lastid(l,   q, res, found) {
+  if (substr(l, length(l) - 3) != " -->") return ""
+  l = substr(l, 1, length(l) - 4); found = 0; res = ""
+  while ((q = index(l, " id=")) > 0) { l = substr(l, q + 4); res = l; found = 1 }
+  return found ? res : ""
+}
+function tok(l, name,   q, r) {
+  q = index(l, " " name "="); if (!q) return ""
+  r = substr(l, q + length(name) + 2); sub(/ .*/, "", r); return r
+}
+/^<!-- track:entry / { cur = lastid($0); next }
+/^<!-- track:predict-auto / { s = tok($0, "state"); if (s == "on" || s == "off") last = s; cur = ""; next }
+/^<!--/ || /^### / { cur = ""; next }
+cur ~ /^explain:/ && /^- chosen: (skip|not-requested)[ \t]*$/ {
+  if (expl == "") { expl = ($0 ~ /not-requested/) ? "explain-not-requested" : "explain-skipped" }
+  next
+}
+cur ~ /^predict:/ && /^- prediction: / {
+  v = $0; sub(/^- prediction: */, "", v); sub(/[ \t]+$/, "", v)
+  np++; pred[np] = (tolower(v) == "no idea") ? 1 : 0
+}
+END {
+  print "X\t" expl; print "N\t" (np >= 2 && pred[np] && pred[np - 1] ? 1 : 0); print "S\t" (last == "" ? "off" : last)
+}' "$ledger" 2> /dev/null)" || return 1
+  while IFS=$'\t' read -r k v; do
+    case "$k" in X) a_expl="$v" ;; N) a_noidea="$v" ;; S) a_last="$v" ;; esac
+  done <<< "$out"
+  uc="$fm_ucommits"; pu="$(int_or "$fm_punk" 0)"
+  case "$uc" in -1) ;; '' | *[!0-9]* | ???????????*) uc=-1 ;; esac
+  if [ "$a_noidea" = 1 ]; then a_state=off; a_reason=two-no-idea
+  elif [ "$uc" -ge 0 ] && [ "$uc" -lt 5 ]; then a_state=on; a_reason=newcomer
+  elif [ -n "$a_expl" ]; then a_state=on; a_reason="$a_expl"
+  elif [ "$pu" -ge 3 ]; then a_state=on; a_reason=prior-unknowns
+  else a_state=off; a_reason=no-signal; fi
+  return 0
+}
+
+# try_lock: like take_lock but never exits; returns 1 when the lock stays busy (the caller skips its write).
+try_lock() {
+  local t=0 lt
+  lock="$ledger.lock"
+  until mkdir "$lock" 2> /dev/null; do
+    lt="$(stat -f %m "$lock" 2> /dev/null || stat -c %Y "$lock" 2> /dev/null)"
+    case "$lt" in '' | *[!0-9]*) ;; *) [ $(($(date +%s) - lt)) -gt 10 ] && rmdir "$lock" 2> /dev/null ;; esac
+    t=$((t + 1))
+    [ "$t" -ge 3 ] && return 1
+    sleep 0.1 2> /dev/null || return 1
+  done
+  trap 'rmdir "$lock" 2> /dev/null' EXIT
+  return 0
+}
+
+# log_auto_switch: when the computed state differs from the last marker, append marker + line under the
+# lock, re-checking inside it so concurrent prompts write one marker. Fail open: any problem skips the write.
+log_auto_switch() {
+  local nu
+  [ "$a_state" != "$a_last" ] || return 0
+  try_lock || return 0
+  if auto_eval && [ "$a_state" != "$a_last" ]; then
+    nu="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2> /dev/null)"
+    [ -n "$nu" ] && printf '<!-- track:predict-auto at=%s state=%s reason=%s -->\n- predict auto: %s (%s)\n' \
+      "$nu" "$a_state" "$a_reason" "$a_state" "$a_reason" >> "$ledger" 2> /dev/null
+  fi
+  release_lock
+  return 0
+}
+
+# Silent unless every gate passes. No git. Explicit true/false never write.
+prompt_submit() {
+  local mode reason=""
+  case "$fm_predict" in true | on) mode=on ;; auto) mode=auto ;; *) exit 0 ;; esac
+  [ "$budget" -gt 0 ] || exit 0
+  [ -n "$p_first" ] && [ "$p_first" != "/" ] || exit 0
+  now_s=0
+  ledger_state || exit 0
+  [ "$predict_n" -lt "$predict_max" ] || exit 0
+  if [ "$mode" = auto ]; then
+    auto_eval || exit 0
+    log_auto_switch
+    [ "$a_state" = on ] || exit 0
+    reason="$a_reason"
+  fi
+  emit_json prompt "$(predict_text "$predict_n" "$reason")"
+}
+
 now_utc=""; now_s=0
 case "$ev" in
+  UserPromptSubmit) prompt_submit ;;
   PostToolUse) post_tool_use ;;
   Stop) stop_event ;;
 esac
