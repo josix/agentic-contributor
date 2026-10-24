@@ -28,47 +28,38 @@ The denial message states:
 
 | Pattern | Decision |
 |---|---|
-| `mcp__plugin_agentic-contributor_github__create` | DENY |
-| `mcp__plugin_agentic-contributor_github__update` | DENY |
-| `mcp__plugin_agentic-contributor_github__delete` | DENY |
-| `mcp__plugin_agentic-contributor_github__merge` | DENY |
-| `mcp__plugin_agentic-contributor_github__add_comment` | DENY |
-| `mcp__plugin_agentic-contributor_github__add_issue_comment` | DENY |
-| `mcp__plugin_agentic-contributor_github__add_sub_issue` | DENY |
-| `mcp__plugin_agentic-contributor_github__push` | DENY |
-| `mcp__plugin_agentic-contributor_github__fork` | DENY |
-| `mcp__plugin_agentic-contributor_github__assign` | DENY |
-| `mcp__plugin_agentic-contributor_github__transfer` | DENY |
-| `mcp__plugin_agentic-contributor_github__lock` / `unlock` | DENY |
-| `mcp__plugin_agentic-contributor_github__submit` | DENY |
-| `mcp__plugin_agentic-contributor_github__dispatch` | DENY |
-| `mcp__plugin_agentic-contributor_github__edit` | DENY |
-| `mcp__plugin_agentic-contributor_github__create_or_update` | DENY |
-| `mcp__plugin_agentic-contributor_github__create_pull_request` | DENY |
-| `mcp__plugin_agentic-contributor_github__create_branch` | DENY |
-| `mcp__plugin_agentic-contributor_github__create_repository` | DENY |
-| `mcp__plugin_agentic-contributor_github__request_copilot` | DENY |
-| All other `mcp__plugin_agentic-contributor_github__*` read tools | ALLOW |
+| Read tools: suffix (after the last `__`) matching `get_*`, `list_*`, `search_*`, or `*_read`, e.g. `get_me`, `get_file_contents`, `list_issues`, `search_code`, `issue_read`, `pull_request_read` | ALLOW |
+| A read-prefixed suffix that also contains `write`, `create`, `delete`, `submit`, or `fork` | DENY |
+| **Every other** `mcp__plugin_agentic-contributor_github__*` tool (default-deny), e.g. `issue_write`, `pull_request_review_write`, `add_issue_comment`, `add_comment_to_pending_review`, `create_pull_request`, `create_branch`, `create_or_update_file`, `delete_file`, `push_files`, `merge_pull_request`, `update_pull_request`, `fork_repository`, `sub_issue_write`, `assign_copilot_to_issue`, `request_copilot_review`, and any tool added upstream later | DENY |
 
 ### Bash Commands
 
 | Pattern | Decision |
 |---|---|
-| `git push` (any form, at command position) | DENY |
-| `gh pr create / comment / review / edit / merge / close / reopen / lock / unlock / ready / --fill` | DENY |
-| `gh issue create / comment / edit / close / reopen / lock / unlock` | DENY |
-| `gh release create / edit / delete / upload` | DENY |
-| `gh repo create / fork / delete / edit` | DENY |
-| `gh gist create` | DENY |
-| `gh api` with `-X POST/PUT/PATCH/DELETE` or `--method POST/PUT/PATCH/DELETE` | DENY |
-| `gh api` with `-f` / `--field` flags | DENY |
-| `curl` with `-X POST/PUT/PATCH/DELETE`, `--request POST/…`, `-d`/`--data`/`--data-raw`, `-F`/`--form` | DENY |
+| `git push` (any form, at command position, also after global options like `-C`, a path-qualified binary, or a wrapper such as `env`/`sudo`/`xargs`); `git send-email`, `git send-pack`, `git svn dcommit`; `git -c alias.<name>=…` whose value pushes/sends or starts with `!` | DENY |
+| `gh pr create / comment / review / edit / merge / close / reopen / lock / unlock / ready / update-branch / revert / --fill` | DENY |
+| `gh issue create / comment / edit / close / reopen / lock / unlock / delete / transfer / pin / unpin / develop` | DENY |
+| `gh release create / edit / delete / delete-asset / upload` | DENY |
+| `gh repo create / fork / delete / edit / sync / rename / archive / unarchive`, `gh repo deploy-key add / delete`, `gh repo autolink create / delete` | DENY |
+| `gh gist create / edit / delete / rename` | DENY |
+| `gh label create / edit / delete / clone`, `gh workflow run / enable / disable`, `gh run rerun / cancel / delete`, `gh secret` and `gh variable set / delete`, `gh alias set / delete / import`, `gh codespace create / delete / edit / stop / rebuild` (also with `-R`/`--repo`) | DENY |
+| `gh project create / edit / delete / close / copy / link / unlink / mark-template / item-add / item-create / item-edit / item-delete / item-archive / field-create / field-delete`, `gh ssh-key add / delete`, `gh gpg-key add / delete`, `gh cache delete` | DENY |
+| `gh api` with `-X POST/PUT/PATCH/DELETE` or `--method POST/PUT/PATCH/DELETE` (including `-XPOST`, `--method=POST`) | DENY |
+| `gh api` with `-f` / `-F` / `--field` / `--raw-field` (except explicit `-X GET` or a read-only GraphQL query) | DENY |
+| `gh api` with `--input`; `gh api graphql` with `mutation`, `=@file`, or shell expansion in the query | DENY |
+| `curl` with a non-read `-X`/`--request` method, `-d`/`--data*`/`--json`, `-F`/`--form*`, `-T`/`--upload-file`, or `-K`/`--config` | DENY |
 | `wget` with any mutation flag | DENY |
-| `gh pr view`, `gh issue list`, `gh release list`, plain `gh api` GET | ALLOW |
+| `git -C dir log`, `/usr/bin/git status`, `env git diff`, `gh -R o/r pr view`, `gh label list`, `gh workflow list`, `curl` GET, `gh pr view`, `gh issue list`, `gh release list`, `gh project list / view`, `gh ssh-key list`, `gh cache list`, `gh repo set-default`, plain `gh api` GET, read-only `gh api graphql` queries, `gh api -X GET ... -f q=...` | ALLOW |
+| Heredoc bodies are always checked: a body containing an outbound command (even via `cat > file <<EOF`) | DENY |
+| Heredoc whose body has no outbound command text | ALLOW |
 | `git clone`, `git status`, `git log`, `git diff`, `git fetch` | ALLOW |
 | All other read/build/test commands | ALLOW |
 
 **Command-position matching:** The deny patterns for `git push` and `gh` subcommands match only at command position (start of string or after a real shell separator: `;`, `|`, `&`, `&&`, `||`, `$(`, backtick, newline). This prevents false positives from commands like `echo "git push"`.
+
+## What the Guardrail Does Not Cover
+
+The hook matches command text, so it catches the ordinary ways an agent writes outbound commands, not every possible way. Treat it as a tripwire against accidental pushes and posts. The real boundary is a GitHub token **without write permissions**: with one, GitHub rejects any write that gets past the hook. Known gaps and the recommended setup are listed in [Hooks Reference — Limits](../reference/hooks.md#limits-a-tripwire-not-a-security-boundary).
 
 ## Why Deny, Not Ask
 

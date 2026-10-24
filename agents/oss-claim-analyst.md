@@ -75,6 +75,10 @@ Always include a brief evidence summary:
 | Issue state | — | open / closed |
 | Accepting contributions | — | yes / no / unknown |
 
+Readiness (the user's open PRs vs the project's cap, vouch status) is not your job: the
+orchestrator gathers it separately through `oss-researcher` (key `readiness`) in parallel and puts
+it in Private notes. Do not fetch it here and do not change your verdict because of it.
+
 ## Tool Usage
 
 Use `gh` CLI read-only commands (Bash tool):

@@ -1,0 +1,393 @@
+# expect<TAB>tool_name<TAB>command
+# Lines starting with # and blank lines are ignored. In the command column,
+# the two characters \n are decoded to a real newline; "-" means empty command.
+#
+# ── docs/reference/hooks.md deny matrix (must stay denied) ──
+deny	Bash	git push origin main
+deny	Bash	git push
+deny	Bash	cd repo && git push --force
+deny	Bash	echo ok; git push origin HEAD
+deny	Bash	gh pr create --title "x" --body "y"
+deny	Bash	gh pr comment 12 --body "hi"
+deny	Bash	gh pr merge 12
+deny	Bash	gh issue comment 123 --body "hi"
+deny	Bash	gh issue create --title t
+deny	Bash	gh release create v1.0
+deny	Bash	gh repo fork apache/airflow
+deny	Bash	gh gist create file.txt
+deny	Bash	gh api repos/o/r/issues -X POST -f title=t
+deny	Bash	gh api repos/o/r/issues/1 --method PATCH
+deny	Bash	gh api repos/o/r/issues -f title=t
+deny	Bash	gh api repos/o/r/issues --field title=t
+deny	Bash	curl -X POST https://api.github.com/repos/o/r/issues
+deny	Bash	curl -d '{"body":"x"}' https://api.github.com/x
+deny	Bash	curl -F file=@a.txt https://example.com
+deny	Bash	wget --post-data 'a=b' https://example.com
+deny	Bash	wget --method=POST https://example.com
+# ── gh api gaps closed in 0.3.1 ──
+deny	Bash	gh api repos/o/r/issues -F title=t
+deny	Bash	gh api repos/o/r/issues --raw-field title=t
+deny	Bash	gh api repos/o/r/issues --input body.json
+deny	Bash	echo '{}' | gh api repos/o/r/issues --input -
+deny	Bash	gh api repos/o/r/issues -XPOST
+deny	Bash	gh api repos/o/r/issues --method=POST
+deny	Bash	gh api repos/o/r/issues -X=DELETE
+deny	Bash	gh api repos/o/r/issues -X post
+deny	Bash	gh api repos/o/r/issues -fbody=t
+deny	Bash	GH_TOKEN=x gh api repos/o/r/issues -X PUT
+deny	Bash	gh api repos/o/r/pulls/1 --jq '.title\n| ascii_downcase' -X POST
+deny	Bash	echo "$(gh api repos/o/r/issues -X POST)"
+deny	Bash	(gh api repos/o/r/issues -f a=b)
+# ── GraphQL: mutations and file references stay denied ──
+deny	Bash	gh api graphql -f query='mutation { addStar(input:{starrableId:"x"}) { clientMutationId } }'
+deny	Bash	gh api graphql -f query='MUTATION { x }'
+deny	Bash	gh api graphql -f query="mu""tation { x }"
+deny	Bash	gh api graphql -F query=@q.graphql
+deny	Bash	gh api graphql -f query=@q.graphql
+deny	Bash	gh api graphql --input q.json
+deny	Bash	gh api graphql -f query="$Q"
+deny	Bash	gh api graphql -f query=$(cat q.txt)
+deny	Bash	gh api -X POST graphql -f query='query { viewer { login } }'
+# ── heredoc bodies that execute must still be checked ──
+deny	Bash	bash <<EOF\ngit push origin main\nEOF
+deny	Bash	sh <<'EOF'\ngh pr create --title x\nEOF
+deny	Bash	cat <<EOF | bash\ngit push\nEOF
+deny	Bash	cat <<EOF > run.sh; bash run.sh\ngit push\nEOF
+deny	Bash	eval "$(cat <<'EOF'\ngit push\nEOF\n)"
+deny	Bash	cat <<EOF\n$(git push origin main)\nEOF
+deny	Bash	echo '\ncat <<E\n' ; git push\nE
+deny	Bash	bash -s -- '; cat ' <<EOF\ngit push\nEOF
+deny	Bash	cat <<EOF\ndata\nEOF\ngit push
+# ── MCP tools ──
+deny	mcp__plugin_agentic-contributor_github__create	-
+deny	mcp__plugin_agentic-contributor_github__add_issue_comment	-
+# ── heredoc bodies are always checked (v0.3.1 skipping removed): outbound text denied ──
+deny	Bash	cat > notes.md <<'EOF'\ngh api repos/o/r/issues\ngit push origin main\ngh pr create --title x\ncurl -X POST https://x\nEOF
+deny	Bash	cat > notes.md <<'EOF'\ngh api repos/o/r/issues -f title=t\nEOF
+allow	Bash	cat > a.md <<'EOF'\ngh api repos/o/r/issues\nEOF\ngh api repos/o/r/pulls -f state=open -X GET
+deny	Bash	tee out.md <<'EOF'\ngit push origin main\nEOF
+deny	Bash	cat <<-'EOF' > x.md\n\tgit push\n\tEOF
+deny	Bash	cat > notes.md <<EOF\ngh pr create then -f x\nEOF
+allow	Bash	gh api graphql -f query='query { viewer { login } }'
+allow	Bash	gh api graphql -f query='query($owner:String!,$name:String!){ repository(owner:$owner,name:$name){ id } }' -f owner=o -f name=r
+allow	Bash	gh api graphql -F owner=o -f query='query { viewer { login } }'
+allow	Bash	gh api -X GET search/issues -f q=repo:o/r
+allow	Bash	gh api --method GET search/issues -f q=bug -F per_page=5
+allow	Bash	gh api repos/o/r/pulls --jq '.[]\n| .title'
+# ── allowed: ordinary read-only commands ──
+allow	Bash	git status
+allow	Bash	git clone https://github.com/o/r.git
+allow	Bash	git commit -m "git push later"
+allow	Bash	echo "git push origin main"
+allow	Bash	echo gh pr create
+allow	Bash	gh pr view 12
+allow	Bash	gh pr list --state open
+allow	Bash	gh issue view 5
+allow	Bash	gh release list
+allow	Bash	gh auth status
+allow	Bash	gh api repos/o/r/issues
+allow	Bash	gh api repos/o/r/pulls --jq '.[].title'
+allow	Bash	curl -s https://api.github.com/repos/o/r
+allow	Bash	wget -qO- https://example.com
+allow	Bash	pytest -k guard
+allow	Write	-
+allow	mcp__plugin_agentic-contributor_github__get_issue	-
+allow	mcp__plugin_agentic-contributor_github__list_pull_requests	-
+# ── review-fix round 1 ──
+deny	Bash	gh api repos/o/r/issues -f 'title=hello -X GET world'
+deny	Bash	gh api repos/o/r/issues -f 'title=hello graphql world'
+deny	Bash	gh api repos/o/r/issues --jq "$(printf .)" -X POST
+deny	Bash	gh api repos/o/r/issues --jq `printf .` -X POST
+deny	Bash	gh api repos/o/r/issues $(echo a | cat) -X POST
+deny	Bash	bash < <(\ncat <<'EOF'\ngit push origin main\nEOF\n)
+deny	Bash	gh api graphql -F query='@q.graphql'
+deny	Bash	gh api graphql -F query=@q.graphql
+deny	Bash	gh api graphql -F "query=@q.graphql"
+deny	Bash	gh api graphql -f query=mu'tation'{x}
+deny	Bash	echo ok; gh api repos/o/r/issues -X POST
+allow	Bash	gh api graphql -f query='query { viewer { login } }'
+allow	Bash	gh api repos/o/r/issues -X GET -f 'q=a b'
+deny	Bash	cat > n.md <<'EOF'\ngh api -X POST -f a=b\ngit push\nEOF
+# ── review round 2: redirections and nested substitutions ──
+deny	Bash	gh api repos/o/r/issues > -- -X POST
+deny	Bash	gh api repos/o/r/issues >-- -X POST
+deny	Bash	gh api repos/o/r/issues 2>&1 -X POST
+deny	Bash	gh api repos/o/r/issues '>' -X POST
+deny	Bash	gh api repos/o/r/issues 2> err.log -X POST
+deny	Bash	echo "$(gh api repos/o/r/issues --jq "$(printf .)" -X POST)"
+deny	Bash	echo "$(echo "$(gh api repos/o/r/issues --jq "$(printf .)" -X POST)")"
+deny	Bash	echo `gh api repos/o/r/issues --jq "$(printf .)" -X POST`
+allow	Bash	gh api repos/o/r/issues > out.json
+allow	Bash	gh api repos/o/r/issues 2>&1 | head
+allow	Bash	echo "$(gh api repos/o/r/issues --jq "$(printf .)")"
+deny	Bash	echo \>& gh api repos/o/r/issues -X POST
+allow	Bash	gh api 2>/dev/null graphql -f 'query=query { viewer { login } }'
+deny	Bash	gh api repos/o/r/issues >| /dev/null -X POST
+allow	Bash	gh api repos/o/r/issues >| out.json
+deny	Bash	gh api graphql -f $'query=\155utation { addStar(input:{starrableId:"x"}) { starrable { id } } }'
+deny	Bash	cat > run.sh <<'EOF'\ngit push origin main\nEOF\nbash run.sh
+deny	Bash	cat > /tmp/d/run.sh <<'EOF'\ngit push origin main\nEOF\ncd /tmp/d && sh ./run.sh
+deny	Bash	cat > notes.md <<'EOF'\ngit push origin main\nEOF\necho done
+deny	Bash	cat > run.sh <<'EOF'\ngit push origin main\nEOF\nbash r*
+deny	Bash	cat > run.sh <<'EOF'\ngit push origin main\nEOF\nbash ru""n.sh
+deny	Bash	cat > run.sh <<'EOF'\ngit push origin main\nEOF\nfor f in ./*.sh; do bash $f; done
+deny	Bash	script=run.sh\ncat > run.sh <<'EOF'\ngit push origin main\nEOF\nbash "$script"
+deny	Bash	cat > cat <<'EOF'\ngit push origin main\nEOF\nbash ./cat
+deny	Bash	tee tee <<'EOF'\ngit push origin main\nEOF\nsh tee
+deny	Bash	cat > Makefile <<'EOF'\n\tgit push origin main\nEOF\nmake
+deny	Bash	cat > justfile <<'EOF'\ngit push origin main\nEOF\njust
+deny	Bash	cat > x.php <<'EOF'\ngit push origin main\nEOF\nphp x.php
+deny	Bash	cat > notes.md <<'EOF'\ngit push origin main\nEOF\necho "done"
+deny	Bash	cat > notes.md <<'EOF'\ngit push origin main\nEOF\n# saved notes
+deny	Bash	cat > notes.md <<'EOF'\ngit push origin main\nEOF\necho 'saved'\nls
+deny	Bash	cat > notes.md <<'EOF'\ngit push origin main\nEOF\necho "$(sh notes.md)"
+deny	Bash	cat > run.sh <<'EOF'\ngit push origin main\nEOF\necho "\n#"; sh r*
+deny	Bash	cat > Makefile <<'EOF'\nall:\n\tgit push\nEOF\nmake
+deny	Bash	cat > notes.md <<'EOF'\ngit push is mentioned here\nEOF
+allow	Bash	cat > notes.md <<'EOF'\nplain notes with no outbound commands\nEOF
+deny	Bash	echo hi # note \\\ngit push origin main
+allow	Bash	echo hi \\\n  there
+known-bypass	Bash	cat <<A\n"\nA\ngh api repos/o/r/issues -X POST\ncat <<B\n"\nB
+deny	Bash	read -r q < q.graphql; set -- "$q"; gh api graphql -f query=" $1"
+deny	Bash	gh api graphql -f query="$@"
+allow	Bash	cat <<A\n"\nA\ngh api repos/o/r/issues\ncat <<B\n"\nB
+#
+# ── v0.5.1: accidental forms (global options, path-qualified binaries, wrappers) ──
+deny	Bash	git -C some/dir push origin main
+deny	Bash	git -c user.name=x push
+deny	Bash	git --git-dir=.git push
+deny	Bash	git --git-dir .git --work-tree . push
+deny	Bash	git --no-pager -C d push origin main
+deny	Bash	git -P push
+deny	Bash	git -Csome/dir push
+deny	Bash	git send-email --to a@b.c patch.mbox
+deny	Bash	git -C d send-email x.patch
+deny	Bash	git svn dcommit
+deny	Bash	git send-pack origin master
+deny	Bash	gh -R owner/repo pr create --title t --body b
+deny	Bash	gh --repo owner/repo issue comment 1 --body hi
+deny	Bash	gh --repo=owner/repo pr merge 3
+deny	Bash	gh pr -R owner/repo comment 3 --body hi
+deny	Bash	gh -R o/r api repos/o/r/issues -X POST
+deny	Bash	gh -R o/r api repos/o/r/issues -f title=t
+deny	Bash	/usr/bin/git push origin main
+deny	Bash	./gh pr create --title t
+deny	Bash	/opt/homebrew/bin/gh issue create --title t
+deny	Bash	env git push origin main
+deny	Bash	env -i FOO=1 git push
+deny	Bash	env -u HOME git push
+deny	Bash	FOO=bar git push
+deny	Bash	command git push origin main
+deny	Bash	exec git push
+deny	Bash	builtin git push
+deny	Bash	nohup git push origin main
+deny	Bash	time git push
+deny	Bash	time -p git push
+deny	Bash	sudo git push
+deny	Bash	sudo -u deploy git push
+deny	Bash	echo x | xargs git push
+deny	Bash	echo x | xargs -I {} git -C {} push
+deny	Bash	/usr/bin/env git -C d push
+deny	Bash	if true; then git push; fi
+deny	Bash	env GH_TOKEN=x /usr/local/bin/gh -R o/r api repos/o/r/issues -X PATCH
+deny	Bash	gh pr update-branch 12
+deny	Bash	gh issue transfer 1 o/other
+deny	Bash	gh issue pin 1
+deny	Bash	gh issue unpin 1
+deny	Bash	gh issue develop 1 --name b
+deny	Bash	gh issue lock 1
+deny	Bash	gh label create bug
+deny	Bash	gh label edit bug --color ff0000
+deny	Bash	gh label delete bug
+deny	Bash	gh workflow run ci.yml
+deny	Bash	gh workflow enable ci.yml
+deny	Bash	gh workflow disable ci.yml
+deny	Bash	gh run rerun 123
+deny	Bash	gh run cancel 123
+deny	Bash	gh repo sync o/r
+deny	Bash	gh repo rename newname
+deny	Bash	gh repo archive o/r
+deny	Bash	gh repo edit --description x
+deny	Bash	gh repo delete o/r --yes
+deny	Bash	gh secret set TOKEN
+deny	Bash	gh secret delete TOKEN
+deny	Bash	gh variable set X --body 1
+deny	Bash	gh variable delete X
+deny	Bash	gh gist edit abc123
+deny	Bash	gh gist delete abc123
+deny	Bash	gh release edit v1 --notes x
+deny	Bash	gh release upload v1 a.zip
+deny	Bash	gh release delete v1
+deny	Bash	gh alias set co 'pr checkout'
+deny	Bash	gh codespace create -R o/r
+deny	Bash	curl --json '{"a":1}' https://example.com
+deny	Bash	curl --data-binary @a.bin https://example.com
+deny	Bash	curl --data-urlencode a=b https://example.com
+deny	Bash	curl --data=a=b https://example.com
+deny	Bash	curl -da=b https://example.com
+deny	Bash	curl -sd a=b https://example.com
+deny	Bash	curl -T file.txt https://example.com/up
+deny	Bash	curl --upload-file file.txt https://example.com/up
+deny	Bash	curl --request=POST https://example.com
+deny	Bash	curl -X post https://example.com
+deny	Bash	curl -sXPUT https://example.com
+deny	Bash	curl -K curl.cfg
+deny	Bash	curl --config curl.cfg
+deny	Bash	curl --form-string a=b https://example.com
+deny	Bash	/usr/bin/curl -d a=b https://example.com
+deny	Bash	env curl -X DELETE https://example.com
+deny	Bash	wget --body-data a=b https://example.com
+deny	Bash	wget --body-data=a=b https://example.com
+deny	Bash	wget --method=post https://example.com
+deny	Bash	wget --method PUT https://example.com
+# ── v0.5.1: read-only forms must still pass ──
+allow	Bash	git -C some/dir log --oneline
+allow	Bash	git --no-pager -c core.pager=cat diff
+allow	Bash	git --git-dir=.git status
+allow	Bash	git svn info
+allow	Bash	gh -R o/r pr view 12
+allow	Bash	gh --repo o/r issue list
+allow	Bash	gh -R o/r api repos/o/r/issues
+allow	Bash	gh -R o/r api graphql -f query='query($owner:String!){ repository(owner:$owner,name:"r"){ id } }' -f owner=o
+allow	Bash	/usr/bin/git status
+allow	Bash	./gh pr view 1
+allow	Bash	env git diff
+allow	Bash	env -i FOO=1 git log
+allow	Bash	FOO=bar git status
+allow	Bash	command git status
+allow	Bash	command -v git
+allow	Bash	nohup git fetch
+allow	Bash	time git status
+allow	Bash	sudo -u deploy git log
+allow	Bash	echo x | xargs git log
+allow	Bash	echo x | xargs -I {} git -C {} status
+allow	Bash	/usr/bin/env git -C d log
+allow	Bash	gh label list
+allow	Bash	gh workflow list
+allow	Bash	gh workflow view ci.yml
+allow	Bash	gh run list
+allow	Bash	gh run view 123
+allow	Bash	gh secret list
+allow	Bash	gh variable list
+allow	Bash	gh gist view abc123
+allow	Bash	gh release view v1
+allow	Bash	gh repo view o/r
+allow	Bash	gh codespace list
+allow	Bash	gh alias list
+allow	Bash	curl https://example.com
+allow	Bash	curl -sL -o out.html https://example.com
+allow	Bash	curl -X GET https://example.com
+allow	Bash	curl -sXGET https://example.com
+allow	Bash	curl -I https://example.com
+allow	Bash	curl -H 'Accept: application/json' https://example.com
+allow	Bash	curl -H '-d' https://example.com
+allow	Bash	/usr/bin/curl -s https://example.com
+allow	Bash	wget --method=GET https://example.com
+allow	Bash	wget -q https://example.com/f.tgz
+allow	Bash	echo git -C d push
+allow	Bash	git commit -m "env git push"
+# ── v0.7.0 review fixes: GitHub MCP namespace is default-deny (read allowlist) ──
+deny	mcp__plugin_agentic-contributor_github__issue_write	-
+deny	mcp__plugin_agentic-contributor_github__pull_request_review_write	-
+deny	mcp__plugin_agentic-contributor_github__add_comment_to_pending_review	-
+deny	mcp__plugin_agentic-contributor_github__add_issue_comment	-
+deny	mcp__plugin_agentic-contributor_github__push_files	-
+deny	mcp__plugin_agentic-contributor_github__merge_pull_request	-
+deny	mcp__plugin_agentic-contributor_github__update_pull_request	-
+deny	mcp__plugin_agentic-contributor_github__update_pull_request_branch	-
+deny	mcp__plugin_agentic-contributor_github__fork_repository	-
+deny	mcp__plugin_agentic-contributor_github__create_or_update_file	-
+deny	mcp__plugin_agentic-contributor_github__delete_file	-
+deny	mcp__plugin_agentic-contributor_github__sub_issue_write	-
+deny	mcp__plugin_agentic-contributor_github__assign_copilot_to_issue	-
+deny	mcp__plugin_agentic-contributor_github__create_branch	-
+deny	mcp__plugin_agentic-contributor_github__create_pull_request	-
+deny	mcp__plugin_agentic-contributor_github__create_repository	-
+deny	mcp__plugin_agentic-contributor_github__request_copilot_review	-
+deny	mcp__plugin_agentic-contributor_github__some_future_tool	-
+deny	mcp__plugin_agentic-contributor_github__get_x_write	-
+allow	mcp__plugin_agentic-contributor_github__get_me	-
+allow	mcp__plugin_agentic-contributor_github__get_file_contents	-
+allow	mcp__plugin_agentic-contributor_github__list_issues	-
+allow	mcp__plugin_agentic-contributor_github__search_code	-
+allow	mcp__plugin_agentic-contributor_github__issue_read	-
+allow	mcp__plugin_agentic-contributor_github__pull_request_read	-
+allow	mcp__plugin_agentic-contributor_github__get_commit	-
+allow	mcp__plugin_agentic-contributor_github__list_pull_requests	-
+allow	mcp__plugin_agentic-contributor_github__search_pull_requests	-
+allow	mcp__plugin_agentic-contributor_github__list_branches	-
+# ── v0.7.0 review fixes: more gh write subcommands ──
+deny	Bash	gh pr revert 12
+deny	Bash	gh project create 1 --owner me
+deny	Bash	gh project edit 1 --owner me
+deny	Bash	gh project delete 1 --owner me
+deny	Bash	gh project close 1 --owner me
+deny	Bash	gh project copy 1 --owner me
+deny	Bash	gh project link 1 --owner me
+deny	Bash	gh project unlink 1 --owner me
+deny	Bash	gh project mark-template 1 --owner me
+deny	Bash	gh project item-add 1 --owner me
+deny	Bash	gh project item-create 1 --owner me
+deny	Bash	gh project item-edit 1 --owner me
+deny	Bash	gh project item-delete 1 --owner me
+deny	Bash	gh project item-archive 1 --owner me
+deny	Bash	gh project field-create 1 --owner me
+deny	Bash	gh project field-delete 1 --owner me
+deny	Bash	gh ssh-key add key.pub
+deny	Bash	gh ssh-key delete 123
+deny	Bash	gh gpg-key add k.asc
+deny	Bash	gh gpg-key delete ABC
+deny	Bash	gh repo deploy-key add key.pub
+deny	Bash	gh repo deploy-key delete 1
+deny	Bash	gh -R o/r repo deploy-key add k.pub
+deny	Bash	gh cache delete 123
+deny	Bash	gh cache delete --all
+deny	Bash	gh repo autolink create JIRA- https://x/<num>
+deny	Bash	gh repo autolink delete 1
+deny	Bash	gh release delete-asset v1 a.zip
+deny	Bash	gh gist rename abc old new
+deny	Bash	gh alias delete co
+deny	Bash	gh alias import a.yml
+deny	Bash	gh codespace delete -c x
+deny	Bash	gh codespace stop
+deny	Bash	gh codespace edit -c x
+deny	Bash	/opt/homebrew/bin/gh project item-add 1 --url u
+allow	Bash	gh project list
+allow	Bash	gh project view 1 --owner me
+allow	Bash	gh project item-list 1
+allow	Bash	gh project field-list 1
+allow	Bash	gh ssh-key list
+allow	Bash	gh gpg-key list
+allow	Bash	gh cache list
+allow	Bash	gh pr view 12
+allow	Bash	gh repo deploy-key list
+allow	Bash	gh repo autolink list
+allow	Bash	gh repo set-default o/r
+allow	Bash	gh codespace list
+allow	Bash	gh alias list
+# ── v0.7.0 review fixes: inline git alias that pushes ──
+deny	Bash	git -c alias.p=push p origin main
+deny	Bash	git -c 'alias.p=!git push' p
+deny	Bash	git -C d -c alias.sp=send-pack sp
+allow	Bash	git -c alias.st=status st
+allow	Bash	git -c core.pager=cat log -1
+# ── v0.7.0 review fixes: fast path must not skip obfuscated triggers ──
+deny	Bash	g\it push origin main
+deny	Bash	"g"it push origin main
+deny	Bash	g''it push
+deny	Bash	gi\\nt push
+deny	Bash	ls -la && /usr/bin/git push
+deny	Bash	echo a | GH_X=1 gh pr comment 1 -b x
+allow	Bash	ls -la && echo done | tr a-z A-Z
+#
+#
+# ── Known bypasses (documented; the guard is a tripwire, not a security boundary) ──
+# Deliberate obfuscation (realistic only under prompt injection; not planned —
+# use a read-only token as the real boundary).
+known-bypass	Bash	p=push; git $p origin main
+known-bypass	Bash	eval "g""it push origin main"
+known-bypass	Bash	alias gp='git push'; gp
+known-bypass	Bash	bash -c "git push origin main"
+known-bypass	Bash	g$(true)it push origin main
+known-bypass	Bash	$'\x67'it push origin main
+known-bypass	Bash	git --config-env alias.p=PUSHALIAS p

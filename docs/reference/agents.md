@@ -21,7 +21,7 @@ General-purpose GitHub research agent. Fetches issues, pull requests, releases, 
 
 ### Supported Scenarios
 
-Used in scenarios: **status, find, norms, setup** (optional), **clarify, engage, review-reply, report**, and as a follow-up dispatch in the **claim→engage** branch.
+Used in scenarios: **status, find, norms, setup** (optional), **clarify, engage, review-reply, report**, and as a follow-up dispatch in the **claim→engage** branch. Special scenario keys: `policy-preflight` (returns only the `policy` block) and `readiness` (claim and find: reads the user's own public activity for the contributor-readiness check, dispatched in parallel with the normal fetch; own login only).
 
 ### Tools
 
