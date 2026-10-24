@@ -5,6 +5,26 @@ All notable changes to the agentic-contributor plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-10-24
+
+### Added
+
+- **Scope-drift alerts** inside tracked sessions: a new advisory hook `hooks/scripts/track-breakpoint.sh` (registered on `PostToolUse` for `Edit|Write|MultiEdit|NotebookEdit` and on `Stop`) compares the working tree with the session base commit. A change that grows past `drift_lines` (default 400) or `drift_files` (default 10), or touches out-of-scope modules that no v0.8.0 checkpoint covered, raises one alert that asks keep / separate PR / drop / skip, and the choice is recorded in the ledger (`drift:<k>`). Mid-turn alerts use `additionalContext` (never a block); at Stop the alert is a single block. Thresholds come from explicit numbers in a local CONTRIBUTING file at track start, else the defaults.
+- **Explain-back at natural breakpoints**: when the agent stops after code edits, one skippable question about a specific `file:line` (the largest uncovered hunk) is put to the user, and the verbatim answer is recorded (`explain:<k>`). At most 4 per session, at least 20 minutes apart, never right after another question, with a per-session non-interactive latch so `claude -p` never hangs.
+- Ledger additions: frontmatter keys `drift_lines`, `drift_files`, `drift_source`, `drift_max`, `explain_max`, `explain_interval_min`; hook markers `track:drift` and `track:breakpoint`; a disposable session state file `<ledger>.state` (paths only); sections 11 to 14 in `decision-ledger.md`.
+- Harness `hooks/tests/run-breakpoint-tests.sh` with `hooks/tests/breakpoint-cases.tsv` (bash 3.2), including a check that the code shared with `track-checkpoint.sh` stays byte-identical.
+
+### Changed
+
+- Separate caps: checkpoints 3 (unchanged), drift 2, explain-back 4. `budget: 0` is now quiet mode for the whole session (no checkpoint, drift, or explain questions; drift is still logged).
+- `change-debrief` and the `prepare-pr` scaffold use explain answers as the strongest Why evidence and turn skipped or unanswered drift and explain items into Unknowns and follow-ups. `/oss track status` and `/oss track stop` report the new counts; `stop` also deletes the state file.
+- `hooks/hooks.json` registers `PostToolUse` and `Stop`.
+
+### Notes
+
+- Guard untouched (`guard-outbound.sh`, its harness and cases; 271/271). `track-checkpoint.sh` gets comment-only markers; its harness stays 67/67. No scenario or skill count change.
+- Hooks never revert, stash, or edit code. Limits: Bash-created untracked files are not counted, `SubagentStop` is not covered, and `Stop` does not run on interrupt.
+
 ## [0.8.0] - 2026-10-24
 
 ### Added

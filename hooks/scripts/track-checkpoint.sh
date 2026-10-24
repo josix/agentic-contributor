@@ -27,6 +27,7 @@ IFS= read -r -d '' input || true
 [ -n "$input" ] || exit 0
 
 # ── FAST PATH: locate a session pointer using only builtins ──────────────────
+# >>> shared:find-root (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
 find_root() { # $1 = start dir; walks up to the first .git boundary
   local d="$1" nd
   case "$d" in /*) ;; *) return 1 ;; esac
@@ -43,6 +44,7 @@ find_root() { # $1 = start dir; walks up to the first .git boundary
   done
   return 1
 }
+# <<< shared:find-root
 
 re_path='"(file_path|notebook_path)"[[:space:]]*:[[:space:]]*"([^"\\]*)"'
 re_cwd='"cwd"[[:space:]]*:[[:space:]]*"([^"\\]*)"'
@@ -59,6 +61,7 @@ done
 [ -z "$root" ] && exit 0
 
 # ── SLOW PATH: a session pointer exists. Any failure below fails open. ───────
+# >>> shared:pointer (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
 rel_ledger=""
 IFS= read -r rel_ledger < "$root/.oss-drafts/.track-active" || [ -n "$rel_ledger" ] || exit 0
 re_ptr='^\.oss-drafts/track-[A-Za-z0-9._-]+\.md$'
@@ -68,6 +71,7 @@ ledger="$root/$rel_ledger"
 # Pointer, directory and ledger must be real (non-symlink) paths.
 [[ -L "$root/.oss-drafts" || -L "$root/.oss-drafts/.track-active" || -L "$ledger" ]] && exit 0
 [[ -f "$ledger" ]] || exit 0
+# <<< shared:pointer
 
 # Frontmatter (builtin reads, no fork).
 fm_plugin=""; fm_mode=""; fm_status=""; fm_scope=""; fm_api=""; fm_budget=""
@@ -91,6 +95,7 @@ while IFS= read -r line; do
 done < "$ledger"
 [ "$fm_plugin" = "agentic-contributor" ] && [ "$fm_mode" = "track" ] || exit 0
 
+# >>> shared:clean-list (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
 clean_list() { # strip comment, brackets, quotes
   local v="${1%%#*}"
   v="${v//\[/}"
@@ -98,6 +103,7 @@ clean_list() { # strip comment, brackets, quotes
   v="${v//\"/}"
   printf '%s' "$v"
 }
+# <<< shared:clean-list
 fm_scope="$(clean_list "$fm_scope")"
 fm_api="$(clean_list "$fm_api")"
 case "$fm_budget" in '' | *[!0-9]*) fm_budget=3 ;; esac
@@ -213,6 +219,7 @@ re_testdir='(^|/)(tests?|__tests__|specs?|testing)/'
 re_testfile='^test_.*\.py$|_test\.(py|go|rb|exs?|dart)$|\.(test|spec)\.(m?[jt]sx?|cjs)$|(Tests?|IT)\.(java|kt|scala|cs)$|_spec\.rb$|Tests?\.swift$'
 is_test_path() { [[ $1 =~ $re_testdir ]] || [[ ${1##*/} =~ $re_testfile ]]; }
 
+# >>> shared:manifest-map (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
 manifest_for() { # echoes the manifest basename if $1 is a dependency file, else nothing
   case "$1" in
     yarn.lock | package-lock.json | pnpm-lock.yaml | npm-shrinkwrap.json | bun.lockb) echo package.json ;;
@@ -231,7 +238,9 @@ manifest_for() { # echoes the manifest basename if $1 is a dependency file, else
       *.gemspec | *.csproj) echo "$1" ;;
   esac
 }
+# <<< shared:manifest-map
 
+# >>> shared:glob-match (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
 glob_match() { # $1 rel, $2 comma list
   local g list="$2" IFS=,
   for g in $list; do
@@ -244,6 +253,7 @@ glob_match() { # $1 rel, $2 comma list
   done
   return 1
 }
+# <<< shared:glob-match
 
 class=""
 key="$rel"
@@ -284,6 +294,7 @@ id="$class:$key"
 
 # ── lock: reading state, checking the budget and appending a pending marker are one step,
 # so parallel edits cannot both spend the same budget slot. Fail open if the lock is busy.
+# >>> shared:lock (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
 lock="$ledger.lock"
 tries=0
 until mkdir "$lock" 2> /dev/null; do
@@ -295,6 +306,7 @@ until mkdir "$lock" 2> /dev/null; do
   sleep 0.1 2> /dev/null || exit 0
 done
 trap 'rmdir "$lock" 2> /dev/null' EXIT
+# <<< shared:lock
 
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ 2> /dev/null)" || exit 0
 
@@ -350,16 +362,17 @@ if [ "$ack" -eq 1 ]; then
   exit 0
 fi
 
+# budget 0 is quiet mode: never ask or retry, even with a pending marker
+if [ "$fm_budget" -eq 0 ] || { [ "$pend_n" -eq 0 ] && [ "$asked" -ge "$fm_budget" ]; }; then
+  append "<!-- track:entry status=logged-over-budget source=hook asked=no at=$now id=$id -->" \
+    "- logged-over-budget: $class — $rel ($now), not asked; budget $fm_budget spent"
+  emit "" "" "[agentic-contributor · tracked session] Checkpoint budget $fm_budget/$fm_budget is spent. Logged $id ($class, $rel) to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish."
+fi
+
 if [ "$pend_n" -ge 2 ]; then
   append "<!-- track:entry status=skipped source=hook asked=yes reason=no-ledger-entry at=$now id=$id -->" \
     "- skipped (no ledger entry recorded after 2 checkpoint prompts): $class — $rel"
   emit "" "" "[agentic-contributor · tracked session] No ledger entry for $id after 2 checkpoint prompts. The hook recorded it as skipped and allowed this edit. Tell the user that this decision was not recorded."
-fi
-
-if [ "$pend_n" -eq 0 ] && [ "$asked" -ge "$fm_budget" ]; then
-  append "<!-- track:entry status=logged-over-budget source=hook asked=no at=$now id=$id -->" \
-    "- logged-over-budget: $class — $rel ($now), not asked; budget $fm_budget spent"
-  emit "" "" "[agentic-contributor · tracked session] Checkpoint budget $fm_budget/$fm_budget is spent. Logged $id ($class, $rel) to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish."
 fi
 
 retry=""

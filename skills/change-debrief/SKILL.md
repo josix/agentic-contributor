@@ -35,7 +35,9 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
    `.oss-drafts/track-*.md` whose `branch` equals the current branch and whose `base_commit` is an
    ancestor of HEAD (`git merge-base --is-ancestor`). Format: `skills/pr-preparation/references/decision-ledger.md`.
    If the user gives no base, mention the ledger's `base_commit` as the session start. The ledger is
-   private; never copy it into anything sendable.
+   private; never copy it into anything sendable. From v0.9.0 it can also hold scope-drift entries
+   (`drift:<k>`) and breakpoint answers (`explain:<k>`, your own words); read them per section 10
+   of the reference.
 4. Base branch: `git merge-base HEAD <default-branch>`; confirm with `git remote -v` that the cwd
    matches the target `owner/repo`. If the remote or base is ambiguous, ask the one allowed
    clarifying question about the base.
@@ -52,7 +54,11 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
    labelled **"unexplained, possibly out of scope"**; never invent a justification.
 4. **Mark every statement** as `[evidenced: <citation>]` or `[inferred]`. A ledger entry is
    `[evidenced: ledger <id>]`, stronger than a commit message: prefer it when both exist. Inferred
-   reasons are never presented as fact.
+   reasons are never presented as fact. An answered `explain:<k>` entry (`chosen: typed`) is
+   `[evidenced: ledger explain:<k>]` and is quoted as "you said: ...": it is the strongest Why
+   source because it is in the user's words, preferred over commit messages. A group whose entry
+   says `chosen: not-requested` is labelled "unexplained, possibly out of scope (you said you did
+   not ask for it)".
 5. **Implicit decisions and assumptions** the agent made: approach chosen over alternatives, inputs
    assumed valid, incidental refactors or formatting. With a transcript, separate "you instructed"
    from "the agent decided". With a ledger, `decided_by` separates "you decided", "you chose the
@@ -62,11 +68,18 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
    not run anything).
 7. **Explain-back:** 2 to 3 questions citing the diff (`file:line`) that the user answers in their
    own words as `TODO(you)`. In lint mode, flag unanswered ones. Ledger entries with reason
-   `TODO(you)` become explain-back prompts.
+   `TODO(you)` become explain-back prompts. Do not re-ask a hunk the user already answered at a
+   breakpoint; reuse skipped `explain:<k>` entries as prompts.
 8. **Unknowns & follow-ups:** a list of open items. `pr-preparation` seeds "Unknowns &
    assumptions" from it, and it can seed a `review-reply` brief. Ledger entries that were skipped,
    `logged-over-budget`, or hook-skipped go here as "not decided: <trigger> on <file> (ledger
    <id>)". Entries for files not in the diff get the note "recorded, file not in final diff".
+   Add "not explained: <rel>:<line> (ledger explain:<k>)" for skipped breakpoint questions or a
+   `track:breakpoint` marker with no entry. Drift entries: A (keep) is evidence "you chose to keep
+   ..."; B (separate PR) goes to follow-ups with its `follow-up:` line; C (drop) whose files are
+   still in the final diff is an Unknown "dropped per ledger drift:<k> but still in the diff:
+   ..."; a skipped drift entry, a `track:drift` marker with no entry, or an `asked=no` marker is an
+   Unknown.
 
 The user may ask follow-ups about any group ("why not use X?"); answer citing code, still read-only.
 

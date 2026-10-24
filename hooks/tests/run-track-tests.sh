@@ -92,7 +92,7 @@ setup() { # $1 profile -> sets d root ledger pointer env_extra
     scoped) scope='["src/**"]' ;;
     api) api='["src/api/public.ts"]' ;;
     stopped) status=stopped ;;
-    budget0) budget=0 ;;
+    budget0 | budget0-pending) budget=0 ;;
   esac
   ledger="$root/.oss-drafts/$LEDGER_NAME"
   pointer="$root/.oss-drafts/.track-active"
@@ -125,6 +125,7 @@ setup() { # $1 profile -> sets d root ledger pointer env_extra
     abs-ptr) printf '%s\n' "$evil" > "$pointer" ;;
     decided-dep) entry decided yes dependency:package.json ;;
     skipped-dep) entry skipped yes dependency:package.json ;;
+    budget0-pending) pend dependency:package.json ;;
     spent)
       pend dependency:Cargo.toml; pend test:tests/test_foo.py; pend scope:docs/x.md
       entry decided yes dependency:Cargo.toml; entry decided yes test:tests/test_foo.py

@@ -56,13 +56,50 @@ not asked to approve or deny. The agent records the choice and your words in the
 A skipped checkpoint becomes an **Unknown** in the debrief. Once an id is settled it is never asked
 again.
 
+## Scope-drift alerts
+
+A second advisory hook, `track-breakpoint.sh`, watches how big the change has become. After an edit
+(PostToolUse) and once at the end of each turn (Stop) it compares the working tree with the session
+base commit. It raises **one alert** when the change crosses:
+
+- more than `drift_lines` changed lines (default 400), or more than `drift_files` files (default 10).
+  Lock files count as files but not as lines; files the agent created count too.
+- a module (first two directory segments) outside `scope` that no checkpoint already covered. This
+  mostly catches changes made outside Edit, such as formatters, generators, or Bash.
+
+The agent is told to ask you what to do with the part that grew: **keep** it, **set it aside for a
+separate PR**, **drop** it, or **skip** (decide later). Your choice is recorded as `drift:<k>` in
+the ledger; a separate-PR choice adds a follow-up line that the debrief and the PR scaffold list.
+Mid-turn alerts are context for the agent (never a block, so it does not think the edit failed);
+at the end of a turn the alert holds the stop once. The hook never reverts, stashes, or edits code.
+
+Each threshold and each module alerts once. If your project's CONTRIBUTING file states an explicit
+size limit, `/oss track` start uses that number (recorded as `drift_source`); vague wording is never
+turned into a number. The check is throttled (new file or every 5th edit), so it adds little work.
+
+## Breakpoint questions (explain-back)
+
+When the agent stops after code edits, the hook may hold the stop **once** and ask you one question
+about a specific `file:line`: the largest change since the base that no checkpoint or earlier
+question covered. You answer in your own words (the free-text "Other" option), skip, or say you did
+not ask for the change. Your answer is recorded verbatim as `explain:<k>`; it is never graded. The
+debrief and the PR scaffold use it as your own Why, and skipped ones become Unknowns.
+
+It asks only when all hold: edits since the last breakpoint, fewer than `explain_max` (4) asked,
+at least `explain_interval_min` (20) minutes since the last one, no checkpoint or drift question
+since the previous stop, and the agent is not already waiting on you.
+
 ## Fatigue budget
 
-- Default 3 questions per session, counting questions actually asked. Set it with `budget N`, or
-  edit `budget:` in the ledger frontmatter.
-- Past the budget, triggers are still logged (`logged-over-budget`) but you are not asked, and the
-  agent mentions it at the end.
-- `budget: 0` is log-only mode, recommended for headless or CI runs.
+- Three separate pools: checkpoints **3** (`budget N`), drift alerts **2** (`drift_max`), breakpoint
+  questions **4** (`explain_max`, at least 20 minutes apart). The worst case is 9 questions in a
+  session; a typical session sees 0 to 3. Edit the keys in the ledger frontmatter.
+- Past a cap, events are still logged (`logged-over-budget`, or `asked=no` for drift) but you are
+  not asked, and the agent mentions it at the end.
+- `budget: 0` is **quiet mode** for the whole session: no checkpoint, drift, or breakpoint question
+  is asked (drift is still logged). Recommended for headless or CI runs.
+- `drift_max: 0` logs drift only; `explain_max: 0` turns breakpoint questions off;
+  `drift_lines: 0` or `drift_files: 0` turns that threshold off.
 - Loop guard: if a checkpoint is retried twice without a ledger entry, the third attempt is not blocked
   (the hook adds context only and normal permission prompts apply) and recorded as skipped. The hook never blocks permanently.
 
@@ -83,13 +120,18 @@ A private markdown file `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md`. Full
 
 The ledger is private notes. It is never a send block and never PR text. The hook writes only the
 class, path, counts, and timestamps. It never records prompts, transcripts, keystrokes, or file
-contents. The ledger is agent-written, so a checkpoint answer is the agent's report of what you
+contents. The session state file `<ledger>.state` holds only repo-relative paths of edited files and
+a few counters; `/oss track stop` deletes it, and deleting it cannot lift a cap (the caps live in the
+ledger). The ledger is agent-written, so a checkpoint answer is the agent's report of what you
 chose; the debrief marks it as evidence, not proof.
 
 ## Headless runs and subagents
 
 Without AskUserQuestion (headless run, subagent), the entry is recorded as skipped with reason
-`non-interactive`, and it becomes an Unknown in the debrief.
+`non-interactive`, and it becomes an Unknown in the debrief. A breakpoint question costs at most one
+extra continuation in a `claude -p` run: after the agent records the non-interactive skip, a
+per-session latch keeps explain-back silent for the rest of that session, and the next stop is never
+held again. A subagent's edits are logged, and the main thread's Stop does the drift check.
 
 ## Stopping and disabling
 
@@ -102,6 +144,11 @@ Without AskUserQuestion (headless run, subagent), the entry is recorded as skipp
 - One session per project folder.
 - "Log this decision" in plain chat is best effort.
 - The ledger is self-reported by the agent.
+- Files created by Bash are not counted toward drift size, `SubagentStop` is not covered, and
+  Stop does not run when you interrupt the agent.
+- Drift is measured against the session base commit; rebasing onto a newer base inflates it (stop
+  and start again). Git work runs only inside a session, throttled, and can take longer on huge
+  repos.
 - The hook is advisory and fails open; it is not a safety boundary. The draft-only guard is separate.
 
 ---
