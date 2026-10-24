@@ -28,7 +28,7 @@ records prompts, transcripts, keystrokes, or file contents.
   no git dir for the pointer and the hook stays inactive. One active session per root (a worktree
   is its own root, with its own git dir). The hook finds the repository from `$CLAUDE_PROJECT_DIR`,
   else its working directory, by walking up to the first `.git` (a directory, or a file with a
-  `gitdir:` line); it does not read stdin until a pointer is found. The Step 3a policy cache glob will match ledgers, but they carry no `policy:`
+  `gitdir:` line); it does not read stdin until a pointer is found. The Step 3 policy cache glob will match ledgers, but they carry no `policy:`
   block, so the cache skips them.
 
 ## 2. Frontmatter (each key on ONE line)

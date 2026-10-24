@@ -127,7 +127,7 @@ Never write `decided_by: user` or `answered_by: user` unless the user answered.
 
 ## Procedure 1: Pre-flight (run in parallel where possible)
 
-1. **Policy profile.** Reuse the orchestrator's Step 3a block (`policy` in frontmatter).
+1. **Policy profile.** Reuse the orchestrator's Step 3 block (`policy` in frontmatter).
 2. **Readiness.** `contributor-readiness` result (open PRs vs `open_pr_cap`, vouch). Advisory,
    Private notes only. Honour "skip readiness".
 3. **Issue-first check.** Linked issue present: continue. No linked issue and `policy.issue_first`

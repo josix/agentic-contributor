@@ -62,7 +62,7 @@ generated_at: <ISO-8601 UTC>
 status: draft
 body_format: 2            # draft tier only; omit on report tier. 1 or absent = legacy (whole body sendable)
 mode: <brief|lint|debrief|draft>  # review-reply: brief|lint; prepare-pr: track|debrief|draft|lint
-policy: {...}             # find + scenarios 5-10 (and norms): the policy block, see Step 3a; includes fetched_at
+policy: {...}             # find + scenarios 5-10 (and norms): the policy block, see Step 3; includes fetched_at
 routed_from: <scenario>   # only when a PR-intent request was rerouted to report (issue-first)
 base: <ref>               # prepare-pr only: base ref used for the diff
 head: <ref>               # prepare-pr only
@@ -119,7 +119,7 @@ Invoke the `oss-scenario-routing` skill to classify the intent from `$ARGUMENTS`
 
 - Match against intent signals.
 - If ambiguous, ask ONE clarifying question (the scenario menu).
-- If the intent is PR intent (see the routing skill) with no issue reference, run the Step 3a
+- If the intent is PR intent (see the routing skill) with no issue reference, run the Step 3
   policy preflight **before** final routing; this is the only policy-aware routing rule. See the
   PR-intent -> prepare-pr / Report (Issue-First) Branch below.
 - Debrief signals ("help me understand what I changed", "debrief my change", "what did the agent
@@ -130,10 +130,10 @@ Invoke the `oss-scenario-routing` skill to classify the intent from `$ARGUMENTS`
 
 ---
 
-## Step 3a — Policy Preflight
+## Step 3 — Policy Preflight
 
 Applies to `find`, `clarify`, `claim`, `engage`, `review-reply`, `report`, and `prepare-pr` (except `mode: track`). It does not apply to
-`status`, `norms` (which computes the policy in full), or `setup`. It runs before the Step 3
+`status`, `norms` (which computes the policy in full), or `setup`. It runs before the Step 4
 dispatch, and also before final routing for PR-intent requests.
 
 1. **Cache lookup.** Glob `.oss-drafts/*-<owner>-<repo>-*.md` as a candidate list only: filename
@@ -153,10 +153,11 @@ dispatch, and also before final routing for PR-intent requests.
 
 ---
 
-## Step 3 — Gather Data (Dispatch Subagent)
+## Step 4 — Gather Data (Dispatch Subagent)
 
 For scenarios that require live GitHub data (status, find, norms, clarify, claim, engage,
-review-reply), dispatch the mapped subagent via the **Task tool**:
+review-reply, report, prepare-pr, and optionally setup), dispatch the mapped subagent via the
+**Task tool**:
 
 - Pass: `owner/repo`, the specific item (issue/PR number or search intent), and the scenario key.
 - **status, find, norms, clarify, engage, review-reply, report** → dispatch `oss-researcher`.
@@ -189,7 +190,7 @@ is not set, the subagents fall back to `gh` CLI (they will run `gh auth status` 
 
 ---
 
-## Step 4 — Load the Mapped Skill, Produce Output, and Save Draft File
+## Step 5 — Load the Mapped Skill, Produce Output, and Save Draft File
 
 Load the skill named in the scenario catalog and follow its guidance to produce the output. Then
 save it as a draft file per the convention above. Draft-tier skills (clarify, claim, engage,
@@ -273,7 +274,7 @@ After `oss-claim-analyst` returns its verdict:
 ### PR-intent → prepare-pr / Report (Issue-First) Branch
 
 Mirrors the claim → engage branch. When the request expresses PR intent ("open a PR for...",
-"submit a fix for...", "I have a patch...", "send a PR", "prepare a PR"), run the Step 3a preflight
+"submit a fix for...", "I have a patch...", "send a PR", "prepare a PR"), run the Step 3 preflight
 first, then:
 
 - **An issue number or URL is given** (or the request is a PR for a linked issue): route to
@@ -294,7 +295,7 @@ no PR text is produced.
 
 ---
 
-## Step 5 — Two-Tier Export and Review Protocol
+## Step 6 — Two-Tier Export and Review Protocol
 
 ### Report tier (scenarios 1, 2, 3, 4 — status, find, norms, setup)
 
@@ -334,17 +335,27 @@ constraint — local file writes cannot reach GitHub.
 
 The `guard-outbound.sh` PreToolUse hook is always active. It DENIES:
 
-- `git push` in any Bash command.
-- `gh pr/issue/release/repo` mutating subcommands.
+- `git push`, `git send-email`, `git send-pack`, `git svn dcommit` in any Bash command (also after
+  global options, a path-qualified binary, a wrapper such as `env`, or an inline
+  `git -c alias.x=push` alias).
+- `gh` write subcommands: `pr`/`issue`/`release`/`repo`/`gist`/`label` mutations, `gh pr revert`,
+  `gh project` create/edit/delete/close/copy/link/unlink/mark-template/item-*/field-create/
+  field-delete, `gh ssh-key`/`gpg-key` add/delete, `gh repo deploy-key` add/delete,
+  `gh repo autolink` create/delete, `gh cache delete`, workflow/run/secret/variable/alias/codespace
+  writes.
 - `gh api` calls with POST/PUT/PATCH/DELETE methods (`-X`, `--method`, `-XPOST`, `--method=POST`), `--input`,
   or `-f`/`-F`/`--field`/`--raw-field` flags (except an explicit `-X GET` or a read-only `gh api graphql` query
   with no `mutation` and no `=@file`).
 - `curl`/`wget` with mutation flags (`-X POST`, `-d`, `--data`, `-F`, etc.).
-- Any `mcp__plugin_agentic-contributor_github__` tool with a write-verb suffix
-  (create, update, delete, merge, add_comment, push, fork, and related verbs).
+- **Every** `mcp__plugin_agentic-contributor_github__` tool that is not on the read allowlist. The
+  MCP namespace is default-deny: only tools named `get_*`, `list_*`, `search_*`, or `*_read`
+  (e.g. `get_file_contents`, `list_issues`, `search_code`, `issue_read`, `pull_request_read`) are
+  allowed, and even those are denied if the name contains `write`, `create`, `delete`, `submit`,
+  or `fork`. `issue_write`, `add_issue_comment`, `push_files`, `merge_pull_request`,
+  `create_pull_request`, and any tool added upstream later are denied.
 
-Read-only operations — `gh pr view`, `gh issue list`, `gh release list`, `gh api` GETs, `git clone`,
-and all `mcp__plugin_agentic-contributor_github__` read tools — are always allowed.
+Read-only operations — `gh pr view`, `gh issue list`, `gh release list`, `gh project list`, `gh api`
+GETs, `git clone`, and the allowlisted MCP read tools above — are allowed.
 
 Local file writes via the Write tool are NOT covered by the guardrail (they cannot reach GitHub)
 and are explicitly permitted for draft file export.

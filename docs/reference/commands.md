@@ -40,7 +40,11 @@ Read `$ARGUMENTS`. If empty or ambiguous, present the scenario menu and ask whic
 
 Invoke `oss-scenario-routing`. Match `$ARGUMENTS` against the 10 scenario intent signals. If no strong match, ask one clarifying question (the scenario menu). After classification, proceed immediately.
 
-#### Step 3 — Dispatch Subagent
+#### Step 3 — Policy Preflight
+
+For `find`, `clarify`, `claim`, `engage`, `review-reply`, `report`, and `prepare-pr`: reuse a `policy` block from `.oss-drafts/` frontmatter when it is under 7 days old, otherwise dispatch `oss-researcher` (key `policy-preflight`). Advisory only; it never blocks a draft. For PR-intent requests it runs before final routing.
+
+#### Step 4 — Dispatch Subagent
 
 For scenarios requiring live GitHub data, dispatch via the Task tool:
 
@@ -55,7 +59,7 @@ Pass: `owner/repo`, specific item (issue/PR number or query intent), and the sce
 
 Prefer `mcp__plugin_agentic-contributor_github__*` read tools inside subagents. Fall back to `gh` CLI if `GITHUB_MCP_TOKEN` is not set.
 
-#### Step 4 — Load Skill, Produce Output, and Save Draft File
+#### Step 5 — Load Skill, Produce Output, and Save Draft File
 
 | Scenario | Skill loaded | Output | Draft file |
 |---|---|---|---|
@@ -73,7 +77,7 @@ the file.
 
 **Claim→Engage branch:** If `oss-claim-analyst` returns "appears already claimed", switch to `engage` — load `smart-questions` (Scenario B), dispatch `oss-researcher` for linked PR context, and notify the user of the switch.
 
-#### Step 5 — Two-Tier Export and Review Protocol
+#### Step 6 — Two-Tier Export and Review Protocol
 
 **Report tier (scenarios 1–4):** After saving the file, show:
 
@@ -96,7 +100,7 @@ Never call any tool that posts, comments, creates, pushes, or mutates GitHub sta
 
 Advisory hooks (`track-checkpoint.sh`, `track-breakpoint.sh`) ask decision, scope-drift, and breakpoint questions during tracked sessions; it is not part of the guardrail. See [Hooks](hooks.md).
 
-The `guard-outbound.sh` `PreToolUse` hook is always active. It denies: `git push`, `gh pr/issue/release/repo` mutating subcommands, `gh gist create`, `gh api` write calls, `curl`/`wget` mutation flags, and all MCP write-verb tools.
+The `guard-outbound.sh` `PreToolUse` hook is always active. It denies: `git push` (also via an inline `git -c alias.x=push` alias), `gh` write subcommands (`pr`/`issue`/`release`/`repo`/`gist`/`project`/`ssh-key`/`gpg-key`/`cache` and more), `gh api` write calls, `curl`/`wget` mutation flags, and every GitHub MCP tool that is not on the read allowlist (`get_*`, `list_*`, `search_*`, `*_read`). See the [Hooks Reference](hooks.md).
 
 Allowed: `gh pr view`, `gh issue list`, `gh release list`, plain GET `gh api` calls, `git clone`, `git status`, `git log`, and all `mcp__plugin_agentic-contributor_github__` read tools.
 
