@@ -1,12 +1,13 @@
 ---
 name: contributor-readiness
 description: >
-  This skill should be used by the /oss command in the claim and find scenarios to give the
+  This skill should be used by the /oss command in the claim, find, and prepare-pr scenarios to give the
   contributor a private, advisory self-check of how a project's maintainers are likely to see their
   contribution today: open PRs versus the project's cap, prior merged PRs, account age, vouch
   status, and whether they use the project. Trigger phrases include "am I ready to contribute",
   "will maintainers prioritise my PR", "check my readiness", "how do I build a track record", and
-  close variants. Runs by default in claim and find; the user can opt out with "skip readiness".
+  close variants. Runs by default in claim, find, and prepare-pr; the user can opt out with "skip
+  readiness".
 ---
 
 # Contributor Readiness
@@ -46,7 +47,7 @@ All reads are GETs, for the contributor's own login only. Spend about 5 calls (s
 | Vouch status | `get_file_contents` on `policy.vouch_file`, look for the login (vouched / denounced / absent) | `gh api repos/o/r/contents/<vouch_file>` |
 | Uses the project | self-reported in the find intake, or `contributor.uses` in `targets.yaml` | none |
 
-`open_pr_cap`, `vouch_required`, and `vouch_file` come from the `policy` block (Step 3a policy
+`open_pr_cap`, `vouch_required`, and `vouch_file` come from the `policy` block (Step 3 policy
 preflight). When they are `unknown`, say so; do not assume "no cap" or "no vouch". A missing signal
 is `unknown`, never `0` or `false`.
 
@@ -67,8 +68,16 @@ so and do not give newcomer advice.
 
 ## 4. Advisory Output Template
 
-Goes in **Private notes only** (claim) or the "Readiness summary" at the top of the report file
-(find). It never appears inside an `oss:send` block.
+Placement by scenario. In every case it never appears inside an `oss:send` block, and it is
+never placed directly before or after the send block:
+
+- **claim**: first in **Private notes**, with the cap and vouch warnings leading it.
+- **find**: the "Readiness summary" at the top of the report file (report tier, private).
+- **prepare-pr** (`mode: draft` or `lint`): in **Private notes**, under the
+  `### Pre-flight (duplicates, issue-first, readiness)` heading of the `pr-preparation` template,
+  after the size and shape verdict. Never inside the paste-ready PR description; the cap and vouch
+  warnings lead the Pre-flight section. In `mode: debrief` no PR text is produced: put the block
+  in the private debrief file only, after the debrief content.
 
 ```markdown
 ### Readiness (advisory, private)

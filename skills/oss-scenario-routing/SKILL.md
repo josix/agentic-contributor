@@ -39,7 +39,7 @@ To classify the user's intent:
    (numbered list of the 10 scenarios) and ask the user which applies.
 3. Never ask more than one clarifying question. After the answer, classify and proceed.
 4. **PR intent** ("open a PR for...", "submit a fix for...", "I have a patch...", "send a PR")
-   with no issue number or URL triggers the policy preflight (Step 3a in `commands/oss.md`)
+   with no issue number or URL triggers the policy preflight (Step 3 in `commands/oss.md`)
    **before** final routing. This is the only place routing is policy-aware; see the Issue-First
    Branch below.
 5. **Debrief signals** ("help me understand what I changed", "debrief my change", "what did the

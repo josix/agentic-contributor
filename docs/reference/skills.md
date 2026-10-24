@@ -8,7 +8,7 @@ The 9 skills in the `agentic-contributor` plugin. Each skill is a domain-experti
 |---|---|---|
 | `oss-scenario-routing` | Always (Step 2 of `/oss`) | Classifies intent into one of the 10 scenarios |
 | `issue-matching` | find | Contributor intake, heuristic scoring, track-record-first ranked shortlist, policy-reserved footer |
-| `contributor-readiness` | claim, find | Advisory, private self-check of how maintainers will likely see your PR (open PRs vs cap, merged PRs, account age, vouch) |
+| `contributor-readiness` | claim, find, prepare-pr | Advisory, private self-check of how maintainers will likely see your PR (open PRs vs cap, merged PRs, account age, vouch) |
 | `smart-questions` | clarify, claim, engage, review-reply | DRAFT-ONLY contract for outbound-text scenarios 5–8 (prepare-pr uses `pr-preparation`); review-reply is brief + lint, never ghostwritten |
 | `contribution-norms` | norms | Surfaces CONTRIBUTING, CLA/DCO, PR conventions, governance |
 | `dev-env-setup` | setup | Step-by-step guided local dev environment |
@@ -52,7 +52,7 @@ The 9 skills in the `agentic-contributor` plugin. Each skill is a domain-experti
 
 ## `contributor-readiness`
 
-**Trigger phrases:** "am I ready to contribute", "will maintainers prioritise my PR", "check my readiness", "how do I build a track record". Runs by default inside claim and find; say "skip readiness" to opt out.
+**Trigger phrases:** "am I ready to contribute", "will maintainers prioritise my PR", "check my readiness", "how do I build a track record". Runs by default inside claim, find, and prepare-pr; say "skip readiness" to opt out. In prepare-pr the block goes in Private notes (Pre-flight section), never inside the paste-ready PR description.
 
 **What it provides:**
 

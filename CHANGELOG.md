@@ -17,7 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The issue-first branch now covers `prepare-pr`: PR intent with an issue goes to prepare-pr; with no issue and `issue_first: required` it reroutes to `report` (`routed_from: prepare-pr`); `recommended` or `unknown` goes to prepare-pr (with a warning for `recommended`).
-- Scenario count 9 to 10 and skill count 7 to 9 across README, docs, commands, skills, and agents. No guard changes.
+- Scenario count 9 to 10 and skill count 7 to 9 across README, docs, commands, skills, and agents.
+- `/oss` steps renumbered so they run in order: Step 3 is now Policy Preflight (was Step 3a), Gather Data is Step 4, Load Skill is Step 5, and the Two-Tier Export is Step 6. Cross-references in README, docs, and skills updated.
+
+### Fixed
+
+- **Guard: GitHub MCP tools are now default-deny.** The write-verb check matched the whole tool suffix, so real write tools passed (`issue_write`, `pull_request_review_write`, `add_comment_to_pending_review`, `push_files`, `merge_pull_request`, `update_pull_request`, `update_pull_request_branch`, `fork_repository`, `create_or_update_file`, `delete_file`, `sub_issue_write`, `assign_copilot_to_issue`, `create_branch`, `create_pull_request`, `create_repository`, `request_copilot_review`). Only `get_*`, `list_*`, `search_*`, and `*_read` tools are allowed now, unless the name also contains `write`, `create`, `delete`, `submit`, or `fork`.
+- **Guard: more `gh` write subcommands denied:** `gh pr revert`, `gh project` create/edit/delete/close/copy/link/unlink/mark-template/item-add/item-create/item-edit/item-delete/item-archive/field-create/field-delete, `gh ssh-key add/delete`, `gh gpg-key add/delete`, `gh repo deploy-key add/delete`, `gh repo autolink create/delete`, `gh cache delete`, `gh release delete-asset`, `gh gist rename`, `gh alias delete/import`, `gh codespace delete/edit/stop/rebuild`. Read forms (`gh project list/view`, `gh ssh-key list`, `gh cache list`, …) and `gh repo set-default` stay allowed.
+- **Guard: inline git aliases.** `git -c alias.<name>=<value> <name>` is denied when the value pushes or sends (`push`, `send-email`, `send-pack`, `dcommit`) or is a shell alias (`!…`).
+- **Guard performance.** Commands with none of the trigger words `gh`/`git`/`curl`/`wget` (checked after deleting quotes, backslashes, and newlines) are allowed immediately; segments without a trigger word are skipped; the duplicate outer segmentation pass is skipped when a command has no substitutions. A 600-segment one-liner went from about 10 s to 0.3 s and a 300-line `git` script from about 7 s to 1.6 s. The hook timeout is raised from 10 to 30 seconds.
+- `contributor-readiness` and the skills reference now say readiness also runs in `prepare-pr`, with an explicit placement rule (Private notes, Pre-flight section; never in the PR description).
+- `/oss` Step 4 now lists `report` and `prepare-pr` among the scenarios that dispatch `oss-researcher`.
+- Docs (hooks reference, draft-only guardrail, GitHub access, commands reference, `/oss` Guardrail Reminder) describe the MCP allowlist instead of "all other MCP tools are allowed".
+- Guard tests: 271 to 360 cases; 3 new known-bypass rows (`g$(true)it push`, `$'\x67'it push`, `git --config-env alias.p=ENV p`).
 
 ## [0.6.0] - 2026-10-21
 

@@ -159,7 +159,7 @@ The denial message explains that the plugin is draft-only and that the execution
 
 Every piece of outbound text (comments, claim messages, review replies) is a draft shown to you
 for review. The plugin will never post, comment, push, or send on your behalf. This is enforced at
-two levels: the command instructions (Step 5 in `commands/oss.md`) and the `PreToolUse` guardrail
+two levels: the command instructions (Step 6 in `commands/oss.md`) and the `PreToolUse` guardrail
 hook.
 
 All scenario outputs — including read-only reports (scenarios 1–4) — are also saved as editable
