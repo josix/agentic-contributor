@@ -178,7 +178,7 @@ Missing evidence is always marked with `TODO:` placeholders; required fields are
 - A problem-first description scaffold in an `oss:send` block: Why this approach, What changed, and Unknowns & assumptions are `TODO(you)`; "How it's tested" names tests, never commands that passed.
 - Disclosure text when policy requires it, and advice (never rewrites) on AI co-author trailers when forbidden.
 - Lint mode using the AP1-AP9 rules.
-- Procedure 0, tracked session (`mode: track`): start / stop / status / log of a private decision ledger (with scope-drift and explain-back entries from v0.9.0); ledger entries become hints in Private notes and seed Unknowns, never the send block.
+- Procedure 0, tracked session (`mode: track`): start / stop / status / log of a private decision ledger (with scope-drift and explain-back entries from v0.9.0, and predict entries from v0.10.0 (`predict: auto` by default)); ledger entries become hints in Private notes and seed Unknowns, never the send block.
 
 **References:** `skills/pr-preparation/SKILL.md`, `skills/pr-preparation/references/decision-ledger.md`, `skills/smart-questions/references/smart-questions-principles.md`
 

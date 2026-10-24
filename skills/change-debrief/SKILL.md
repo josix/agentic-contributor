@@ -18,7 +18,7 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
 
 - The plugin never edits or reverts code, never runs tests, never pushes, never opens a PR, and
   never posts anything.
-- Local git reads only: `git diff <base>...HEAD`, `git diff --stat`, `git log`, `git merge-base`,
+- Local git reads only: `git diff <base>...HEAD`, `git diff <base>` (working tree), `git status --porcelain`, `git diff --stat`, `git log`, `git merge-base`,
   `git remote -v`, `git rev-parse --abbrev-ref HEAD`, `git merge-base --is-ancestor`.
 - The output is a **private notes file** and is never formatted or offered as paste-ready PR text.
   It has no `oss:send` block. Do not add one.
@@ -37,14 +37,19 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
    If the user gives no base, mention the ledger's `base_commit` as the session start. The ledger is
    private; never copy it into anything sendable. From v0.9.0 it can also hold scope-drift entries
    (`drift:<k>`) and breakpoint answers (`explain:<k>`, your own words); read them per section 10
-   of the reference.
+   of the reference. From v0.10.0 it can hold predict entries (`predict:<n>`): see "Your
+   predictions" below.
 4. Base branch: `git merge-base HEAD <default-branch>`; confirm with `git remote -v` that the cwd
    matches the target `owner/repo`. If the remote or base is ambiguous, ask the one allowed
    clarifying question about the base.
 
 ## Procedure
 
-1. **Scope.** Run `git diff --stat <base>...HEAD`. For large diffs (over roughly 400 lines or 10
+1. **Scope.** Run `git diff --stat <base>...HEAD`. For an uncommitted session, also include staged and
+   unstaged changes (`git diff --stat <base>`, which compares the working tree to the base) and untracked
+   files (`git status --porcelain`, lines starting `??`; read them directly). The diff under debrief is
+   committed plus working-tree plus untracked changes, including new files in the tracked session;
+   never report a ledger-referenced file as absent from the final diff until all three are checked. For large diffs (over roughly 400 lines or 10
    files) summarise the top-level groups first, say that you sampled the top files, and drill down
    on request.
 2. **Group by purpose**, not by file. Each group has a one-line label and `file:line` citations.
@@ -105,6 +110,10 @@ Inputs: diff <base>...<head>, <N> commits, issue text <#N|none>, ledger <path|no
 
 ## Agent's implicit decisions and assumptions
 - <decision> [evidenced|inferred]
+
+## Your predictions (private; only when predict entries or auto switches exist)
+- auto switches: <on|off> (<reason>) at <UTC> — one line per `track:predict-auto` marker
+- <phase> — you predicted: "<prediction>" — outcome: <outcome with file:line>
 
 ## Explain-back (answer in your own words)
 1. <question citing file:line> TODO(you)

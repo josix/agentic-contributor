@@ -56,6 +56,10 @@ drift_source: default
 drift_max: 2
 explain_max: 4
 explain_interval_min: 20
+predict: auto
+predict_max: 4
+user_commits: <n | -1>
+prior_unknowns: <n>
 generated_at: <ISO-8601 UTC>
 ---
 ```
@@ -76,6 +80,14 @@ generated_at: <ISO-8601 UTC>
   limit. A value that is not a non-negative integer takes its default, and a v0.8.0 ledger without
   these keys works with the defaults. `base_commit` must match `^[0-9a-f]{7,64}$`, otherwise drift
   and breakpoint questions are silent.
+- `predict`: `auto` (written for new sessions), `true` or `false` (`on` / `off` are accepted
+  aliases) controls predict-then-reveal (section 15). `predict_max` (default 4): predict entries per
+  session, answered or skipped; `0` = off. `user_commits` (integer, `-1` = unknown) and
+  `prior_unknowns` (integer) are facts recorded once at track start and only read by `auto`.
+  `prior_unknowns` counts the Unknowns the user left in the previous stopped ledger of the same
+  repo: `logged-over-budget` entries plus `status=skipped` entries, excluding non-interactive skips
+  (`reason=non-interactive`), drift skips (`source=drift`) and predict skips (`source=predict`). A
+  ledger without a `predict` key (v0.8.0 / v0.9.0) works with predict off.
 - The frontmatter is mutable (for example `scope:` is widened at a scope checkpoint); entries are
   append-only.
 - The hook arms only when the frontmatter has `plugin: agentic-contributor` and `mode: track`.
@@ -160,6 +172,25 @@ Written by Claude after a breakpoint question (section 13):
 line is required for non-interactive explain entries (the hook latch reads it); `id=` stays last.
 Never write `answered_by: user` unless the user actually answered; never grade or edit the answer.
 
+### Predict entries
+
+Written by Claude when predict mode is on and the user is asked for a prediction (section 15):
+
+```markdown
+### predict:<n> · <UTC>
+<!-- track:entry status=<answered|skipped> source=predict asked=yes at=<UTC> id=predict:<n> -->
+- phase: <diagnosis|plan>
+- prediction: <user's typed words verbatim | no idea>
+- outcome: <one line: matched / partly / differed, with file:line>
+- answered_by: user
+```
+
+Option A ("No idea — go ahead") is recorded as exactly `prediction: no idea` (status=answered).
+Skipped (option B, "Skip predictions for this session") uses `status=skipped`, `prediction: none`,
+and also sets `predict: false` in the frontmatter for the rest of the session. Never write a predict entry when
+the question could not be asked. Predictions are private learning notes: never scored, never in send
+blocks or PR text.
+
 ### Hook-written lines
 
 The hook only ever appends with `>>` at end of file (one atomic line write, no read-modify-write).
@@ -214,7 +245,10 @@ matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
   `source=breakpoint` containing ` reason=non-interactive ` and the suffix ` id=<id> -->`.
 - **covered(rel)**: a `track:entry` or `track:pending` line whose final id is
   `<test|dependency|api|scope>:<rel>`.
-- **questions(q)** = (count of `track:pending` lines) + drift_asked, used for the explain watermark.
+- **predict_n** = count of `track:entry` lines whose final id is `predict:<n>`. Next id =
+  `predict:<predict_n+1>`.
+- **questions(q)** = (count of `track:pending` lines) + drift_asked + predict_n, used for the explain
+  watermark, so a prediction question and an explain-back are never asked in the same turn.
   Drift and explain never write `track:pending`, so the checkpoint `asked` arithmetic is unchanged.
 - The hook never writes old/new strings or file content into the ledger. It writes only the class,
   the edited file's repo-relative path, counts, and timestamps; a path or cwd containing a control
@@ -453,3 +487,39 @@ Target: <rel>:<line>. This is the largest change since the session base (<n> lin
 5. Do not grade or correct the answer and make no code edits now. End your turn with one short line.
 Write "answered_by: user" only if the user actually answered. The ledger is private: never copy it into any sendable text.
 ```
+
+## 15. Predict-then-reveal
+
+`predict: true` always asks, `false` never, `auto` (the default for new sessions) decides by the
+rules below; `track predict on|off|auto` and `--predict`, `--predict=on|off|auto`, `--no-predict`
+set it. `track-breakpoint.sh` handles `UserPromptSubmit`: no git, never a block. It emits
+`additionalContext` asking the agent, only for diagnosis or planning prompts, to ask the user's
+prediction first, reveal its own with a "Your prediction vs. what I found" comparison (file:line),
+and record a predict entry. It is silent when: no session; status not `active`; `predict` not
+`true` / `auto` (or `auto` computes off); `budget: 0`; predict_n >= `predict_max`; the prompt is
+empty or starts with `/`; plan mode; or any parse error. Consumers: `change-debrief` lists predict
+entries and auto switches in a private "Your predictions" subsection; `describe` never uses them.
+With no `predict` key, or a value other than `true` / `on` / `auto`, the hook exits after reading the
+frontmatter with builtins, before any JSON parse. A paused session (`track:drift-paused`, base
+moved) still predicts: the comparison is against the agent's own findings, never a diff against the
+base.
+
+**Auto rules** (fixed, read-only facts; evaluated on every eligible prompt):
+- ON if any (first match is the reason): `0 <= user_commits < 5` (`newcomer`); an explain entry
+  (`explain:<k>`) with `chosen: skip` (`explain-skipped`) or `chosen: not-requested`
+  (`explain-not-requested`); `prior_unknowns >= 3` (`prior-unknowns`). `user_commits: -1` (unknown)
+  alone does not turn it on.
+- OFF overrides ON, and is sticky: the last two predict entries both have a "no idea" prediction
+  (`two-no-idea`): lowercased, with leading spaces and punctuation removed, the text starts with the
+  words `no idea` (so `no idea`, `No idea.` and `No idea — go ahead` all count). Otherwise OFF (`no-signal`).
+- The injected text reads `Predict mode is on (auto: <reason>) (<used>/<predict_max> used)`.
+
+**Switch marker.** When the computed state differs from the last marker (none = off), the hook
+takes the ledger lock (section 6 lock, bounded retries; busy = skip the write, behave per the
+computed state), re-checks inside the lock so concurrent prompts write one marker, and appends:
+```
+<!-- track:predict-auto at=<UTC> state=<on|off> reason=<reason> -->
+- predict auto: <on|off> (<reason>)
+```
+This is the only write the `UserPromptSubmit` hook makes. Markers are not entries: they do not count
+toward predict_n or any budget.

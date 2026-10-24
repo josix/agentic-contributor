@@ -5,6 +5,35 @@ All notable changes to the agentic-contributor plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-10-24
+
+### Added
+
+- **Predict-then-reveal** inside tracked sessions, `predict: auto` by default for new sessions: fixed rules switch it on (newcomer to the repo, a skipped or not-requested explain-back, 3+ unknowns in the previous session) and off (two consecutive "no idea" predictions), and every switch is logged in the ledger with its reason. Flags: `--predict[=on|off|auto]`, `--no-predict`; `/oss track predict on|off|auto`. A ledger without a `predict` key stays off.
+- A `UserPromptSubmit` hook (handled by `track-breakpoint.sh`) adds an `additionalContext` instruction so that, only for diagnosis or planning prompts, the agent asks for your prediction first, then shows where it matched or differed (`file:line`) and records it privately (`predict:<n>`). Never blocks, never scores; the only write is the auto switch marker (under the ledger lock, fail open). Silent when predict is off, `budget: 0`, the cap `predict_max` (default 4) is reached, the prompt starts with `/`, or on any parse error.
+- Ledger: frontmatter `predict`, `predict_max`, `user_commits`, `prior_unknowns`; `track:predict-auto` marker; predict entry format; `change-debrief` gets a private "Your predictions" subsection.
+- Harness cases for the new event in `hooks/tests/run-breakpoint-tests.sh`.
+
+### Changed
+
+- A predict entry counts as a question in the Stop explain-back watermark, so a prediction and an explain-back are not asked in the same turn.
+- `hooks/hooks.json` registers `UserPromptSubmit`.
+- `change-debrief` scope covers the whole session: committed changes plus staged/unstaged working-tree changes (`git diff <base>`) and untracked files (`git status --porcelain`), so a file the ledger names is never reported absent before all three are checked.
+- Checkpoint, drift and explain-back instructions give the ledger's absolute path (`trk_ledger`, from the git-dir session pointer), so they work when the agent runs from a subdirectory.
+
+### Fixed
+
+- The "two no-idea → predict off" rule now matches a prediction that starts with the words "no idea" after lowercasing and trimming leading spaces/punctuation, so "No idea — go ahead" and "No idea." count; option A is recorded as exactly `prediction: no idea`.
+- `prior_unknowns` counts only Unknowns the user left: non-interactive skips (headless/subagent), drift skips and predict skips (option B) are excluded.
+- With no `predict` key (a v0.9.0 ledger) or `predict: false`, `UserPromptSubmit` exits after the builtin frontmatter read, before any jq/python3 parse.
+- Option B reads "Skip predictions for this session", matching its effect (`predict: false` for the rest of the session).
+- Docs (`draft-files.md`, `hooks.md`, `hooks.json` description) no longer call predict opt-in/off by default; `user_commits` and `prior_unknowns` are listed with the frontmatter.
+- Predict keeps running in a session whose drift and explain-back are paused (base moved): it never diffs against the base. Predict parsing uses the cleaned-field rules of the breakpoint hook (control characters fail open) and the shared ledger lock.
+
+### Notes
+
+- Guard untouched by this release (360/360 after the 0.7.0 fixes). No scenario or skill count change.
+
 ## [0.9.0] - 2026-10-24
 
 ### Added

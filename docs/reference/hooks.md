@@ -4,7 +4,7 @@ The draft-only `PreToolUse` guardrail (registration, matcher, full deny/allow ma
 
 ## Overview
 
-The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostToolUse` and a `Stop` hook. The first `PreToolUse` hook is the draft-only guardrail, which runs before every `Bash` call and every GitHub MCP tool call and denies outbound and mutating actions before they execute. The second is an advisory decision-checkpoint hook for Edit/Write. The `PostToolUse` and `Stop` hooks are one advisory script (`track-breakpoint.sh`) for scope-drift alerts and breakpoint questions. The advisory hooks are active only inside an `/oss track` session.
+The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostToolUse`, a `Stop`, and a `UserPromptSubmit` hook. The first `PreToolUse` hook is the draft-only guardrail, which runs before every `Bash` call and every GitHub MCP tool call and denies outbound and mutating actions before they execute. The second is an advisory decision-checkpoint hook for Edit/Write. The `PostToolUse`, `Stop` and `UserPromptSubmit` hooks are one advisory script (`track-breakpoint.sh`) for scope-drift alerts, breakpoint questions, and predict-then-reveal (`predict: auto` by default for new sessions: fixed rules switch it on or off; `--predict` / `--no-predict` force it). The advisory hooks are active only inside an `/oss track` session.
 
 ## Registration (`hooks/hooks.json`)
 
@@ -37,6 +37,13 @@ The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostTo
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-breakpoint.sh", "timeout": 10 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
         "hooks": [
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-breakpoint.sh", "timeout": 10 }
         ]
@@ -179,12 +186,13 @@ Harness: `bash hooks/tests/run-track-tests.sh` (bash 3.2 compatible; builds a fi
 
 ## `track-breakpoint.sh` (advisory)
 
-A separate, advisory hook for tracked sessions only. Like `track-checkpoint.sh` it is not the safety guard, fails open (any internal error means no output and exit 0), prints nothing and starts no subprocess when no session is active (builtins only), needs `jq` or `python3` (else silent), honours `OSS_TRACK_DISABLE=1` and `permission_mode: plan`, and never reverts, stashes, or edits code. It reads `hook_event_name` and handles two events:
+A separate, advisory hook for tracked sessions only. Like `track-checkpoint.sh` it is not the safety guard, fails open (any internal error means no output and exit 0), prints nothing and starts no subprocess when no session is active (builtins only), needs `jq` or `python3` (else silent), honours `OSS_TRACK_DISABLE=1` and `permission_mode: plan`, and never reverts, stashes, or edits code. It reads `hook_event_name` and handles three events:
 
 | Event | What it does | Output |
 |---|---|---|
 | `PostToolUse` (`Edit\|Write\|MultiEdit\|NotebookEdit`) | appends the edited path to the session state file `<ledger>.state` (ledger writes are never logged). Runs a drift check only when the path is new to the session or every 5th edit; skips the check inside a subagent (`agent_id` present) | `hookSpecificOutput.additionalContext` with a "choose: keep / separate PR / drop / skip" alert. Over the drift cap or with `budget: 0` the marker is recorded silently (no output). Never a block |
 | `Stop` | exits first when `stop_hook_active` is true. Otherwise runs the drift check once, then at most one explain-back question | `{"decision":"block","reason":...}` with the instructions, at most one block per stop; drift takes precedence. A top-level `systemMessage` (alone, or with the block) summarises drift logged without asking |
+| `UserPromptSubmit` | with `predict: true`, or `predict: auto` when the fixed rules (newcomer, skipped explain-back, many prior unknowns; off after two "no idea") compute on, `budget > 0`, an active session, fewer than `predict_max` (default 4) `predict:<n>` ledger entries, and a prompt that is non-empty and does not start with `/`, adds the predict-then-reveal instruction. No git. Only write: in `auto`, a `track:predict-auto` switch marker under the ledger lock (busy lock = skip, fail open) | `hookSpecificOutput.additionalContext` (`hookEventName: "UserPromptSubmit"`), never a block. The text shows `(auto: <reason>)` in auto mode. The instruction is scoped with "only if this prompt asks you to diagnose a problem or propose a plan"; the agent records a `predict:<n>` entry itself. A predict entry counts toward the explain-back watermark |
 
 Caps (separate pools, in the ledger frontmatter): checkpoints `budget` 3, drift `drift_max` 2, breakpoint questions `explain_max` 4 at least `explain_interval_min` 20 minutes apart. `budget: 0` is quiet mode. Drift thresholds are `drift_lines` 400 and `drift_files` 10 (strictly greater), plus out-of-scope modules that no checkpoint covered.
 
