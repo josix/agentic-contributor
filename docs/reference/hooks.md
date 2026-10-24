@@ -19,7 +19,7 @@ The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostTo
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-outbound.sh",
-            "timeout": 10
+            "timeout": 30
           }
         ]
       },
@@ -62,7 +62,7 @@ The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostTo
 
 **Matcher:** `Bash|mcp__plugin_agentic-contributor_github__.*` — matches all Bash tool calls and all GitHub MCP tool calls namespaced to this plugin.
 
-**Timeout:** 10 seconds. The script runs in well under 1 second in practice (pure bash string matching, no network calls).
+**Timeout:** 30 seconds. Typical commands finish in well under 1 second (bash string matching plus a few `awk` passes, no network calls). A command that contains none of the trigger words `gh`, `git`, `curl`, or `wget` (checked case-insensitively after deleting quotes, backslashes, and newlines, so `g\it` or `"g"it` still count) is allowed immediately. Segments without a trigger word are skipped one by one, so a 600-segment one-liner or a 300-line script that runs `git` on every line still finishes in a few seconds. The 30-second timeout leaves headroom for slow machines.
 
 ## `guard-outbound.sh` Logic
 
@@ -93,22 +93,19 @@ Known gaps are recorded as `known-bypass` rows in `hooks/tests/guard-cases.tsv`.
 
 ## Deny / Allow Matrix
 
-### MCP Write Tools — DENY
+### MCP Tools — default DENY, read allowlist
 
-The script extracts the suffix after the last `__` and matches it against the write-verb list:
+The plugin's GitHub MCP namespace is **default-deny**. The script takes the tool-name suffix after the last `__` and allows it only when it names a read tool:
 
 ```
-create | update | delete | merge | add_comment | add_issue_comment | add_sub_issue |
-push | fork | request_copilot | create_or_update | create_pull_request |
-create_branch | create_repository | assign | transfer | lock | unlock |
-submit | dispatch | edit
+get_*  |  list_*  |  search_*  |  *_read
 ```
 
-Any `mcp__plugin_agentic-contributor_github__` tool whose suffix matches any of these verbs is denied. All other MCP tools (all read tools) are allowed immediately.
+Even with one of those prefixes, a suffix that contains `write`, `create`, `delete`, `submit`, or `fork` is denied. A suffix with characters other than `a-z`, `0-9`, and `_` is denied too. Every other tool is denied, including tools the upstream GitHub MCP server adds later.
 
-### MCP Read Tools — ALLOW
+**ALLOW examples:** `get_me`, `get_file_contents`, `get_commit`, `list_issues`, `list_pull_requests`, `list_releases`, `search_code`, `search_issues`, `search_repositories`, `issue_read`, `pull_request_read`.
 
-Any `mcp__plugin_agentic-contributor_github__` tool whose suffix does not match a write verb. Examples: `list_issues`, `get_pull_request`, `get_file_contents`, `list_releases`, `search_repositories`, `search_issues`, `list_pull_requests`.
+**DENY examples:** `issue_write`, `sub_issue_write`, `pull_request_review_write`, `add_issue_comment`, `add_comment_to_pending_review`, `create_pull_request`, `create_branch`, `create_repository`, `create_or_update_file`, `delete_file`, `push_files`, `merge_pull_request`, `update_pull_request`, `update_pull_request_branch`, `fork_repository`, `assign_copilot_to_issue`, `request_copilot_review`.
 
 ### Bash Commands — DENY
 
@@ -116,12 +113,14 @@ Any `mcp__plugin_agentic-contributor_github__` tool whose suffix does not match 
 |---|---|
 | `git push` at command position | `git push origin main` |
 | `git push`, `git send-email`, `git send-pack`, `git svn dcommit`, also after global options (`-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`, `--no-pager`, …), a path-qualified binary, or a wrapper prefix | `git -C dir push`, `/usr/bin/git push`, `env git push` |
-| `gh pr create/comment/review/edit/merge/close/reopen/lock/unlock/ready/update-branch/--fill` | `gh pr create --title "…"` |
+| `git -c alias.<name>=<value>` whose value contains `push`, `send-email`, `send-pack`, or `dcommit`, or starts with `!` (shell alias) | `git -c alias.p=push p origin main` |
+| `gh pr create/comment/review/edit/merge/close/reopen/lock/unlock/ready/update-branch/revert/--fill` | `gh pr create --title "…"` |
 | `gh issue create/comment/edit/close/reopen/lock/unlock/delete/transfer/pin/unpin/develop` | `gh issue comment 123 --body "…"` |
-| `gh release create/edit/delete/upload` | `gh release create v1.0` |
-| `gh repo create/fork/delete/edit/sync/rename/archive/unarchive` | `gh repo fork apache/airflow` |
-| `gh gist create/edit/delete` | `gh gist create file.txt` |
-| `gh label create/edit/delete/clone`, `gh workflow run/enable/disable`, `gh run rerun/cancel/delete`, `gh secret set/delete`, `gh variable set/delete`, `gh alias set`, `gh codespace create` | `gh workflow run ci.yml` |
+| `gh release create/edit/delete/delete-asset/upload` | `gh release create v1.0` |
+| `gh repo create/fork/delete/edit/sync/rename/archive/unarchive`, `gh repo deploy-key add/delete`, `gh repo autolink create/delete` | `gh repo fork apache/airflow` |
+| `gh gist create/edit/delete/rename` | `gh gist create file.txt` |
+| `gh label create/edit/delete/clone`, `gh workflow run/enable/disable`, `gh run rerun/cancel/delete`, `gh secret set/delete`, `gh variable set/delete`, `gh alias set/delete/import`, `gh codespace create/delete/edit/stop/rebuild` | `gh workflow run ci.yml` |
+| `gh project create/edit/delete/close/copy/link/unlink/mark-template/item-add/item-create/item-edit/item-delete/item-archive/field-create/field-delete`, `gh ssh-key add/delete`, `gh gpg-key add/delete`, `gh cache delete` | `gh project item-add 1 --url …` |
 | any `gh` form above or `gh api` with `-R`/`--repo`, a wrapper prefix, or a path-qualified binary | `gh -R owner/repo pr create`, `./gh pr create` |
 | `gh api` with `-X POST/PUT/PATCH/DELETE` (also `-XPOST`, `-X=POST`, any case) | `gh api repos/… -X POST -f …` |
 | `gh api` with `--method POST/PUT/PATCH/DELETE` (also `--method=POST`) | `gh api repos/… --method PATCH` |
@@ -140,6 +139,7 @@ Everything not matched by a deny pattern:
 - `gh pr view`, `gh pr list`, `gh pr checks`, `gh pr diff`
 - `gh issue view`, `gh issue list`
 - `gh release list`, `gh release view`
+- `gh project list/view/item-list/field-list`, `gh ssh-key list`, `gh gpg-key list`, `gh cache list`, `gh repo deploy-key list`, `gh repo autolink list`, `gh repo set-default` (local only)
 - `gh api repos/…` (plain GET, no write flags)
 - `gh api graphql -f query='query {…}'` (read-only query: no `mutation`, no `=@file`, no `--input`)
 - `gh api -X GET search/issues -f q=…` (explicit GET; fields are query parameters)
@@ -157,7 +157,7 @@ Everything not matched by a deny pattern:
 
 **Matcher:** `Edit|Write|MultiEdit|NotebookEdit`. **Timeout:** 5 seconds. Bash is not watched (`npm install`, `rm` are not caught).
 
-**Opt-in.** With no `.oss-drafts/.track-active` pointer above the edited file (up to the first `.git`), the hook prints nothing and spawns no subprocess (builtins only). Kill switch: `OSS_TRACK_DISABLE=1`. Also silent when the ledger says `status: stopped`, in `permission_mode: plan`, or when the pointer is invalid (it must match `.oss-drafts/track-<name>.md`, no `..`, no symlinks).
+**Opt-in.** The session pointer is `<gitdir>/agentic-contributor/track-active`, in the git dir of the repository containing `$CLAUDE_PROJECT_DIR` (else the hook's working directory). The hook finds it by walking up to the first `.git`; a `.git` file (linked worktree, submodule) is followed through its `gitdir:` line. Without that pointer the hook exits before reading stdin, prints nothing, and spawns no subprocess (builtins only), so large edit payloads cost nothing. Tracked sessions require git: outside a git repository the hook is inactive. A `.oss-drafts/.track-active` file or ledger committed to a repository is ignored, because git never clones the git dir. Kill switch: `OSS_TRACK_DISABLE=1`. Also silent when the ledger says `status: stopped`, in `permission_mode: plan`, when the edited file is outside the repository root, or when the pointer is invalid (it must name `.oss-drafts/track-<name>.md` inside the root, no `..`, no symlinks).
 
 **JSON parsing:** `jq` → `python3` → silent allow (no grep fallback; this hook fails open).
 
@@ -168,13 +168,19 @@ Everything not matched by a deny pattern:
 | no session, stopped session, plan mode, any internal error | silent (no output) |
 | trigger (test weakening, dependency manifest or lock file, opt-in `api_paths`, outside `scope`), id not yet settled, budget left | `deny` with instructions to ask via AskUserQuestion, append a ledger entry, and retry |
 | id already settled, or already logged over budget | silent |
-| budget spent (default 3 questions asked), or `budget: 0` | `additionalContext` only (no permission decision); a `logged-over-budget` line is appended |
-| second retry without a ledger entry (loop guard) | `deny` again once; the third attempt gets context only (no permission decision) and a `skipped` line |
+| budget spent (default 3 questions asked), or `budget: 0` | `additionalContext` plus a short `systemMessage` (no permission decision); a `logged-over-budget` line is appended |
+| second retry without a ledger entry (loop guard) | `deny` again once; the third attempt gets `additionalContext` plus a `systemMessage` (no permission decision) and a `skipped` line |
 | tool `Edit` whose path equals exactly the active ledger path | `allow` (so a checkpoint costs one interruption, not two) |
 
 The ledger auto-allow is deliberately narrow: only `Edit` (never Write, MultiEdit, or NotebookEdit), only the byte-for-byte active ledger path read from the pointer, nothing with a `..` segment, and nothing when the ledger, the pointer, or `.oss-drafts/` is a symlink. Every other path, including other files in `.oss-drafts/`, gets no allow.
 
-Checkpoint ids are `<class>:<repo-relative path>`; a lock file maps to its manifest (`yarn.lock` is `dependency:package.json`). The hook appends only class, path, counts, and timestamps with a single `>>`; it never writes tool input into the ledger.
+Checkpoint ids are `<class>:<repo-relative path>`; a lock file maps to its manifest (`yarn.lock` is `dependency:package.json`). The hook appends only the class, the edited file's repo-relative path, and timestamps with a single `>>`; it never writes old/new strings or file content into the ledger. A path (or `cwd`) containing a control character such as a newline or carriage return makes the hook fail open without writing, so a file name cannot forge ledger marker lines.
+
+**No ledger text in output.** The ledger is repository-writable data, so the hook never echoes `scope`, `api_paths`, or any other frontmatter value into `permissionDecisionReason`, `additionalContext`, or `systemMessage`. Messages say "the ledger's scope" or "an API path listed in the ledger" and name only the edited file's repo-relative path.
+
+**Context-only notices.** The over-budget and loop-guard notices rely on `additionalContext` in a PreToolUse hook without a permission decision, which needs a Claude Code version that supports PreToolUse `additionalContext`. On older versions Claude does not see the note, so the hook also sets a top-level `systemMessage` that the user sees either way.
+
+**Locking.** Reading state, checking the budget, and appending a pending marker happen under a `mkdir` lock (`<ledger>.lock`). A lock older than about 10 seconds is treated as stale: its mtime comes from `stat -c %Y` (GNU) or `stat -f %m` (BSD), validated as a number, and it is renamed to a per-process name before removal so a fresh lock is never deleted. If the lock stays busy for about 2 seconds the hook fails open.
 
 Harness: `bash hooks/tests/run-track-tests.sh` (bash 3.2 compatible; builds a fixture git repo in a temp dir per case).
 
@@ -184,8 +190,8 @@ A separate, advisory hook for tracked sessions only. Like `track-checkpoint.sh` 
 
 | Event | What it does | Output |
 |---|---|---|
-| `PostToolUse` (`Edit\|Write\|MultiEdit\|NotebookEdit`) | appends the edited path to the session state file `<ledger>.state` (ledger writes are never logged). Runs a drift check only when the path is new to the session or every 5th edit; skips the check inside a subagent (`agent_id` present) | `hookSpecificOutput.additionalContext` with a "choose: keep / separate PR / drop / skip" alert, or a log-only note. Never a block |
-| `Stop` | exits first when `stop_hook_active` is true. Otherwise runs the drift check once, then at most one explain-back question | `{"decision":"block","reason":...}` with the instructions, at most one block per stop; drift takes precedence |
+| `PostToolUse` (`Edit\|Write\|MultiEdit\|NotebookEdit`) | appends the edited path to the session state file `<ledger>.state` (ledger writes are never logged). Runs a drift check only when the path is new to the session or every 5th edit; skips the check inside a subagent (`agent_id` present) | `hookSpecificOutput.additionalContext` with a "choose: keep / separate PR / drop / skip" alert. Over the drift cap or with `budget: 0` the marker is recorded silently (no output). Never a block |
+| `Stop` | exits first when `stop_hook_active` is true. Otherwise runs the drift check once, then at most one explain-back question | `{"decision":"block","reason":...}` with the instructions, at most one block per stop; drift takes precedence. A top-level `systemMessage` (alone, or with the block) summarises drift logged without asking |
 | `UserPromptSubmit` | with `predict: true`, or `predict: auto` when the fixed rules (newcomer, skipped explain-back, many prior unknowns; off after two "no idea") compute on, `budget > 0`, an active session, fewer than `predict_max` (default 4) `predict:<n>` ledger entries, and a prompt that is non-empty and does not start with `/`, adds the predict-then-reveal instruction. No git. Only write: in `auto`, a `track:predict-auto` switch marker under the ledger lock (busy lock = skip, fail open) | `hookSpecificOutput.additionalContext` (`hookEventName: "UserPromptSubmit"`), never a block. The text shows `(auto: <reason>)` in auto mode. The instruction is scoped with "only if this prompt asks you to diagnose a problem or propose a plan"; the agent records a `predict:<n>` entry itself. A predict entry counts toward the explain-back watermark |
 
 Caps (separate pools, in the ledger frontmatter): checkpoints `budget` 3, drift `drift_max` 2, breakpoint questions `explain_max` 4 at least `explain_interval_min` 20 minutes apart. `budget: 0` is quiet mode. Drift thresholds are `drift_lines` 400 and `drift_files` 10 (strictly greater), plus out-of-scope modules that no checkpoint covered.
@@ -194,9 +200,17 @@ Loop safety: `stop_hook_active` exit, the ledger marker and the state `b` line a
 
 Git use is read-only and bounded: `GIT_OPTIONAL_LOCKS=0 GIT_LITERAL_PATHSPECS=1 git -C <root> -c core.quotepath=off ... --no-ext-diff --no-textconv --no-renames`, never inside the ledger lock. If the agent does not act on `PostToolUse` context, `emit_post` can switch to a block (a one-line change).
 
-Code shared with `track-checkpoint.sh` is copied between `# >>> shared:<name>` markers and checked for byte-equality by the harness.
+**Opt-in and input.** Same session lookup as `track-checkpoint.sh`: the git-dir pointer is checked before stdin is read; a committed in-worktree pointer is ignored. A `file_path`, `cwd`, or other input field with a control character is treated as empty (fail open, nothing written). Ledger text (`scope`, `drift_source`, any frontmatter value) is never echoed; the drift source is shown as a fixed label.
 
-Harness: `bash hooks/tests/run-breakpoint-tests.sh` (bash 3.2 compatible; fixture git repo per case, loop, parallel-lock, python3-fallback and shared-code checks).
+**Base moved.** If the session base is no longer an ancestor of `HEAD`, or a merge commit landed since it, drift and explain-back pause and the hook says once "base moved — drift paused; restart tracking (/oss track stop + start) to re-baseline" (a `track:drift-paused` ledger line records it). A fast-forward pull is not detected.
+
+**Input fields by Claude Code version.** Two optional fields need a Claude Code version that sends them: `last_assistant_message` on `Stop` (skip the breakpoint question when the agent's last message already ends with `?`) and `agent_id` on `PostToolUse` inside a subagent (defer the drift check to the main thread). Without them the hook still works: a breakpoint question may follow a question the agent just asked, and a subagent's edits run the throttled drift check themselves.
+
+**State file.** `<ledger>.state` is compacted above 400 lines to a short prefix plus the newest 100 lines, preserving what the hook reads (see `decision-ledger.md` section 11).
+
+Code shared with `track-checkpoint.sh` lives between `# --- shared: <name> (keep identical in track-*.sh) ---` and `# --- end shared ---` lines (session lookup, list cleaning, manifest map, glob match, lock helpers) and is checked for byte-equality by the harness.
+
+Harness: `bash hooks/tests/run-breakpoint-tests.sh` (bash 3.2 compatible; fixture git repo per case with the pointer in the git dir, run from the fixture root; loop, parallel-lock, python3-fallback, shared-code, base-moved, compaction, ledger-injection, and `.git`-file worktree checks).
 
 ---
 

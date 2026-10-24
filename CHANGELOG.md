@@ -37,17 +37,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Separate caps: checkpoints 3 (unchanged), drift 2, explain-back 4. `budget: 0` is now quiet mode for the whole session (no checkpoint, drift, or explain questions; drift is still logged).
 - `change-debrief` and the `prepare-pr` scaffold use explain answers as the strongest Why evidence and turn skipped or unanswered drift and explain items into Unknowns and follow-ups. `/oss track status` and `/oss track stop` report the new counts; `stop` also deletes the state file.
 - `hooks/hooks.json` registers `PostToolUse` and `Stop`.
+- `track-checkpoint.sh` behaviour: with `budget: 0`, an edit that already has a pending marker is now logged as `logged-over-budget` (with the notice) instead of getting a retry/skip prompt, so quiet mode never asks. Its shared code sits in `# --- shared: <name> (keep identical in track-*.sh) ---` blocks (list cleaning, manifest map, glob match added to the v0.8.0 session lookup and lock helpers). Its harness gains a `budget0-pending` case (82/82).
+
+### Fixed
+
+- Scope drift no longer counts upstream changes after a mid-session rebase, reset, or merge: when the base commit is not an ancestor of `HEAD` or a merge commit landed since it, drift and explain-back pause and the user is told once (`track:drift-paused`) to restart tracking to re-baseline. A fast-forward pull is not detected (documented limit).
+- Over the drift question cap or with `budget: 0`, newly seen out-of-scope modules are recorded silently instead of injecting `additionalContext` after each edit; the next Stop gives the user one `systemMessage` summary, and the debrief lists them.
+- The session state file `<ledger>.state` no longer grows without bound: above 400 lines it is compacted (under the ledger lock) to a prefix that keeps the last `m`/`s` values, the distinct edited paths, and the last breakpoint reset, plus the newest 100 lines.
+- Inside a subagent, PostToolUse checks `agent_id` before writing the `d` throttle marker, so a subagent edit no longer postpones the main thread's next drift check.
+- Ported the v0.8.0 security fixes to `track-breakpoint.sh`: the git-dir session pointer (shared lookup block, checked before stdin is read; the `stop_hook_active` guard still runs before any parsing), control characters in `file_path`/`cwd` or other input fields fail open without writing, control characters in git-reported file names are replaced, and no ledger text is echoed (the drift source is shown as a fixed label, never the ledger's `drift_source` value).
+- `docs/reference/hooks.md` documents that `last_assistant_message` (Stop) and `agent_id` (PostToolUse in a subagent) need a Claude Code version that sends them, and what degrades without them.
+- Harness: 90 breakpoint checks (gitdir pointer fixtures run from the fixture root; committed in-worktree pointer, `.git`-file worktree, injection text in `scope`/`drift_source`, control characters in input, rebased and merged base, quiet-mode summary, state compaction, subagent `d` marker, a tracked path with a space in the explain target, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload); also pass with GNU `stat` on `PATH`. The byte-identity check uses the new block delimiters and also compares the set of shared block names.
 
 ### Notes
 
-- Guard untouched (`guard-outbound.sh`, its harness and cases; 271/271). `track-checkpoint.sh` gets comment-only markers; its harness stays 67/67. No scenario or skill count change.
+- Guard untouched (`guard-outbound.sh`, its harness and cases; 271/271). No scenario or skill count change.
 - Hooks never revert, stash, or edit code. Limits: Bash-created untracked files are not counted, `SubagentStop` is not covered, and `Stop` does not run on interrupt.
 
 ## [0.8.0] - 2026-10-24
 
 ### Added
 
-- **Tracked sessions** (`/oss track`, a `prepare-pr` mode with `start`, `stop`, `status`, `log`): a private, append-only **decision ledger** `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` plus a pointer `.oss-drafts/.track-active`. One active session per project folder.
+- **Tracked sessions** (`/oss track`, a `prepare-pr` mode with `start`, `stop`, `status`, `log`): a private, append-only **decision ledger** `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` plus a pointer `<gitdir>/agentic-contributor/track-active` in the git dir (never the worktree). One active session per project folder; tracked sessions require git.
 - **Decision checkpoints**: a new, separate, advisory `PreToolUse` hook `hooks/scripts/track-checkpoint.sh` for `Edit|Write|MultiEdit|NotebookEdit`. Opt-in per session (no session means no output and no subprocess); fails open; `jq`, then `python3`, else silent allow. Four trigger classes (test weakening, dependency manifests and lock files, opt-in `api_paths`, out-of-scope edits) become "choose, not approve" questions with a Skip option. Budget default 3 questions, a loop guard, `budget: 0` log-only mode, and `OSS_TRACK_DISABLE=1`.
 - The hook auto-allows `Edit` only for the exact active ledger path (no `..`, no symlinks, nothing else) so a checkpoint costs one interruption.
 - Harness `hooks/tests/run-track-tests.sh` with `hooks/tests/track-cases.tsv` (bash 3.2, fixture git repo per case).
@@ -57,6 +68,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `change-debrief` and the `prepare-pr` scaffold read the ledger as first-hand evidence (`evidenced: ledger <id>`); skipped, over-budget, and hook-skipped decisions become Unknowns; the send block stays `TODO(you)`.
 - `/oss` allowed-tools adds `Edit` (active ledger only); the `mode` list adds `track`; `item` adds `task`.
+
+### Security
+
+- The tracked-session pointer moved from `.oss-drafts/.track-active` (worktree) to `<gitdir>/agentic-contributor/track-active`, resolved without forking by walking up to `.git` (a directory, or a `.git` file's `gitdir:` line for linked worktrees and submodules). A cloned repository can no longer ship an active session: a committed pointer or ledger is ignored. A pointer naming a ledger outside the repository root is refused (fail open).
+- The checkpoint hook never echoes ledger text (`scope`, `api_paths`, any frontmatter value) into `permissionDecisionReason`, `additionalContext`, or `systemMessage`, closing a prompt-injection channel; it names only the edited file's repo-relative path.
+- A `file_path` or `cwd` containing a control character (newline, carriage return, ...) makes the hook fail open without writing, so a file name cannot forge ledger marker lines. The hooks reference no longer claims the hook "never writes tool input into the ledger"; it states exactly what is written.
+
+### Fixed
+
+- No-session fast path: the hook now checks for the pointer (from `$CLAUDE_PROJECT_DIR`, else `$PWD`) before reading stdin, so a large edit payload no longer costs seconds on every edit in every project (3 MB: about 1.5 s before, about 0.01 s after).
+- Stale-lock detection works on Linux: the lock mtime comes from `stat -c %Y` (GNU) then `stat -f %m` (BSD), validated as numeric. GNU `stat -f` prints filesystem status, so the old order never produced a number there.
+- Stale-lock cleanup renames the stale lock to a per-process name before `rmdir`, so a fresh lock created by another process is not removed.
+- Over-budget and loop-guard notices also set a top-level `systemMessage`, so the user sees them on Claude Code versions without PreToolUse `additionalContext` support.
+- The `.oss-drafts/` exclude step uses `git rev-parse --git-path info/exclude` instead of assuming `.git/info/exclude` (linked worktrees, submodules).
+- The session lookup and lock helpers are delimited `# --- shared: ... (keep identical in track-*.sh) ---` blocks in `track-checkpoint.sh`.
+- Harness: 81 cases (committed in-worktree pointer, `.git` file worktrees with relative and absolute `gitdir:`, injection text in `scope`/`api_paths`, control characters in `file_path`, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload); fixtures put the pointer in the git dir and run the hook from the fixture root.
 
 ### Notes
 
@@ -74,7 +101,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The issue-first branch now covers `prepare-pr`: PR intent with an issue goes to prepare-pr; with no issue and `issue_first: required` it reroutes to `report` (`routed_from: prepare-pr`); `recommended` or `unknown` goes to prepare-pr (with a warning for `recommended`).
-- Scenario count 9 to 10 and skill count 7 to 9 across README, docs, commands, skills, and agents. No guard changes.
+- Scenario count 9 to 10 and skill count 7 to 9 across README, docs, commands, skills, and agents.
+- `/oss` steps renumbered so they run in order: Step 3 is now Policy Preflight (was Step 3a), Gather Data is Step 4, Load Skill is Step 5, and the Two-Tier Export is Step 6. Cross-references in README, docs, and skills updated.
+
+### Fixed
+
+- **Guard: GitHub MCP tools are now default-deny.** The write-verb check matched the whole tool suffix, so real write tools passed (`issue_write`, `pull_request_review_write`, `add_comment_to_pending_review`, `push_files`, `merge_pull_request`, `update_pull_request`, `update_pull_request_branch`, `fork_repository`, `create_or_update_file`, `delete_file`, `sub_issue_write`, `assign_copilot_to_issue`, `create_branch`, `create_pull_request`, `create_repository`, `request_copilot_review`). Only `get_*`, `list_*`, `search_*`, and `*_read` tools are allowed now, unless the name also contains `write`, `create`, `delete`, `submit`, or `fork`.
+- **Guard: more `gh` write subcommands denied:** `gh pr revert`, `gh project` create/edit/delete/close/copy/link/unlink/mark-template/item-add/item-create/item-edit/item-delete/item-archive/field-create/field-delete, `gh ssh-key add/delete`, `gh gpg-key add/delete`, `gh repo deploy-key add/delete`, `gh repo autolink create/delete`, `gh cache delete`, `gh release delete-asset`, `gh gist rename`, `gh alias delete/import`, `gh codespace delete/edit/stop/rebuild`. Read forms (`gh project list/view`, `gh ssh-key list`, `gh cache list`, …) and `gh repo set-default` stay allowed.
+- **Guard: inline git aliases.** `git -c alias.<name>=<value> <name>` is denied when the value pushes or sends (`push`, `send-email`, `send-pack`, `dcommit`) or is a shell alias (`!…`).
+- **Guard performance.** Commands with none of the trigger words `gh`/`git`/`curl`/`wget` (checked after deleting quotes, backslashes, and newlines) are allowed immediately; segments without a trigger word are skipped; the duplicate outer segmentation pass is skipped when a command has no substitutions. A 600-segment one-liner went from about 10 s to 0.3 s and a 300-line `git` script from about 7 s to 1.6 s. The hook timeout is raised from 10 to 30 seconds.
+- `contributor-readiness` and the skills reference now say readiness also runs in `prepare-pr`, with an explicit placement rule (Private notes, Pre-flight section; never in the PR description).
+- `/oss` Step 4 now lists `report` and `prepare-pr` among the scenarios that dispatch `oss-researcher`.
+- Docs (hooks reference, draft-only guardrail, GitHub access, commands reference, `/oss` Guardrail Reminder) describe the MCP allowlist instead of "all other MCP tools are allowed".
+- Guard tests: 271 to 360 cases; 3 new known-bypass rows (`g$(true)it push`, `$'\x67'it push`, `git --config-env alias.p=ENV p`).
 
 ## [0.6.0] - 2026-10-21
 

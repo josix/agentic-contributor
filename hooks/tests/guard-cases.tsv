@@ -286,6 +286,100 @@ allow	Bash	wget --method=GET https://example.com
 allow	Bash	wget -q https://example.com/f.tgz
 allow	Bash	echo git -C d push
 allow	Bash	git commit -m "env git push"
+# ── v0.7.0 review fixes: GitHub MCP namespace is default-deny (read allowlist) ──
+deny	mcp__plugin_agentic-contributor_github__issue_write	-
+deny	mcp__plugin_agentic-contributor_github__pull_request_review_write	-
+deny	mcp__plugin_agentic-contributor_github__add_comment_to_pending_review	-
+deny	mcp__plugin_agentic-contributor_github__add_issue_comment	-
+deny	mcp__plugin_agentic-contributor_github__push_files	-
+deny	mcp__plugin_agentic-contributor_github__merge_pull_request	-
+deny	mcp__plugin_agentic-contributor_github__update_pull_request	-
+deny	mcp__plugin_agentic-contributor_github__update_pull_request_branch	-
+deny	mcp__plugin_agentic-contributor_github__fork_repository	-
+deny	mcp__plugin_agentic-contributor_github__create_or_update_file	-
+deny	mcp__plugin_agentic-contributor_github__delete_file	-
+deny	mcp__plugin_agentic-contributor_github__sub_issue_write	-
+deny	mcp__plugin_agentic-contributor_github__assign_copilot_to_issue	-
+deny	mcp__plugin_agentic-contributor_github__create_branch	-
+deny	mcp__plugin_agentic-contributor_github__create_pull_request	-
+deny	mcp__plugin_agentic-contributor_github__create_repository	-
+deny	mcp__plugin_agentic-contributor_github__request_copilot_review	-
+deny	mcp__plugin_agentic-contributor_github__some_future_tool	-
+deny	mcp__plugin_agentic-contributor_github__get_x_write	-
+allow	mcp__plugin_agentic-contributor_github__get_me	-
+allow	mcp__plugin_agentic-contributor_github__get_file_contents	-
+allow	mcp__plugin_agentic-contributor_github__list_issues	-
+allow	mcp__plugin_agentic-contributor_github__search_code	-
+allow	mcp__plugin_agentic-contributor_github__issue_read	-
+allow	mcp__plugin_agentic-contributor_github__pull_request_read	-
+allow	mcp__plugin_agentic-contributor_github__get_commit	-
+allow	mcp__plugin_agentic-contributor_github__list_pull_requests	-
+allow	mcp__plugin_agentic-contributor_github__search_pull_requests	-
+allow	mcp__plugin_agentic-contributor_github__list_branches	-
+# ── v0.7.0 review fixes: more gh write subcommands ──
+deny	Bash	gh pr revert 12
+deny	Bash	gh project create 1 --owner me
+deny	Bash	gh project edit 1 --owner me
+deny	Bash	gh project delete 1 --owner me
+deny	Bash	gh project close 1 --owner me
+deny	Bash	gh project copy 1 --owner me
+deny	Bash	gh project link 1 --owner me
+deny	Bash	gh project unlink 1 --owner me
+deny	Bash	gh project mark-template 1 --owner me
+deny	Bash	gh project item-add 1 --owner me
+deny	Bash	gh project item-create 1 --owner me
+deny	Bash	gh project item-edit 1 --owner me
+deny	Bash	gh project item-delete 1 --owner me
+deny	Bash	gh project item-archive 1 --owner me
+deny	Bash	gh project field-create 1 --owner me
+deny	Bash	gh project field-delete 1 --owner me
+deny	Bash	gh ssh-key add key.pub
+deny	Bash	gh ssh-key delete 123
+deny	Bash	gh gpg-key add k.asc
+deny	Bash	gh gpg-key delete ABC
+deny	Bash	gh repo deploy-key add key.pub
+deny	Bash	gh repo deploy-key delete 1
+deny	Bash	gh -R o/r repo deploy-key add k.pub
+deny	Bash	gh cache delete 123
+deny	Bash	gh cache delete --all
+deny	Bash	gh repo autolink create JIRA- https://x/<num>
+deny	Bash	gh repo autolink delete 1
+deny	Bash	gh release delete-asset v1 a.zip
+deny	Bash	gh gist rename abc old new
+deny	Bash	gh alias delete co
+deny	Bash	gh alias import a.yml
+deny	Bash	gh codespace delete -c x
+deny	Bash	gh codespace stop
+deny	Bash	gh codespace edit -c x
+deny	Bash	/opt/homebrew/bin/gh project item-add 1 --url u
+allow	Bash	gh project list
+allow	Bash	gh project view 1 --owner me
+allow	Bash	gh project item-list 1
+allow	Bash	gh project field-list 1
+allow	Bash	gh ssh-key list
+allow	Bash	gh gpg-key list
+allow	Bash	gh cache list
+allow	Bash	gh pr view 12
+allow	Bash	gh repo deploy-key list
+allow	Bash	gh repo autolink list
+allow	Bash	gh repo set-default o/r
+allow	Bash	gh codespace list
+allow	Bash	gh alias list
+# ── v0.7.0 review fixes: inline git alias that pushes ──
+deny	Bash	git -c alias.p=push p origin main
+deny	Bash	git -c 'alias.p=!git push' p
+deny	Bash	git -C d -c alias.sp=send-pack sp
+allow	Bash	git -c alias.st=status st
+allow	Bash	git -c core.pager=cat log -1
+# ── v0.7.0 review fixes: fast path must not skip obfuscated triggers ──
+deny	Bash	g\it push origin main
+deny	Bash	"g"it push origin main
+deny	Bash	g''it push
+deny	Bash	gi\\nt push
+deny	Bash	ls -la && /usr/bin/git push
+deny	Bash	echo a | GH_X=1 gh pr comment 1 -b x
+allow	Bash	ls -la && echo done | tr a-z A-Z
+#
 #
 # ── Known bypasses (documented; the guard is a tripwire, not a security boundary) ──
 # Deliberate obfuscation (realistic only under prompt injection; not planned —
@@ -294,3 +388,6 @@ known-bypass	Bash	p=push; git $p origin main
 known-bypass	Bash	eval "g""it push origin main"
 known-bypass	Bash	alias gp='git push'; gp
 known-bypass	Bash	bash -c "git push origin main"
+known-bypass	Bash	g$(true)it push origin main
+known-bypass	Bash	$'\x67'it push origin main
+known-bypass	Bash	git --config-env alias.p=PUSHALIAS p

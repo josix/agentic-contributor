@@ -22,9 +22,11 @@ scenarios (5–10).
     ├── norms-apache-airflow-norms-20260611T144500Z.md
     ├── engage-apache-airflow-pr9876-20260611T150000Z.md
     ├── track-apache-airflow-issue1234-20261024T101500Z.md
-    ├── track-apache-airflow-issue1234-20261024T101500Z.state
-    └── .track-active
+    └── track-apache-airflow-issue1234-20261024T101500Z.state
 ```
+
+A tracked session's one-line pointer is not in `.oss-drafts/`: it lives in the git dir, at
+`<gitdir>/agentic-contributor/track-active` (see [Tracked Sessions](tracked-sessions.md)).
 
 The directory is created automatically on the first write.
 
@@ -60,7 +62,7 @@ Track ledgers (v0.8.0) use the prefix `track-` (a file kind, not a scenario key)
 | report feature request in apache/spark | `.oss-drafts/report-apache-spark-issue-feature-20260612T100000Z.md` |
 | prepare-pr for issue #1234 in apache/datafusion | `.oss-drafts/prepare-pr-apache-datafusion-issue1234-20260612T100000Z.md` |
 | prepare-pr debrief in apache/datafusion | `.oss-drafts/prepare-pr-apache-datafusion-debrief-20260612T100000Z.md` |
-| prepare-pr track ledger for issue #1234 in apache/datafusion | `.oss-drafts/track-apache-datafusion-issue1234-20261024T101500Z.md` (pointer: `.oss-drafts/.track-active`) |
+| prepare-pr track ledger for issue #1234 in apache/datafusion | `.oss-drafts/track-apache-datafusion-issue1234-20261024T101500Z.md` (pointer: `<gitdir>/agentic-contributor/track-active`) |
 
 ## Frontmatter
 
@@ -103,7 +105,9 @@ drafts and prompt for confirmation before acting on them.
 ### Track ledger
 
 A tracked session (`/oss track`) writes a private ledger with its own frontmatter and an append-only
-list of decisions, plus the one-line pointer `.oss-drafts/.track-active`. It has no send block and is
+list of decisions, plus the one-line pointer `"$(git rev-parse --git-dir)/agentic-contributor/track-active"` (in the
+git dir, never the worktree, so a cloned repository cannot ship an active session; tracked sessions
+require git). It has no send block and is
 never PR text. The full format (frontmatter, entries, hook-written lines, trigger classes) lives in
 `skills/pr-preparation/references/decision-ledger.md`; see
 [Tracked Sessions & Checkpoints](tracked-sessions.md) for how it is used.
@@ -182,16 +186,15 @@ Then it asks you to review and modify the file before confirming. For `review-re
 Before writing the first `.oss-drafts/` file in a run, the orchestrator ensures the directory is
 excluded from version control in your project:
 
-Track start resolves the exclude file with `git rev-parse --git-path info/exclude`, so it also works in a linked worktree, where `.git` is a file.
-
-1. **If your cwd is a git repo** (`.git/` exists): the orchestrator ensures `.oss-drafts/` is in
-   `.git/info/exclude` using the idempotent one-liner:
-   `grep -qxF '.oss-drafts/' .git/info/exclude || echo '.oss-drafts/' >> .git/info/exclude`
+1. **If your cwd is in a git repo**: the orchestrator resolves the exclude file with
+   `ex="$(git rev-parse --git-path info/exclude)"` (this also works in linked worktrees and
+   submodules, where `.git` is a file) and ensures `.oss-drafts/` is in it using the idempotent
+   one-liner: `grep -qxF '.oss-drafts/' "$ex" || echo '.oss-drafts/' >> "$ex"`
    This is non-invasive — it does not modify your tracked `.gitignore` and does not create a dirty
    working tree. Running `/oss` multiple times will not produce duplicate entries.
 2. **If your cwd is not a git repo**: the step is skipped silently.
 
-`.git/info/exclude` has the same syntax as `.gitignore` and applies only to your local clone. It
+The exclude file (`.git/info/exclude` in a plain clone) has the same syntax as `.gitignore` and applies only to your local clone. It
 is already included in git's ignore machinery without any configuration.
 
 ## Guardrail Safety

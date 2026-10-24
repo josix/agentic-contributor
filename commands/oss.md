@@ -48,7 +48,7 @@ All scenario outputs are saved to `.oss-drafts/` in the user's current working d
 - Example: `.oss-drafts/engage-apache-airflow-pr9876-20260611T143000Z.md`
 - Example (report): `.oss-drafts/report-apache-airflow-issue-bug-20260612T100000Z.md`
 - Example (prepare-pr): `.oss-drafts/prepare-pr-apache-datafusion-issue1234-20260612T100000Z.md`; debrief mode: `.oss-drafts/prepare-pr-apache-datafusion-debrief-20260612T100000Z.md`
-- Example (track ledger): `.oss-drafts/track-apache-datafusion-issue1234-20261024T101500Z.md`, plus the one-line pointer `.oss-drafts/.track-active`
+- Example (track ledger): `.oss-drafts/track-apache-datafusion-issue1234-20261024T101500Z.md`, plus the one-line pointer `<gitdir>/agentic-contributor/track-active` (in the git dir from `git rev-parse --git-dir`, never in the worktree)
 
 **Frontmatter** (include at the top of every draft file):
 
@@ -62,7 +62,7 @@ generated_at: <ISO-8601 UTC>
 status: draft
 body_format: 2            # draft tier only; omit on report tier. 1 or absent = legacy (whole body sendable)
 mode: <brief|lint|debrief|draft>  # review-reply: brief|lint; prepare-pr: track|debrief|draft|lint
-policy: {...}             # find + scenarios 5-10 (and norms): the policy block, see Step 3a; includes fetched_at
+policy: {...}             # find + scenarios 5-10 (and norms): the policy block, see Step 3; includes fetched_at
 routed_from: <scenario>   # only when a PR-intent request was rerouted to report (issue-first)
 base: <ref>               # prepare-pr only: base ref used for the diff
 head: <ref>               # prepare-pr only
@@ -96,8 +96,8 @@ Only text between the markers is sendable; everything else is for the user only:
 
 **Gitignore:** Before writing the first draft file in a run, ensure `.oss-drafts/` is excluded from version control in the user's project:
 
-1. If `.git/` exists in the cwd, ensure `.oss-drafts/` is in `.git/info/exclude` using the idempotent one-liner:
-   `grep -qxF '.oss-drafts/' .git/info/exclude || echo '.oss-drafts/' >> .git/info/exclude`
+1. If the cwd is in a git repo, resolve the exclude file with `ex="$(git rev-parse --git-path info/exclude)"` (works in linked worktrees and submodules, where `.git` is a file) and ensure `.oss-drafts/` is in it using the idempotent one-liner:
+   `grep -qxF '.oss-drafts/' "$ex" || echo '.oss-drafts/' >> "$ex"`
    (Non-invasive — does not dirty the user's tracked `.gitignore`. Creates the file if it does not exist.)
 2. If not in a git repo, skip silently.
 
@@ -119,7 +119,7 @@ Invoke the `oss-scenario-routing` skill to classify the intent from `$ARGUMENTS`
 
 - Match against intent signals.
 - If ambiguous, ask ONE clarifying question (the scenario menu).
-- If the intent is PR intent (see the routing skill) with no issue reference, run the Step 3a
+- If the intent is PR intent (see the routing skill) with no issue reference, run the Step 3
   policy preflight **before** final routing; this is the only policy-aware routing rule. See the
   PR-intent -> prepare-pr / Report (Issue-First) Branch below.
 - Debrief signals ("help me understand what I changed", "debrief my change", "what did the agent
@@ -131,10 +131,10 @@ Invoke the `oss-scenario-routing` skill to classify the intent from `$ARGUMENTS`
 
 ---
 
-## Step 3a — Policy Preflight
+## Step 3 — Policy Preflight
 
 Applies to `find`, `clarify`, `claim`, `engage`, `review-reply`, `report`, and `prepare-pr` (except `mode: track`). It does not apply to
-`status`, `norms` (which computes the policy in full), or `setup`. It runs before the Step 3
+`status`, `norms` (which computes the policy in full), or `setup`. It runs before the Step 4
 dispatch, and also before final routing for PR-intent requests.
 
 1. **Cache lookup.** Glob `.oss-drafts/*-<owner>-<repo>-*.md` as a candidate list only: filename
@@ -154,10 +154,11 @@ dispatch, and also before final routing for PR-intent requests.
 
 ---
 
-## Step 3 — Gather Data (Dispatch Subagent)
+## Step 4 — Gather Data (Dispatch Subagent)
 
 For scenarios that require live GitHub data (status, find, norms, clarify, claim, engage,
-review-reply), dispatch the mapped subagent via the **Task tool**:
+review-reply, report, prepare-pr, and optionally setup), dispatch the mapped subagent via the
+**Task tool**:
 
 - Pass: `owner/repo`, the specific item (issue/PR number or search intent), and the scenario key.
 - **status, find, norms, clarify, engage, review-reply, report** → dispatch `oss-researcher`.
@@ -190,7 +191,7 @@ is not set, the subagents fall back to `gh` CLI (they will run `gh auth status` 
 
 ---
 
-## Step 4 — Load the Mapped Skill, Produce Output, and Save Draft File
+## Step 5 — Load the Mapped Skill, Produce Output, and Save Draft File
 
 Load the skill named in the scenario catalog and follow its guidance to produce the output. Then
 save it as a draft file per the convention above. Draft-tier skills (clarify, claim, engage,
@@ -237,8 +238,10 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
   user's filled-in send block with AP1-AP9. Policy use: disclosure text when `disclosure: required`;
   advise (never rewrite) on AI co-author trailers when `coauthor_trailer_forbidden: true`.
   **Track mode** (`mode: track`) follows Procedure 0 in `pr-preparation`: Write creates the ledger
-  `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` and the pointer `.oss-drafts/.track-active`;
-  Edit is used only on the active ledger (append entries, stop). No policy preflight, no readiness.
+  `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md`, then the pointer
+  `"$(git rev-parse --git-dir)/agentic-contributor/track-active"` (git dir, never the worktree;
+  tracked sessions require git); stop removes that pointer with `rm -f`. Edit is used only on the
+  active ledger (append entries, stop). No policy preflight, no readiness.
   Besides the PreToolUse checkpoints, an advisory PostToolUse/Stop hook may add a scope-drift alert
   or hold a stop for one breakpoint question; follow its instructions (ask, then record the entry
   with Edit on the active ledger; never revert or stash).
@@ -248,10 +251,10 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
   open-PR count/cap, and `gfi_ai_ban` to the issue-matching ranking. When `gfi_ai_ban: true`, good
   first issues go in the unranked "Policy-reserved" footer, not the ranking.
 
-Before writing any file: ensure `.git/info/exclude` (or equivalent) excludes `.oss-drafts/` as
+Before writing any file: ensure the exclude file from `git rev-parse --git-path info/exclude` excludes `.oss-drafts/` as
 described in the convention block above.
 
-Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path. Edit is allowed only on the active track ledger.
+Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path, except the track-session pointer `<gitdir>/agentic-contributor/track-active` (track start only). Edit is allowed only on the active track ledger.
 
 ### Claim → Engage Branch
 
@@ -272,7 +275,7 @@ After `oss-claim-analyst` returns its verdict:
 ### PR-intent → prepare-pr / Report (Issue-First) Branch
 
 Mirrors the claim → engage branch. When the request expresses PR intent ("open a PR for...",
-"submit a fix for...", "I have a patch...", "send a PR", "prepare a PR"), run the Step 3a preflight
+"submit a fix for...", "I have a patch...", "send a PR", "prepare a PR"), run the Step 3 preflight
 first, then:
 
 - **An issue number or URL is given** (or the request is a PR for a linked issue): route to
@@ -293,7 +296,7 @@ no PR text is produced.
 
 ---
 
-## Step 5 — Two-Tier Export and Review Protocol
+## Step 6 — Two-Tier Export and Review Protocol
 
 ### Report tier (scenarios 1, 2, 3, 4 — status, find, norms, setup)
 
@@ -333,17 +336,27 @@ constraint — local file writes cannot reach GitHub.
 
 The `guard-outbound.sh` PreToolUse hook is always active. It DENIES:
 
-- `git push` in any Bash command.
-- `gh pr/issue/release/repo` mutating subcommands.
+- `git push`, `git send-email`, `git send-pack`, `git svn dcommit` in any Bash command (also after
+  global options, a path-qualified binary, a wrapper such as `env`, or an inline
+  `git -c alias.x=push` alias).
+- `gh` write subcommands: `pr`/`issue`/`release`/`repo`/`gist`/`label` mutations, `gh pr revert`,
+  `gh project` create/edit/delete/close/copy/link/unlink/mark-template/item-*/field-create/
+  field-delete, `gh ssh-key`/`gpg-key` add/delete, `gh repo deploy-key` add/delete,
+  `gh repo autolink` create/delete, `gh cache delete`, workflow/run/secret/variable/alias/codespace
+  writes.
 - `gh api` calls with POST/PUT/PATCH/DELETE methods (`-X`, `--method`, `-XPOST`, `--method=POST`), `--input`,
   or `-f`/`-F`/`--field`/`--raw-field` flags (except an explicit `-X GET` or a read-only `gh api graphql` query
   with no `mutation` and no `=@file`).
 - `curl`/`wget` with mutation flags (`-X POST`, `-d`, `--data`, `-F`, etc.).
-- Any `mcp__plugin_agentic-contributor_github__` tool with a write-verb suffix
-  (create, update, delete, merge, add_comment, push, fork, and related verbs).
+- **Every** `mcp__plugin_agentic-contributor_github__` tool that is not on the read allowlist. The
+  MCP namespace is default-deny: only tools named `get_*`, `list_*`, `search_*`, or `*_read`
+  (e.g. `get_file_contents`, `list_issues`, `search_code`, `issue_read`, `pull_request_read`) are
+  allowed, and even those are denied if the name contains `write`, `create`, `delete`, `submit`,
+  or `fork`. `issue_write`, `add_issue_comment`, `push_files`, `merge_pull_request`,
+  `create_pull_request`, and any tool added upstream later are denied.
 
-Read-only operations — `gh pr view`, `gh issue list`, `gh release list`, `gh api` GETs, `git clone`,
-and all `mcp__plugin_agentic-contributor_github__` read tools — are always allowed.
+Read-only operations — `gh pr view`, `gh issue list`, `gh release list`, `gh project list`, `gh api`
+GETs, `git clone`, and the allowlisted MCP read tools above — are allowed.
 
 Local file writes via the Write tool are NOT covered by the guardrail (they cannot reach GitHub)
 and are explicitly permitted for draft file export.

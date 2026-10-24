@@ -175,12 +175,12 @@ It is not a safety boundary. See [Tracked Sessions & Checkpoints](docs/concepts/
 
 Every piece of outbound text (comments, claim messages, review replies) is a draft shown to you
 for review. The plugin will never post, comment, push, or send on your behalf. This is enforced at
-two levels: the command instructions (Step 5 in `commands/oss.md`) and the `PreToolUse` guardrail
+two levels: the command instructions (Step 6 in `commands/oss.md`) and the `PreToolUse` guardrail
 hook.
 
 All scenario outputs — including read-only reports (scenarios 1–4) — are also saved as editable
 markdown files in `.oss-drafts/` in your working directory. The `.oss-drafts/` directory is
-automatically excluded from version control via `.git/info/exclude` when `/oss` first writes a
+automatically excluded from version control via the repo's exclude file (`git rev-parse --git-path info/exclude`) when `/oss` first writes a
 file in a git repo. Local file writes via the Write tool do not violate draft-only — they cannot
 reach GitHub.
 

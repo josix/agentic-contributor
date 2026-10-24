@@ -5,14 +5,20 @@
 # draft-only safety guard (guard-outbound.sh) and never replaces it. It fails OPEN: any internal
 # error means "no output, exit 0", which Claude Code treats as allow.
 #
-# Opt-in per session: it does nothing (no output, no subprocess) unless
-# <root>/.oss-drafts/.track-active exists. The no-session path uses only bash builtins.
+# Opt-in per session: it does nothing (no output, no subprocess, stdin not read) unless the
+# session pointer <gitdir>/agentic-contributor/track-active exists for the repository that
+# contains $CLAUDE_PROJECT_DIR (or $PWD). The pointer lives in the git dir, never in the worktree,
+# so a cloned repository cannot ship an active session. Tracked sessions therefore require git:
+# outside a git repository the hook is inactive. The no-session path uses only bash builtins.
 #
 # Output: one JSON object on stdout with hookSpecificOutput, always exit 0.
 #   deny            ask the user a "choose" question and record it in the ledger, then retry
-#   allow + context over budget / loop fallback: log it, do not ask
+#   allow + context over budget / loop fallback: log it, do not ask (also a systemMessage)
 #   allow           ONLY Edit on exactly the active ledger file (so a checkpoint costs one
 #                   interruption, not two); see decision-ledger.md section 8
+#
+# Ledger text (scope, api_paths, any frontmatter value) is never echoed into the output: it is
+# repository-writable data, so echoing it would be a prompt-injection channel.
 #
 # Format, ids, budget and loop rules: skills/pr-preparation/references/decision-ledger.md
 #
@@ -23,55 +29,73 @@ set -f # never glob-expand patterns such as scope globs
 
 [ "${OSS_TRACK_DISABLE:-}" = 1 ] && exit 0
 
-IFS= read -r -d '' input || true
-[ -n "$input" ] || exit 0
-
-# ── FAST PATH: locate a session pointer using only builtins ──────────────────
-# >>> shared:find-root (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
-find_root() { # $1 = start dir; walks up to the first .git boundary
-  local d="$1" nd
+# --- shared: session lookup (keep identical in track-*.sh) ---
+# Builtins only. trk_find_session sets trk_root (worktree root), trk_gitdir, trk_ptr,
+# trk_rel_ledger (".oss-drafts/track-*.md") and trk_ledger (absolute); returns 1 when there is
+# no valid session. Callers exit 0 with no output on 1 (fail open).
+trk_find_repo() { # $1 absolute start dir -> trk_root, trk_gitdir (worktree/submodule .git files ok)
+  local d="$1" nd line
   case "$d" in /*) ;; *) return 1 ;; esac
-  while [ -n "$d" ]; do
-    if [[ -f "$d/.oss-drafts/.track-active" ]]; then
-      root="$d"
+  while [ "$d" != "/" ] && [ "${d%/}" != "$d" ]; do d="${d%/}"; done
+  while :; do
+    if [[ -d "$d/.git" ]]; then
+      trk_root="$d"
+      trk_gitdir="$d/.git"
       return 0
     fi
-    [[ -e "$d/.git" ]] && return 1
+    if [[ -f "$d/.git" ]]; then
+      line=""
+      IFS= read -r line < "$d/.git" || [ -n "$line" ] || return 1
+      line="${line%$'\r'}"
+      case "$line" in "gitdir: "?*) line="${line#gitdir: }" ;; *) return 1 ;; esac
+      case "$line" in /*) ;; *) line="$d/$line" ;; esac # relative to the .git file's dir
+      trk_root="$d"
+      trk_gitdir="$line"
+      return 0
+    fi
     [ "$d" = "/" ] && return 1
     nd="${d%/*}"
     [ -z "$nd" ] && nd="/"
     d="$nd"
   done
-  return 1
 }
-# <<< shared:find-root
+trk_find_session() {
+  local s p re='^\.oss-drafts/track-[A-Za-z0-9._-]+\.md$'
+  trk_root=""; trk_gitdir=""; trk_ptr=""; trk_rel_ledger=""; trk_ledger=""
+  for s in "${CLAUDE_PROJECT_DIR:-}" "${PWD:-}"; do
+    [ -n "$s" ] || continue
+    trk_find_repo "$s" || continue
+    trk_ptr="$trk_gitdir/agentic-contributor/track-active"
+    [[ -f "$trk_ptr" ]] && break
+    trk_ptr=""
+  done
+  [ -n "$trk_ptr" ] || return 1
+  # The pointer must be a real file naming a ledger inside this worktree's .oss-drafts/.
+  [[ -L "$trk_ptr" ]] && return 1
+  p=""
+  IFS= read -r p < "$trk_ptr" || [ -n "$p" ] || return 1
+  p="${p%$'\r'}"
+  case "$p" in "$trk_root"/*) p="${p#"$trk_root"/}" ;; esac # absolute path inside the root is ok
+  [[ $p =~ $re ]] || return 1
+  case "$p" in *..*) return 1 ;; esac
+  trk_rel_ledger="$p"
+  trk_ledger="$trk_root/$p"
+  # Directory and ledger must be real (non-symlink) paths, so the ledger cannot leave the root.
+  [[ -L "$trk_root/.oss-drafts" || -L "$trk_ledger" ]] && return 1
+  [[ -f "$trk_ledger" ]] || return 1
+  return 0
+}
+# --- end shared ---
 
-re_path='"(file_path|notebook_path)"[[:space:]]*:[[:space:]]*"([^"\\]*)"'
-re_cwd='"cwd"[[:space:]]*:[[:space:]]*"([^"\\]*)"'
-fp=""
-cwd=""
-if [[ $input =~ $re_path ]]; then fp="${BASH_REMATCH[2]}"; fi
-if [[ $input =~ $re_cwd ]]; then cwd="${BASH_REMATCH[1]}"; fi
-if [ -n "$fp" ] && [ "${fp#/}" = "$fp" ] && [ -n "$cwd" ]; then fp="$cwd/$fp"; fi
-
-root=""
-for start in "${fp%/*}" "$cwd" "${CLAUDE_PROJECT_DIR:-}"; do
-  [ -n "$start" ] && find_root "$start" && break
-done
-[ -z "$root" ] && exit 0
+# ── FAST PATH: no session pointer -> exit before reading stdin (builtins only) ──
+trk_find_session || exit 0
 
 # ── SLOW PATH: a session pointer exists. Any failure below fails open. ───────
-# >>> shared:pointer (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
-rel_ledger=""
-IFS= read -r rel_ledger < "$root/.oss-drafts/.track-active" || [ -n "$rel_ledger" ] || exit 0
-re_ptr='^\.oss-drafts/track-[A-Za-z0-9._-]+\.md$'
-[[ $rel_ledger =~ $re_ptr ]] || exit 0
-case "$rel_ledger" in *..*) exit 0 ;; esac
-ledger="$root/$rel_ledger"
-# Pointer, directory and ledger must be real (non-symlink) paths.
-[[ -L "$root/.oss-drafts" || -L "$root/.oss-drafts/.track-active" || -L "$ledger" ]] && exit 0
-[[ -f "$ledger" ]] || exit 0
-# <<< shared:pointer
+input="$(cat 2> /dev/null)" || exit 0
+[ -n "$input" ] || exit 0
+root="$trk_root"
+ledger="$trk_ledger"
+rel_ledger="$trk_rel_ledger"
 
 # Frontmatter (builtin reads, no fork).
 fm_plugin=""; fm_mode=""; fm_status=""; fm_scope=""; fm_api=""; fm_budget=""
@@ -95,7 +119,7 @@ while IFS= read -r line; do
 done < "$ledger"
 [ "$fm_plugin" = "agentic-contributor" ] && [ "$fm_mode" = "track" ] || exit 0
 
-# >>> shared:clean-list (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
+# --- shared: list cleaning (keep identical in track-*.sh) ---
 clean_list() { # strip comment, brackets, quotes
   local v="${1%%#*}"
   v="${v//\[/}"
@@ -103,7 +127,7 @@ clean_list() { # strip comment, brackets, quotes
   v="${v//\"/}"
   printf '%s' "$v"
 }
-# <<< shared:clean-list
+# --- end shared ---
 fm_scope="$(clean_list "$fm_scope")"
 fm_api="$(clean_list "$fm_api")"
 case "$fm_budget" in '' | *[!0-9]*) fm_budget=3 ;; esac
@@ -117,7 +141,9 @@ command -v jq > /dev/null 2>&1 && have_jq=1
 command -v python3 > /dev/null 2>&1 && have_py=1
 [ "$have_jq" -eq 1 ] || [ "$have_py" -eq 1 ] || exit 0
 
-# parse_input: prints US-separated tool, path, permission_mode, old/new assert, old/new skip counts.
+# parse_input: prints US-separated tool, path, permission_mode, cwd, old/new assert, old/new skip
+# counts. A path or cwd containing a control character (newline, CR, US, ...) is printed as empty,
+# so it can neither shift the fields nor forge ledger marker lines: the hook then fails open.
 parse_input() {
   if [ "$have_jq" -eq 1 ]; then
     printf '%s' "$input" | jq -r --arg a "$ASSERT_RE" --arg s "$SKIP_RE" '
@@ -130,8 +156,9 @@ parse_input() {
       | ($es | map((.new_string // "") | cnt($s)) | add // 0) as $ns
       | (if $t == "Write" then (($ti.content // "") | cnt($a)) else $na end) as $na2
       | (if $t == "Write" then (($ti.content // "") | cnt($s)) else $ns end) as $ns2
-      | [$t, ($ti.file_path // $ti.notebook_path // ""), ($d.permission_mode // ""),
-         $oa, $na2, $os, $ns2] | map(tostring) | join("\u001f")' 2> /dev/null
+      | def clean: if test("[\u0000-\u001f\u007f]") then "" else . end;
+      [$t, (($ti.file_path // $ti.notebook_path // "") | tostring | clean), ($d.permission_mode // ""),
+         (($d.cwd // "") | tostring | clean), $oa, $na2, $os, $ns2] | map(tostring) | join("\u001f")' 2> /dev/null
   else
     printf '%s' "$input" | python3 -c '
 import sys, json, re
@@ -145,8 +172,11 @@ oa, na, os_, ns = tot(A, "old_string"), tot(A, "new_string"), tot(S, "old_string
 if t == "Write":
     c = ti.get("content") or ""
     na, ns = len(A.findall(c)), len(S.findall(c))
-p = ti.get("file_path") or ti.get("notebook_path") or ""
-print("\x1f".join([t, p, d.get("permission_mode") or "", str(oa), str(na), str(os_), str(ns)]))
+def clean(v):
+    v = str(v or "")
+    return "" if re.search("[\x00-\x1f\x7f]", v) else v
+p = clean(ti.get("file_path") or ti.get("notebook_path"))
+print("\x1f".join([t, p, str(d.get("permission_mode") or ""), clean(d.get("cwd")), str(oa), str(na), str(os_), str(ns)]))
 ' "$ASSERT_RE" "$SKIP_RE" 2> /dev/null
   fi
 }
@@ -164,8 +194,9 @@ print(len(re.findall(sys.argv[1], open(sys.argv[2], errors="replace").read())))
 
 parsed="$(parse_input)" || exit 0
 [ -n "$parsed" ] || exit 0
-IFS=$'\037' read -r tool_name path perm_mode old_a new_a old_s new_s <<< "$parsed"
+IFS=$'\037' read -r tool_name path perm_mode cwd old_a new_a old_s new_s <<< "$parsed"
 [ -n "$path" ] || exit 0
+case "$path$cwd" in *[[:cntrl:]]*) exit 0 ;; esac # belt and braces: never log a control char
 [ "$perm_mode" = "plan" ] && exit 0
 
 abs="$path"
@@ -174,13 +205,15 @@ if [ "${abs#/}" = "$abs" ]; then
   abs="$cwd/$abs"
 fi
 
-emit() { # $1 decision, $2 reason (may be empty), $3 additionalContext (may be empty)
+# $1 decision, $2 reason, $3 additionalContext (to Claude), $4 systemMessage (to the user); each may be empty
+emit() {
   if [ "$have_jq" -eq 1 ]; then
-    jq -n --arg d "$1" --arg r "$2" --arg c "$3" '
+    jq -n --arg d "$1" --arg r "$2" --arg c "$3" --arg u "${4:-}" '
       {hookSpecificOutput: ({hookEventName: "PreToolUse"}
         + (if $d != "" then {permissionDecision: $d} else {} end)
         + (if $r != "" then {permissionDecisionReason: $r} else {} end)
-        + (if $c != "" then {additionalContext: $c} else {} end))}' 2> /dev/null
+        + (if $c != "" then {additionalContext: $c} else {} end))}
+      + (if $u != "" then {systemMessage: $u} else {} end)' 2> /dev/null
   else
     python3 -c '
 import sys, json
@@ -188,8 +221,10 @@ o = {"hookEventName": "PreToolUse"}
 if sys.argv[1]: o["permissionDecision"] = sys.argv[1]
 if sys.argv[2]: o["permissionDecisionReason"] = sys.argv[2]
 if sys.argv[3]: o["additionalContext"] = sys.argv[3]
-print(json.dumps({"hookSpecificOutput": o}))
-' "$1" "$2" "$3" 2> /dev/null
+r = {"hookSpecificOutput": o}
+if sys.argv[4]: r["systemMessage"] = sys.argv[4]
+print(json.dumps(r))
+' "$1" "$2" "$3" "${4:-}" 2> /dev/null
   fi
   exit 0
 }
@@ -219,7 +254,7 @@ re_testdir='(^|/)(tests?|__tests__|specs?|testing)/'
 re_testfile='^test_.*\.py$|_test\.(py|go|rb|exs?|dart)$|\.(test|spec)\.(m?[jt]sx?|cjs)$|(Tests?|IT)\.(java|kt|scala|cs)$|_spec\.rb$|Tests?\.swift$'
 is_test_path() { [[ $1 =~ $re_testdir ]] || [[ ${1##*/} =~ $re_testfile ]]; }
 
-# >>> shared:manifest-map (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
+# --- shared: manifest map (keep identical in track-*.sh) ---
 manifest_for() { # echoes the manifest basename if $1 is a dependency file, else nothing
   case "$1" in
     yarn.lock | package-lock.json | pnpm-lock.yaml | npm-shrinkwrap.json | bun.lockb) echo package.json ;;
@@ -238,9 +273,9 @@ manifest_for() { # echoes the manifest basename if $1 is a dependency file, else
       *.gemspec | *.csproj) echo "$1" ;;
   esac
 }
-# <<< shared:manifest-map
+# --- end shared ---
 
-# >>> shared:glob-match (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
+# --- shared: glob match (keep identical in track-*.sh) ---
 glob_match() { # $1 rel, $2 comma list
   local g list="$2" IFS=,
   for g in $list; do
@@ -253,7 +288,7 @@ glob_match() { # $1 rel, $2 comma list
   done
   return 1
 }
-# <<< shared:glob-match
+# --- end shared ---
 
 class=""
 key="$rel"
@@ -283,30 +318,49 @@ if [ -z "$class" ]; then
 fi
 if [ -z "$class" ] && [ -n "$fm_api" ] && glob_match "$rel" "$fm_api"; then
   class=api
-  trig="$rel is listed in the session's api_paths (public API/config)."
+  trig="$rel matches an API path listed in the ledger (public API/config)."
 fi
 if [ -z "$class" ] && [ -n "$fm_scope" ] && ! glob_match "$rel" "$fm_scope"; then
   class=scope
-  trig="$rel is outside the session scope ($fm_scope)."
+  trig="$rel is outside the ledger's scope." # never echo ledger values (prompt injection)
 fi
 [ -z "$class" ] && exit 0
 id="$class:$key"
 
 # ── lock: reading state, checking the budget and appending a pending marker are one step,
 # so parallel edits cannot both spend the same budget slot. Fail open if the lock is busy.
-# >>> shared:lock (keep byte-identical in track-breakpoint.sh; checked by run-breakpoint-tests.sh)
+# --- shared: lock helpers (keep identical in track-*.sh) ---
+trk_mtime() { # $1 path -> epoch mtime on stdout; GNU stat first (BSD rejects -c), then BSD stat
+  local t
+  t="$(stat -c %Y "$1" 2> /dev/null)" || t=""
+  case "$t" in '' | *[!0-9]*) t="$(stat -f %m "$1" 2> /dev/null)" || t="" ;; esac
+  case "$t" in '' | *[!0-9]*) return 1 ;; esac
+  printf '%s' "$t"
+}
+trk_lock() { # $1 lock dir; returns 1 if still busy after ~2s. Caller sets the EXIT trap.
+  local lock="$1" tries=0 lt now stale="$1.stale.$$"
+  until mkdir "$lock" 2> /dev/null; do
+    # A lock older than ~10s is stale (a crashed hook). Rename it to a name unique to this
+    # process first, so a fresh lock that another process creates meanwhile is never removed by
+    # our rmdir; only the atomic rename can race, and it moves the stale directory at most once.
+    if lt="$(trk_mtime "$lock")" && now="$(date +%s 2> /dev/null)"; then
+      case "$now" in '' | *[!0-9]*) ;; *)
+        if [ $((now - lt)) -gt 10 ]; then
+          rmdir "$stale" 2> /dev/null
+          mv "$lock" "$stale" 2> /dev/null && rmdir "$stale" 2> /dev/null
+        fi ;;
+      esac
+    fi
+    tries=$((tries + 1))
+    [ "$tries" -ge 20 ] && return 1
+    sleep 0.1 2> /dev/null || return 1
+  done
+  return 0
+}
+# --- end shared ---
 lock="$ledger.lock"
-tries=0
-until mkdir "$lock" 2> /dev/null; do
-  # a lock older than ~10s is stale (a crashed hook); remove it once and retry
-  lt="$(stat -f %m "$lock" 2> /dev/null || stat -c %Y "$lock" 2> /dev/null)"
-  case "$lt" in '' | *[!0-9]*) ;; *) [ $(($(date +%s) - lt)) -gt 10 ] && rmdir "$lock" 2> /dev/null ;; esac
-  tries=$((tries + 1))
-  [ "$tries" -ge 20 ] && exit 0
-  sleep 0.1 2> /dev/null || exit 0
-done
+trk_lock "$lock" || exit 0
 trap 'rmdir "$lock" 2> /dev/null' EXIT
-# <<< shared:lock
 
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ 2> /dev/null)" || exit 0
 
@@ -366,13 +420,15 @@ fi
 if [ "$fm_budget" -eq 0 ] || { [ "$pend_n" -eq 0 ] && [ "$asked" -ge "$fm_budget" ]; }; then
   append "<!-- track:entry status=logged-over-budget source=hook asked=no at=$now id=$id -->" \
     "- logged-over-budget: $class — $rel ($now), not asked; budget $fm_budget spent"
-  emit "" "" "[agentic-contributor · tracked session] Checkpoint budget $fm_budget/$fm_budget is spent. Logged $id ($class, $rel) to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish."
+  emit "" "" "[agentic-contributor · tracked session] Checkpoint budget $fm_budget/$fm_budget is spent. Logged $id ($class, $rel) to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish." \
+    "agentic-contributor: checkpoint budget spent; $id logged to $rel_ledger without asking."
 fi
 
 if [ "$pend_n" -ge 2 ]; then
   append "<!-- track:entry status=skipped source=hook asked=yes reason=no-ledger-entry at=$now id=$id -->" \
     "- skipped (no ledger entry recorded after 2 checkpoint prompts): $class — $rel"
-  emit "" "" "[agentic-contributor · tracked session] No ledger entry for $id after 2 checkpoint prompts. The hook recorded it as skipped and allowed this edit. Tell the user that this decision was not recorded."
+  emit "" "" "[agentic-contributor · tracked session] No ledger entry for $id after 2 checkpoint prompts. The hook recorded it as skipped and allowed this edit. Tell the user that this decision was not recorded." \
+    "agentic-contributor: checkpoint $id was not answered after 2 prompts; recorded as skipped in $rel_ledger."
 fi
 
 retry=""

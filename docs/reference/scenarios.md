@@ -84,7 +84,7 @@ The draft includes a suggested title (following the repo's convention), suggeste
 - **Draft (`mode: draft`)**: size and shape verdict (default 400 lines / 10 files unless CONTRIBUTING says otherwise), then a problem-first scaffold in an `oss:send` block. Why this approach, What changed, and Unknowns & assumptions are `TODO(you)`; "How it's tested" names tests, never passed commands. Disclosure text when policy requires it; AI co-author trailers flagged when forbidden (advice only).
 - **Lint (`mode: lint`)**: AP1-AP9 on your filled-in text.
 
-File: `.oss-drafts/prepare-pr-<owner>-<repo>-<item>-<UTC>.md`, `item` is `issueN` or `pr-new`. Track ledger: `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` (`item` is `issueN` or `task`) plus the pointer `.oss-drafts/.track-active`. Frontmatter adds `base`, `head`, `diff_stats`, `mode`, `policy`, `readiness`.
+File: `.oss-drafts/prepare-pr-<owner>-<repo>-<item>-<UTC>.md`, `item` is `issueN` or `pr-new`. Track ledger: `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` (`item` is `issueN` or `task`) plus the pointer `<gitdir>/agentic-contributor/track-active` (git dir, not the worktree). Frontmatter adds `base`, `head`, `diff_stats`, `mode`, `policy`, `readiness`.
 
 ## Policy Preflight
 
