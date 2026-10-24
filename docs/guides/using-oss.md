@@ -149,17 +149,21 @@ The orchestrator saves the draft to `.oss-drafts/report-<owner>-<repo>-issue-bug
 
 ### Scenario 10 — prepare-pr
 
-**Intent signals:** "prepare a PR", "get my PR ready", "draft a PR description", "open a PR for #N", "I have a patch"; debrief mode: "help me understand what I changed", "debrief my change", "what did the agent change"
+**Intent signals:** "prepare a PR", "get my PR ready", "draft a PR description", "open a PR for #N", "I have a patch"; debrief mode: "help me understand what I changed", "debrief my change", "what did the agent change"; track mode: "track …", "start tracking", "stop tracking", "track status", "log this decision"
 
 **Example:**
 ```
 /oss prepare a PR for apache/datafusion fixing #1234
 /oss help me understand what I changed in apache/datafusion
+/oss track https://github.com/apache/datafusion/issues/1234 scope: datafusion/sql/**
+/oss track status
+/oss track stop
 ```
 
 `prepare-pr` helps you understand and own a local change and send the kind of PR maintainers prioritise. The plugin only reads your local git state (`git diff`, `git log`, `git merge-base`, `git remote -v`); it never pushes, opens a PR, edits your code, or runs your tests.
 
-- **Change debrief (`mode: debrief`)** — the `change-debrief` skill groups your changes by purpose with `file:line`, traces each to the issue, a commit message, or an agent transcript (only if you point to one), flags anything untraceable as "unexplained, possibly out of scope", lists the agent's implicit decisions, covers impact and test coverage, marks every statement evidenced or inferred, and ends with 2-3 explain-back questions and an Unknowns list. It is saved to a private `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md` and is never paste-ready PR text.
+- **Tracked session (`mode: track`)** — while an agent codes, `/oss track` keeps a private decision ledger and an advisory hook asks you to choose at a few reviewer-relevant moments (test weakening, dependencies, opt-in API paths, out-of-scope edits), within a budget of 3 questions. See [Tracked Sessions & Checkpoints](../concepts/tracked-sessions.md).
+- **Change debrief (`mode: debrief`)** — the `change-debrief` skill groups your changes by purpose with `file:line`, traces each to the issue, a commit message, or an agent transcript (only if you point to one), flags anything untraceable as "unexplained, possibly out of scope", lists the agent's implicit decisions, covers impact and test coverage, marks every statement evidenced or inferred, and ends with 2-3 explain-back questions and an Unknowns list. When a tracked-session ledger exists for the branch, its entries are cited as first-hand evidence (`evidenced: ledger`) and skipped or over-budget decisions become Unknowns. It is saved to a private `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md` and is never paste-ready PR text.
 - **Size and shape check** — flags more than 400 changed lines or 10 files (unless CONTRIBUTING says otherwise), mixed concerns, and lockfile noise, and suggests a split.
 - **Problem-first scaffold** — inside an `oss:send` block: the problem (linked issue), then Why this approach, What changed, and Unknowns & assumptions as `TODO(you)`. "How it's tested" names tests, never commands that passed. When policy requires AI disclosure you get the unticked checkbox plus neutral options; AI co-author trailers are flagged when forbidden (advice only).
 - **Lint** — re-invoke after filling it in to lint your text with the AP1-AP9 rules.

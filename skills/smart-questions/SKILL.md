@@ -124,7 +124,8 @@ with understanding and translation.
 ### Lint mode
 
 0. **Validate the draft format first.** Read the file's frontmatter. Proceed only if
-   `body_format: 2` and it contains at least one `oss:send` block. If `body_format` is absent
+   `body_format: 2` and it contains at least one `oss:send` block. If `body_format` is `private` (a
+   private debrief), refuse: it is never sendable or lintable. If `body_format` is absent
    or `1` (legacy: whole body sendable, no send blocks), or no send block is found, do **not**
    lint and do not silently skip. Tell the user the file is legacy and offer two options: (a)
    migrate it, with the user confirming which text is their own reply and moving it into

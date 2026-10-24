@@ -8,9 +8,9 @@ The single entry point for all OSS contribution tasks in this plugin.
 
 | Field | Value |
 |---|---|
-| `description` | `Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, learn norms, set up env (draft-only)` |
+| `description` | `Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, learn norms, set up env, track decisions (draft-only)` |
 | `argument-hint` | `[what you want to do, e.g. "find a good first issue in apache/airflow"]` |
-| `allowed-tools` | `Bash`, `Read`, `Write`, `Grep`, `Glob`, `WebFetch`, `Task`, `mcp__plugin_agentic-contributor_github__*` |
+| `allowed-tools` | `Bash`, `Read`, `Write`, `Edit` (active track ledger only), `Grep`, `Glob`, `WebFetch`, `Task`, `mcp__plugin_agentic-contributor_github__*` |
 
 ### Arguments
 
@@ -25,6 +25,7 @@ draft a question about issue #12345 in apache/airflow
 is issue #8765 in apache/spark free to claim?
 help me give feedback on apache/airflow PR #9876
 help me respond to the review on my apache/spark PR #4321
+track https://github.com/apache/datafusion/issues/1234 scope: datafusion/sql/**
 ```
 
 If `$ARGUMENTS` is empty or unclear, `/oss` presents the 10-scenario menu and asks one clarifying question.
@@ -64,7 +65,7 @@ Prefer `mcp__plugin_agentic-contributor_github__*` read tools inside subagents. 
 | setup | `dev-env-setup` | Step-by-step guided walkthrough | `.oss-drafts/setup-…` |
 | clarify, engage, review-reply, claim | `smart-questions` | DRAFT | `.oss-drafts/<scenario>-…` |
 | report | `issue-drafting` | DRAFT new issue (bug/feature) | `.oss-drafts/report-…` |
-| prepare-pr | `pr-preparation` (+ `change-debrief`, `contributor-readiness`) | Problem-first PR description scaffold, or private debrief (`mode: debrief`) | `.oss-drafts/prepare-pr-…` |
+| prepare-pr | `pr-preparation` (+ `change-debrief`, `contributor-readiness`) | Problem-first PR description scaffold, private debrief (`mode: debrief`), or private decision ledger (`mode: track`) | `.oss-drafts/prepare-pr-…` |
 
 Before writing any file, ensure `.git/info/exclude` (or equivalent) excludes `.oss-drafts/` as
 described in the Draft File Convention section of `commands/oss.md`. Use the Write tool to create
@@ -92,6 +93,8 @@ Then ask the user to review and modify the file.
 Never call any tool that posts, comments, creates, pushes, or mutates GitHub state. The `PreToolUse` guardrail hook blocks such calls, but the command must not attempt them regardless. Writing local files with the Write tool does NOT violate draft-only — local file writes cannot reach GitHub. See [Draft Files](../concepts/draft-files.md) for naming convention and frontmatter.
 
 ### Guardrail Reminder
+
+A second, advisory hook (`track-checkpoint.sh`) asks decision questions during tracked sessions; it is not part of the guardrail. See [Hooks](hooks.md).
 
 The `guard-outbound.sh` `PreToolUse` hook is always active. It denies: `git push`, `gh pr/issue/release/repo` mutating subcommands, `gh gist create`, `gh api` write calls, `curl`/`wget` mutation flags, and all MCP write-verb tools.
 

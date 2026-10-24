@@ -1,10 +1,11 @@
 ---
-description: "Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, learn norms, set up env (draft-only)"
+description: "Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, learn norms, set up env, track decisions (draft-only)"
 argument-hint: '[what you want to do, e.g. "find a good first issue in apache/airflow"]'
 allowed-tools:
   - Bash
   - Read
   - Write
+  - Edit
   - Grep
   - Glob
   - WebFetch
@@ -29,7 +30,7 @@ You are the single entry point for all OSS contribution tasks in this plugin.
 | 7 | **engage** | DRAFT feedback on someone else's in-progress PR |
 | 8 | **review-reply** | Per-comment understanding brief + lint of your own reply (you write the reply) |
 | 9 | **report** | DRAFT new bug report or feature request |
-| 10 | **prepare-pr** | Change debrief, size check, and a problem-first PR description scaffold you complete (never opens a PR) |
+| 10 | **prepare-pr** | Change debrief, size check, and a problem-first PR description scaffold you complete (never opens a PR); `track` mode records your decisions while an agent codes |
 
 ---
 
@@ -42,11 +43,12 @@ All scenario outputs are saved to `.oss-drafts/` in the user's current working d
 **Naming:** `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`
 
 - `owner/repo` slashes become `-` (e.g. `apache-airflow`)
-- `item` is `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, `debrief`, etc.
+- `item` is `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, `debrief`, `task` (track ledgers), etc.
 - UTC timestamp in `YYYYMMDDThhmmssZ` format (e.g. `20260611T143000Z`)
 - Example: `.oss-drafts/engage-apache-airflow-pr9876-20260611T143000Z.md`
 - Example (report): `.oss-drafts/report-apache-airflow-issue-bug-20260612T100000Z.md`
 - Example (prepare-pr): `.oss-drafts/prepare-pr-apache-datafusion-issue1234-20260612T100000Z.md`; debrief mode: `.oss-drafts/prepare-pr-apache-datafusion-debrief-20260612T100000Z.md`
+- Example (track ledger): `.oss-drafts/track-apache-datafusion-issue1234-20261024T101500Z.md`, plus the one-line pointer `.oss-drafts/.track-active`
 
 **Frontmatter** (include at the top of every draft file):
 
@@ -59,7 +61,7 @@ item: <issueN|prN|status|find|norms|setup|issue-bug|issue-feature|pr-new|debrief
 generated_at: <ISO-8601 UTC>
 status: draft
 body_format: 2            # draft tier only; omit on report tier. 1 or absent = legacy (whole body sendable)
-mode: <brief|lint|debrief|draft>  # review-reply: brief|lint; prepare-pr: debrief|draft|lint
+mode: <brief|lint|debrief|draft>  # review-reply: brief|lint; prepare-pr: track|debrief|draft|lint
 policy: {...}             # find + scenarios 5-10 (and norms): the policy block, see Step 3a; includes fetched_at
 routed_from: <scenario>   # only when a PR-intent request was rerouted to report (issue-first)
 base: <ref>               # prepare-pr only: base ref used for the diff
@@ -69,6 +71,8 @@ readiness_login: <login>  # claim + find + prepare-pr (+ engage when switched fr
 readiness: {...}          # claim + find + prepare-pr (+ engage when switched from claim): {open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}
 ---
 ```
+
+Track ledger: see `skills/pr-preparation/references/decision-ledger.md` (it has its own frontmatter).
 
 **Body format (`body_format: 2`):** draft-tier files separate postable text from private notes.
 Only text between the markers is sendable; everything else is for the user only:
@@ -84,6 +88,7 @@ Only text between the markers is sendable; everything else is for the user only:
 
 - Any `TODO(you):` left inside a send block means "not ready"; the execution plugin must refuse to
   send while it remains.
+- A file with `body_format: private` (change debrief) is never sendable; refuse to post or lint it.
 - A file with no `body_format` (or `1`) is legacy: the whole body is sendable.
 - Files with several independent messages (e.g. one reply per review comment) use one marker pair
   per message, in order.
@@ -119,13 +124,15 @@ Invoke the `oss-scenario-routing` skill to classify the intent from `$ARGUMENTS`
   PR-intent -> prepare-pr / Report (Issue-First) Branch below.
 - Debrief signals ("help me understand what I changed", "debrief my change", "what did the agent
   change") route to `prepare-pr` with `mode: debrief`; this is not an 11th scenario.
+- Track signals ("track …", "start tracking", "stop tracking", "track status", "log this decision")
+  route to `prepare-pr` with `mode: track` (sub-action start/stop/status/log); not an 11th scenario.
 - After classification, proceed immediately — do not ask additional questions at this stage.
 
 ---
 
 ## Step 3a — Policy Preflight
 
-Applies to `find`, `clarify`, `claim`, `engage`, `review-reply`, `report`, and `prepare-pr`. It does not apply to
+Applies to `find`, `clarify`, `claim`, `engage`, `review-reply`, `report`, and `prepare-pr` (except `mode: track`). It does not apply to
 `status`, `norms` (which computes the policy in full), or `setup`. It runs before the Step 3
 dispatch, and also before final routing for PR-intent requests.
 
@@ -156,7 +163,8 @@ review-reply), dispatch the mapped subagent via the **Task tool**:
 - **prepare-pr** → dispatch `oss-researcher` (PR template, duplicate open PRs, linked issue body) in
   parallel with the `readiness` read; the orchestrator itself runs the local git reads (`git diff`,
   `git diff --stat`, `git log`, `git merge-base`, `git remote -v`). Debrief mode needs no GitHub
-  fetch beyond the linked issue text. Local git is read-only: never commit, push, or run tests.
+  fetch beyond the linked issue text. Local git is read-only: never commit, push, or run tests. `mode: track` start dispatches
+  `oss-researcher` with key `track-start` only when an issue is given.
 - **claim** → dispatch `oss-claim-analyst` **and** `oss-researcher` (key `readiness`) in parallel;
   then proceed based on the verdict (see claim branch below).
 - **setup** → optionally dispatch `oss-researcher` (read-only) to fetch the project's
@@ -164,7 +172,7 @@ review-reply), dispatch the mapped subagent via the **Task tool**:
   output. The researcher dispatch is optional — if the docs are already available inline,
   skip it.
 
-**Readiness (claim, find, and prepare-pr).** Unless the request says "skip readiness", also dispatch
+**Readiness (claim, find, and prepare-pr, not in track mode).** Unless the request says "skip readiness", also dispatch
 `oss-researcher` with scenario key `readiness` in parallel with the normal fetch. Resolve the login
 as the `contributor-readiness` skill says (request, then `contributor.github_login` in
 `config/targets.yaml`, then the authenticated account) and pass it with `owner/repo` and the
@@ -227,6 +235,9 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
   paste-ready PR text; a transcript is read only when the user points to one. Lint mode checks the
   user's filled-in send block with AP1-AP9. Policy use: disclosure text when `disclosure: required`;
   advise (never rewrite) on AI co-author trailers when `coauthor_trailer_forbidden: true`.
+  **Track mode** (`mode: track`) follows Procedure 0 in `pr-preparation`: Write creates the ledger
+  `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` and the pointer `.oss-drafts/.track-active`;
+  Edit is used only on the active ledger (append entries, stop). No policy preflight, no readiness.
 - **find** policy use: record the `policy` block in frontmatter and mention any open-PR cap, vouch
   requirement, or good-first-issue AI ban in the shortlist notes. Put the readiness summary at the
   top of the file (private, report tier), set `readiness_login` and `readiness`, and pass the tier,
@@ -236,7 +247,7 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
 Before writing any file: ensure `.git/info/exclude` (or equivalent) excludes `.oss-drafts/` as
 described in the convention block above.
 
-Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path.
+Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path. Edit is allowed only on the active track ledger.
 
 ### Claim → Engage Branch
 
@@ -302,6 +313,9 @@ Then ask the user to review and modify the file, and confirm whether they want a
 **prepare-pr debrief mode** writes a private notes file with no send block: show the file path and a
 short summary in chat, say it is private and not PR text, and skip the "ready to send" framing.
 
+**prepare-pr track mode** shows the ledger path and a short session summary (scope, budget, how to
+stop). The ledger is private; there is no DRAFT notice and no send block.
+
 ### Hard rule
 
 NEVER call any tool that posts, comments, creates issues/PRs, pushes branches, or takes any
@@ -329,3 +343,6 @@ and all `mcp__plugin_agentic-contributor_github__` read tools — are always all
 
 Local file writes via the Write tool are NOT covered by the guardrail (they cannot reach GitHub)
 and are explicitly permitted for draft file export.
+
+`hooks/scripts/track-checkpoint.sh` is a separate, advisory PreToolUse hook for Edit/Write inside a
+tracked session. It is not part of the draft-only guardrail above and fails open.

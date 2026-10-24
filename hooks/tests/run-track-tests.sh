@@ -1,0 +1,336 @@
+#!/usr/bin/env bash
+# run-track-tests.sh — regression harness for hooks/scripts/track-checkpoint.sh.
+#
+# Usage:  bash hooks/tests/run-track-tests.sh
+#   TRACK_BASH=/bin/bash   interpreter used to run the hook (default: /bin/bash,
+#                          i.e. macOS bash 3.2 when present, else bash on PATH)
+#
+# Reads track-cases.tsv, builds a fixture git repo in a temp dir per case, writes a ledger and
+# pointer for the named profile, pipes PreToolUse JSON to the hook and checks stdout, exit code
+# and ledger changes. Compatible with bash 3.2. Never touches the real working tree.
+
+set -u
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+hook="$here/../scripts/track-checkpoint.sh"
+cases="$here/track-cases.tsv"
+
+if ! command -v jq > /dev/null 2>&1; then
+  echo "jq is required to run the track tests" >&2
+  exit 1
+fi
+
+runner="${TRACK_BASH:-}"
+if [ -z "$runner" ]; then
+  if [ -x /bin/bash ]; then runner=/bin/bash; else runner="$(command -v bash)"; fi
+fi
+
+pass=0
+fail=0
+tab="$(printf '\t')"
+LEDGER_NAME="track-test-repo-task-20261024T000000Z.md"
+T="2026-10-24T00:00:00Z"
+tmps=""
+
+cleanup() { [ -n "$tmps" ] && rm -rf $tmps; }
+trap cleanup EXIT
+
+ok() { pass=$((pass + 1)); }
+bad() { fail=$((fail + 1)); printf 'FAIL %s\n' "$1"; }
+
+# ── fixture ───────────────────────────────────────────────────────────────────
+write_ledger() { # $1 file  $2 status  $3 scope  $4 api  $5 budget
+  cat > "$1" << LEDGER
+---
+plugin: agentic-contributor
+scenario: prepare-pr
+mode: track
+repo: local
+item: task
+task: "fixture"
+issue: none
+branch: main
+base_commit: 0000000000000000000000000000000000000000
+started_at: $T
+status: $2
+scope: $3
+scope_source: user
+api_paths: $4
+budget: $5
+generated_at: $T
+---
+# Decision ledger (private)
+Private notes. Not PR text. Do not paste.
+
+## Decisions
+<!-- track:end -->
+LEDGER
+}
+pend() { printf '<!-- track:pending at=%s id=%s -->\n' "$T" "$1" >> "$ledger"; }
+entry() { # status asked id
+  printf '<!-- track:entry status=%s source=checkpoint asked=%s at=%s id=%s -->\n' "$1" "$2" "$T" "$3" >> "$ledger"
+}
+
+setup() { # $1 profile -> sets d root ledger pointer env_extra
+  local p="$1" status=active scope='[]' api='[]' budget=3
+  d="$(mktemp -d)"
+  tmps="$tmps $d"
+  root="$d/repo"
+  env_extra=""
+  perm=default
+  mkdir -p "$root/src/api" "$root/docs" "$root/tests" "$root/sub" "$root/notebooks" "$root/.oss-drafts"
+  (cd "$root" && git init -q 2> /dev/null)
+  printf '{"name":"x"}\n' > "$root/package.json"
+  printf 'x\n' > "$root/yarn.lock"
+  printf 'x\n' > "$root/src/app.js"
+  printf 'x\n' > "$root/src/api/public.ts"
+  printf 'x\n' > "$root/docs/x.md"
+  printf 'x\n' > "$root/sub/requirements-dev.txt"
+  printf '{}\n' > "$root/notebooks/x.ipynb"
+  printf 'def test_a():\n    assert 1\n    assert 2\n    assert 3\n' > "$root/tests/test_foo.py"
+  case "$p" in
+    scoped) scope='["src/**"]' ;;
+    api) api='["src/api/public.ts"]' ;;
+    stopped) status=stopped ;;
+    budget0) budget=0 ;;
+  esac
+  ledger="$root/.oss-drafts/$LEDGER_NAME"
+  pointer="$root/.oss-drafts/.track-active"
+  evil="$d/evil.md"
+  write_ledger "$evil" active '[]' '[]' 3
+  write_ledger "$root/.oss-drafts/track-other.md" active '[]' '[]' 3
+  case "$p" in
+    none) ;;
+    symlink-ledger)
+      write_ledger "$d/real.md" active '[]' '[]' 3
+      ln -s "$d/real.md" "$ledger"
+      printf '.oss-drafts/%s\n' "$LEDGER_NAME" > "$pointer" ;;
+    symlink-dir)
+      mkdir -p "$d/odr"
+      write_ledger "$d/odr/$LEDGER_NAME" active '[]' '[]' 3
+      printf '.oss-drafts/%s\n' "$LEDGER_NAME" > "$d/odr/.track-active"
+      rm -rf "$root/.oss-drafts"
+      ln -s "$d/odr" "$root/.oss-drafts" ;;
+    nofm)
+      printf '# no frontmatter\n<!-- track:end -->\n' > "$ledger"
+      printf '.oss-drafts/%s\n' "$LEDGER_NAME" > "$pointer" ;;
+    *)
+      write_ledger "$ledger" "$status" "$scope" "$api" "$budget"
+      printf '.oss-drafts/%s\n' "$LEDGER_NAME" > "$pointer" ;;
+  esac
+  case "$p" in
+    badptr) printf '../evil.md\n' > "$pointer" ;;
+    dotdot-ptr) printf '.oss-drafts/track-a..b.md\n' > "$pointer"
+      write_ledger "$root/.oss-drafts/track-a..b.md" active '[]' '[]' 3 ;;
+    abs-ptr) printf '%s\n' "$evil" > "$pointer" ;;
+    decided-dep) entry decided yes dependency:package.json ;;
+    skipped-dep) entry skipped yes dependency:package.json ;;
+    spent)
+      pend dependency:Cargo.toml; pend test:tests/test_foo.py; pend scope:docs/x.md
+      entry decided yes dependency:Cargo.toml; entry decided yes test:tests/test_foo.py
+      entry decided yes scope:docs/x.md ;;
+    spent-logged)
+      pend dependency:Cargo.toml; pend test:tests/test_foo.py; pend scope:docs/x.md
+      printf '<!-- track:entry status=logged-over-budget source=hook asked=no at=%s id=dependency:package.json -->\n' "$T" >> "$ledger" ;;
+    exempt)
+      pend dependency:Cargo.toml; pend test:tests/test_foo.py; pend scope:docs/x.md
+      entry decided no dependency:Cargo.toml ;;
+    na-dep) pend dependency:package.json; entry not-applicable no dependency:package.json ;;
+    na-dep-consumed) # the acknowledgement already let one edit through; the next one is checkpointed again
+      pend dependency:package.json; entry not-applicable no dependency:package.json
+      printf '<!-- track:consumed at=%s id=dependency:package.json -->\n' "$T" >> "$ledger" ;;
+    na-dep-layout) # documented layout: entry inserted above track:end, pending appended below it
+      pend dependency:package.json
+      awk -v e="<!-- track:entry status=not-applicable source=checkpoint asked=no at=$T id=dependency:package.json -->" \
+        '/^<!-- track:end -->$/ { print e } { print }' "$ledger" > "$ledger.new" && mv "$ledger.new" "$ledger" ;;
+    na-dep-later) # a real dependency change after the not-applicable one is still checkpointed
+      pend dependency:package.json
+      awk -v e="<!-- track:entry status=not-applicable source=checkpoint asked=no at=$T id=dependency:package.json -->" \
+        '/^<!-- track:end -->$/ { print e } { print }' "$ledger" > "$ledger.new" && mv "$ledger.new" "$ledger"
+      printf '<!-- track:pending at=2026-10-24T01:00:00Z id=dependency:package.json -->\n' >> "$ledger" ;;
+    na-future) # a future at= sorts as oldest, so it cannot acknowledge anything
+      pend dependency:package.json
+      printf '<!-- track:entry status=not-applicable source=checkpoint asked=no at=2099-01-01T00:00:00Z id=dependency:package.json -->\n' >> "$ledger" ;;
+    na-frac-consumed) # fractional seconds are normalised, so the consumed marker still counts
+      pend dependency:package.json
+      printf '<!-- track:entry status=not-applicable source=checkpoint asked=no at=2026-10-24T00:00:00.500Z id=dependency:package.json -->\n' >> "$ledger"
+      printf '<!-- track:consumed at=%s id=dependency:package.json -->\n' "$T" >> "$ledger" ;;
+    stale-lock) mkdir "$ledger.lock"; touch -t 202001010000 "$ledger.lock" ;;
+    busy-lock) mkdir "$ledger.lock" ;;
+    pending1) pend dependency:package.json ;;
+    pending2) pend dependency:package.json; pend dependency:package.json ;;
+    disabled) env_extra="OSS_TRACK_DISABLE=1" ;;
+    plan) perm=plan ;;
+  esac
+}
+
+decode() { local s="$1"; s="${s//\\n/$'\n'}"; s="${s//\\t/$'\t'}"; printf '%s' "$s"; }
+
+build_json() { # tool path a1 a2 [perm_mode]
+  local tool="$1" path="$2" a1="$3" a2="$4"
+  case "$tool" in
+    Edit) jq -nc --arg c "$root" --arg p "$path" --arg o "$a1" --arg n "$a2" --arg m "$perm" \
+      '{session_id:"s",cwd:$c,permission_mode:$m,hook_event_name:"PreToolUse",tool_name:"Edit",tool_input:{file_path:$p,old_string:$o,new_string:$n},tool_use_id:"t"}' ;;
+    Write) jq -nc --arg c "$root" --arg p "$path" --arg o "$a1" --arg m "$perm" \
+      '{session_id:"s",cwd:$c,permission_mode:$m,hook_event_name:"PreToolUse",tool_name:"Write",tool_input:{file_path:$p,content:$o},tool_use_id:"t"}' ;;
+    MultiEdit) jq -nc --arg c "$root" --arg p "$path" --arg o "$a1" --arg n "$a2" --arg m "$perm" \
+      '{session_id:"s",cwd:$c,permission_mode:$m,hook_event_name:"PreToolUse",tool_name:"MultiEdit",tool_input:{file_path:$p,edits:[{old_string:$o,new_string:$n}]},tool_use_id:"t"}' ;;
+    NotebookEdit) jq -nc --arg c "$root" --arg p "$path" --arg o "$a1" --arg m "$perm" \
+      '{session_id:"s",cwd:$c,permission_mode:$m,hook_event_name:"PreToolUse",tool_name:"NotebookEdit",tool_input:{notebook_path:$p,new_source:$o},tool_use_id:"t"}' ;;
+  esac
+}
+
+run_hook() { # json on $1 -> out rc
+  out="$(printf '%s' "$1" | env -u CLAUDE_PROJECT_DIR $env_extra "$runner" "$hook" 2> /dev/null)"
+  rc=$?
+}
+
+lsize() { if [ -f "$1" ]; then wc -c < "$1" | tr -d " "; else echo 0; fi; }
+count_lines() { grep -c -- "$1" "$ledger" 2> /dev/null; }
+
+resolve_path() { # token -> absolute-or-relative path string
+  case "$1" in
+    @ledger) printf '%s' "$ledger" ;;
+    @ledger-dd) printf '%s' "$root/.oss-drafts/../.oss-drafts/$LEDGER_NAME" ;;
+    @ledger-rel) printf '%s' ".oss-drafts/$LEDGER_NAME" ;;
+    @abs:*) local s="${1#@abs:}"; printf '%s' "${s//<root>/$root}" ;;
+    -) printf '' ;;
+    *) printf '%s' "$root/$1" ;;
+  esac
+}
+
+decision_of() { printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2> /dev/null; }
+
+# ── table-driven cases ────────────────────────────────────────────────────────
+lineno=0
+while IFS="$tab" read -r expect profile tool ptoken a1 a2 want || [ -n "${expect:-}" ]; do
+  lineno=$((lineno + 1))
+  case "$expect" in '' | '#'*) continue ;; esac
+  label="line $lineno [$expect/$profile/$tool/$ptoken]"
+  [ "$a1" = "-" ] && a1=""
+  [ "$a2" = "-" ] && a2=""
+  a1="$(decode "$a1")"
+  a2="$(decode "$a2")"
+
+  setup "$profile"
+  path="$(resolve_path "$ptoken")"
+  if [ "$tool" = "RAW" ]; then
+    raw="${a1//<root>/$root}"
+    json="$raw"
+  else
+    json="$(build_json "$tool" "$path" "$a1" "$a2")"
+  fi
+  before="$(lsize "$ledger")"
+  evil_before="$(cat "$evil")"
+  run_hook "$json"
+  after="$(lsize "$ledger")"
+  good=1
+  [ "$rc" -eq 0 ] || { bad "$label rc=$rc"; good=0; }
+  [ "$(cat "$evil")" = "$evil_before" ] || { bad "$label wrote outside .oss-drafts ledger"; good=0; }
+  if [ "$good" -eq 1 ] && [ "$profile" != busy-lock ] && [ -d "$ledger.lock" ]; then bad "$label left the ledger lock behind"; good=0; fi
+  if [ "$good" -eq 1 ]; then
+    case "$expect" in
+      silent)
+        [ -z "$out" ] && [ "$before" = "$after" ] || { bad "$label expected silent, got: $out"; good=0; } ;;
+      silent-consume) # acknowledged not-applicable: no output, one consumed marker appended
+        [ -z "$out" ] && [ "$(grep -c '^<!-- track:consumed at=' "$ledger")" -eq 1 ] \
+          || { bad "$label expected silent-consume, got: $out"; good=0; } ;;
+      allow-ledger)
+        [ "$(decision_of)" = allow ] && [ "$before" = "$after" ] || { bad "$label expected allow-ledger, got: $out"; good=0; } ;;
+      deny | deny-retry)
+        if [ "$(decision_of)" != deny ] || ! printf '%s' "$out" | jq -e --arg w "Checkpoint id: $want" \
+          '.hookSpecificOutput.permissionDecisionReason | contains($w)' > /dev/null 2>&1; then
+          bad "$label expected deny for $want, got: $out"; good=0
+        elif ! grep -qF -- "<!-- track:pending at=" "$ledger" || ! grep -q -- " id=$want -->\$" "$ledger"; then
+          bad "$label no pending line for $want"; good=0
+        elif [ "$expect" = deny-retry ]; then
+          printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("No ledger entry with id=")' > /dev/null 2>&1 \
+            || { bad "$label missing retry line"; good=0; }
+          [ "$(grep -c "track:pending.* id=$want -->\$" "$ledger")" -eq 2 ] || { bad "$label expected 2 pending lines"; good=0; }
+        fi ;;
+      allow-logged)
+        if [ -n "$(decision_of)" ] || ! printf '%s' "$out" | jq -e '.hookSpecificOutput.additionalContext | length > 0' > /dev/null 2>&1 \
+          || [ "$(grep -c "status=logged-over-budget source=hook.* id=$want -->\$" "$ledger")" -ne 1 ]; then
+          bad "$label expected allow-logged for $want, got: $out"; good=0
+        fi ;;
+      allow-fallback)
+        if [ -n "$(decision_of)" ] || ! printf '%s' "$out" | jq -e '.hookSpecificOutput.additionalContext | length > 0' > /dev/null 2>&1 \
+          || [ "$(grep -c "status=skipped source=hook.* id=$want -->\$" "$ledger")" -ne 1 ]; then
+          bad "$label expected allow-fallback for $want, got: $out"; good=0
+        fi ;;
+      *) bad "$label unknown expectation"; good=0 ;;
+    esac
+  fi
+  [ "$good" -eq 1 ] && ok
+done < "$cases"
+
+# ── extra checks ──────────────────────────────────────────────────────────────
+# (a) path with a space: deny, then silent once a decided entry exists.
+setup scoped
+mkdir -p "$root/docs"
+printf 'x\n' > "$root/docs/my file.md"
+json="$(build_json Edit "$root/docs/my file.md" a b)"
+run_hook "$json"
+if [ "$(decision_of)" = deny ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("Checkpoint id: scope:docs/my file.md")' > /dev/null 2>&1; then
+  entry decided yes "scope:docs/my file.md"
+  run_hook "$json"
+  [ -z "$out" ] && ok || bad "(a) path with space: expected silent after decided entry, got: $out"
+else
+  bad "(a) path with space: expected deny, got: $out"
+fi
+
+# (b) latency of the no-session fast path (informational; warns above 20 ms).
+setup none
+json="$(build_json Edit "$root/package.json" a b)"
+n=50
+TIMEFORMAT=%R
+secs="$( { time (i=0; while [ "$i" -lt "$n" ]; do printf '%s' "$json" | env -u CLAUDE_PROJECT_DIR "$runner" "$hook" > /dev/null 2>&1; i=$((i + 1)); done) ; } 2>&1 )"
+avg_ms="$(awk -v s="$secs" -v n="$n" 'BEGIN { printf "%.1f", s * 1000 / n }')"
+echo "info: no-session fast path averages ${avg_ms} ms/run incl. bash startup ($n runs)"
+awk -v a="$avg_ms" 'BEGIN { exit !(a > 20) }' && echo "WARN: fast path above 20 ms"
+
+# (c) python3 fallback: strip jq-bearing dirs from PATH.
+nojq_path=""
+oldifs="$IFS"; IFS=:
+for dir in $PATH; do
+  [ -x "$dir/jq" ] && continue
+  nojq_path="${nojq_path:+$nojq_path:}$dir"
+done
+IFS="$oldifs"
+if PATH="$nojq_path" command -v python3 > /dev/null 2>&1 && ! PATH="$nojq_path" command -v jq > /dev/null 2>&1 \
+  && PATH="$nojq_path" python3 -c 'import json' > /dev/null 2>&1; then
+  setup active
+  json="$(build_json Edit "$root/package.json" a b)"
+  out="$(printf '%s' "$json" | env -u CLAUDE_PROJECT_DIR PATH="$nojq_path" "$runner" "$hook" 2> /dev/null)"
+  decision="$(printf '%s' "$out" | python3 -c 'import sys,json; print(json.load(sys.stdin)["hookSpecificOutput"]["permissionDecision"])' 2> /dev/null)"
+  [ "$decision" = deny ] && ok || bad "(c) python3 fallback expected deny, got: $out"
+  # ledger edit auto-allow also works on the python path
+  json="$(build_json Edit "$ledger" a b)"
+  out="$(printf '%s' "$json" | env -u CLAUDE_PROJECT_DIR PATH="$nojq_path" "$runner" "$hook" 2> /dev/null)"
+  decision="$(printf '%s' "$out" | python3 -c 'import sys,json; print(json.load(sys.stdin)["hookSpecificOutput"]["permissionDecision"])' 2> /dev/null)"
+  [ "$decision" = allow ] && ok || bad "(c) python3 fallback expected allow-ledger, got: $out"
+else
+  echo "info: (c) python3 fallback skipped (no jq-free PATH with a working python3)"
+fi
+
+# (d) parallel: two concurrent identical runs both deny, both pending lines intact.
+setup active
+json="$(build_json Edit "$root/package.json" a b)"
+printf '%s' "$json" | env -u CLAUDE_PROJECT_DIR "$runner" "$hook" > "$d/p1.out" 2> /dev/null &
+printf '%s' "$json" | env -u CLAUDE_PROJECT_DIR "$runner" "$hook" > "$d/p2.out" 2> /dev/null &
+wait
+p_ok=1
+for f in "$d/p1.out" "$d/p2.out"; do
+  [ "$(jq -r '.hookSpecificOutput.permissionDecision' "$f" 2> /dev/null)" = deny ] || p_ok=0
+done
+good_lines="$(grep -c '^<!-- track:pending at=[0-9TZ:-]* id=dependency:package.json -->$' "$ledger")"
+{ [ "$p_ok" -eq 1 ] && [ "$good_lines" -eq 2 ]; } && ok || bad "(d) parallel: p_ok=$p_ok well-formed pending lines=$good_lines"
+json="$(build_json Edit "$root/Cargo.toml" a b)"
+run_hook "$json"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("checkpoint 2/3")' > /dev/null 2>&1 \
+  || printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("Decision checkpoint 2/3")' > /dev/null 2>&1 \
+  && ok || bad "(d) parallel: asked should count distinct ids (expected 2/3), got: $out"
+
+total=$((pass + fail))
+echo "track tests ($runner): $pass/$total passed"
+[ "$fail" -eq 0 ]

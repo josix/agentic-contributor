@@ -4,15 +4,17 @@ description: >
   This skill should be used by the /oss command in the prepare-pr scenario (scenario 10) when the
   user has a local branch and wants to prepare a pull request for maintainer review. Trigger
   phrases include "prepare a PR", "get my PR ready", "draft a PR description", "open a PR for",
-  "submit a fix for", "I have a patch", "send a PR", "check my PR before I open it", and close
-  variants. Produces a size and shape check and a problem-first PR description scaffold the
+  "submit a fix for", "I have a patch", "send a PR", "check my PR before I open it", "track this
+  task", "start tracking", "/oss track", "stop tracking", "track status", "log this decision", and
+  close variants. Produces a size and shape check and a problem-first PR description scaffold the
   contributor completes. All output is a DRAFT; the plugin never pushes or opens a PR.
 ---
 
 # PR Preparation
 
 Refer to `skills/smart-questions/references/smart-questions-principles.md` for the principles and
-the AP1-AP9 lint rules, and to `skills/change-debrief/SKILL.md` for the debrief entry mode.
+the AP1-AP9 lint rules, to `skills/change-debrief/SKILL.md` for the debrief entry mode, and to
+`references/decision-ledger.md` (this skill) for the track-mode ledger format.
 
 Maintainers prioritise one well-worked PR from someone who can explain it. This skill helps the
 contributor get there; the contributor writes the reasoning.
@@ -27,12 +29,20 @@ contributor get there; the contributor writes the reasoning.
    > This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
 3. The plugin **never pushes, never opens a PR, never edits code, and never runs tests**. Opening
    the PR is owned by the execution plugin. NEVER call any tool that posts, creates, or pushes.
+   Track mode writes only `.oss-drafts/` files; the checkpoint hook never edits code.
 4. Local git is read-only: `git diff`, `git diff --stat`, `git log`, `git merge-base`,
-   `git remote -v`. Nothing else.
+   `git remote -v`, `git rev-parse HEAD`, `git rev-parse --abbrev-ref HEAD`,
+   `git rev-parse --show-toplevel`, `git rev-parse --git-path info/exclude`, and
+   `git merge-base --is-ancestor`. Nothing else.
 5. Readiness and policy findings are **advisory**: they never block or delay the draft.
 
 ## Modes
 
+Lifecycle: **track** (while the agent codes) then **debrief** then **draft**.
+
+- `mode: track`: the request is "track this task", "start tracking", "/oss track", "stop tracking",
+  "track status", or "log this decision". Sub-actions `start` (default), `stop`, `status`, `log`;
+  run Procedure 0. It produces a private ledger and **no PR text**.
 - `mode: debrief` (entry mode): the request is "help me understand what I changed", "debrief my
   change", or "what did the agent change". Load `change-debrief`, write only its private file
   `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md`, and produce **no PR text**.
@@ -40,6 +50,51 @@ contributor get there; the contributor writes the reasoning.
   from the last day when one exists in `.oss-drafts/`; otherwise offer the debrief first (one line,
   not a question that blocks) and proceed.
 - `mode: lint`: the user re-invokes after filling in the description; run Procedure 6.
+
+## Procedure 0: Tracked session (mode: track)
+
+Skips the policy preflight, readiness, and the DRAFT notice: it produces no outbound text. The
+ledger format, paths, trigger classes, and budget rules are in `references/decision-ledger.md`;
+follow it exactly and do not restate it elsewhere. The ledger is private notes and is never copied
+into a send block.
+
+**Start** (`/oss track [issue-url | task text] [scope: a/**, b.md] [budget N]`):
+
+1. Resolve `<root>` (`git rev-parse --show-toplevel`, else the cwd). Record `branch` and
+   `base_commit` (`git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD`).
+2. If `<root>/.oss-drafts/.track-active` exists and its ledger is `status: active`, ask the one
+   allowed question: stop the old session or keep it (never run two).
+3. Check `command -v jq || command -v python3`. If neither exists, warn that checkpoints are
+   disabled (the ledger still works).
+4. Make sure `.oss-drafts/` is excluded: `ex="$(git rev-parse --git-path info/exclude)"` and the
+   idempotent `grep -qxF '.oss-drafts/' "$ex" || echo '.oss-drafts/' >> "$ex"` (this also works in
+   linked worktrees where `.git` is a file).
+5. With an issue URL, dispatch `oss-researcher` with key `track-start` (title, body, repo paths
+   mentioned). Scope: the user's globs (`scope_source: user`), else mentioned paths that exist in
+   the repo (a file is an exact path, a directory becomes `dir/**`; `scope_source: issue`), else
+   `[]` (`none`, which turns the out-of-scope checkpoint off). Suggest adding matching test dirs.
+   Budget: the user's `budget N`, else 3.
+6. Write the ledger (Write tool, `decision-ledger.md` sections 1 to 3), then the pointer
+   `.oss-drafts/.track-active` (one line, ledger path relative to root).
+7. Tell the user in chat: the four triggers (test weakening, dependencies, opt-in `api_paths`,
+   out-of-scope edits), the budget, that a checkpoint is a choose-question with a Skip option,
+   `/oss track stop`, that "log this decision" appends a manual entry (best effort in plain chat),
+   `OSS_TRACK_DISABLE=1` as the kill switch, and to restart Claude Code if the plugin was just
+   enabled.
+
+**Stop:** Edit the frontmatter (`status: stopped`, add `stopped_at`), then `rm -f
+.oss-drafts/.track-active` (fixed path; if that fails, Write an empty pointer, which the hook
+treats as no session). List entries whose reason is `TODO(you)` and the skipped, over-budget, and
+hook-skipped items. Offer the debrief in one line.
+
+**Status:** task, age, base, branch (warn on mismatch with the current branch), scope, budget used
+(asked / budget), and a table of entries. No auto-close of abandoned sessions; show the age.
+
+**Log:** append a manual entry with Edit per `decision-ledger.md` section 4 (`id=manual:<UTC>`).
+
+During a session, when the hook denies an edit, follow the instructions in its message: ask with
+AskUserQuestion (the user chooses, never approve/deny), append the entry with Edit, then retry.
+Never write `decided_by: user` unless the user answered.
 
 ## Procedure 1: Pre-flight (run in parallel where possible)
 
@@ -74,7 +129,8 @@ From `git diff --stat <base>...HEAD`:
 
 Run `change-debrief` (or reuse a recent debrief file) and put a summary in Private notes with a
 link to the debrief file. Its **Unknowns & follow-ups** list seeds Procedure 4's "Unknowns &
-assumptions". The debrief itself is never copied into the send block.
+assumptions". The debrief itself is never copied into the send block. When a ledger exists for the
+branch (lookup rule in `change-debrief`), the debrief cites it as first-hand evidence.
 
 ## Procedure 4: Problem-First Description Scaffold
 
@@ -83,14 +139,17 @@ a PR template, map these sections onto its headings and keep its checkboxes; oth
 
 - **Why / Problem:** quote or link the linked issue (factual, the plugin may fill this in). If
   there is no issue, `TODO(you): describe the problem this solves`.
-- **Why this approach:** `TODO(you)`.
+- **Why this approach:** `TODO(you)`. The send block stays `TODO(you)` even when a ledger exists;
+  private notes get a "Decisions you recorded" hint list (decided entries: chosen + reason; reasons
+  that are `TODO(you)` stay `TODO(you)`). Never copy ledger text into the send block.
 - **What changed:** `TODO(you): one or two lines in your own words`. Show the AP1 warning in
   Private notes (do not summarise the diff instead of the problem).
 - **How it's tested:** name the tests that cover the change (the plugin may list test files from
   the diff). Never write "ran X, all pass" (AP2). If no test covers it, say so as a `TODO(you)`.
   For how the project runs its tests, point to the `dev-env-setup` skill; do not run them.
 - **Unknowns & assumptions:** `TODO(you)`, a required section, seeded in Private notes from the
-  debrief's Unknowns list.
+  debrief's Unknowns list and from ledger entries that were skipped, `logged-over-budget`, or
+  hook-skipped.
 - **AI disclosure:** see Procedure 5.
 
 The plugin fills only factual parts (linked issue, test file names, disclosure mechanics). Any
@@ -116,7 +175,8 @@ span and ask a question. Never rewrite the user's text or touch the send block.
 
 ## Output Template
 
-Frontmatter: `scenario: prepare-pr`, `repo`, `item` (`issueN|pr-new`), `base`, `head`,
+Track-mode ledgers use their own frontmatter (see `references/decision-ledger.md`). Draft-mode
+frontmatter: `scenario: prepare-pr`, `repo`, `item` (`issueN|pr-new`), `base`, `head`,
 `diff_stats`, `policy`, `readiness_login`, `readiness`, `body_format: 2`, `mode`, `status: draft`.
 
 ```markdown
@@ -139,6 +199,7 @@ TODO(you)
 ### Size and shape verdict
 ### Pre-flight (duplicates, issue-first, readiness)
 ### Debrief summary and seeded unknowns
+### Decisions from the ledger (hints for Why / Unknowns)
 ### Trailer findings
 ### Lint (lint mode)
 ```

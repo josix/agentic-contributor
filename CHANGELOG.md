@@ -5,6 +5,25 @@ All notable changes to the agentic-contributor plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-10-24
+
+### Added
+
+- **Tracked sessions** (`/oss track`, a `prepare-pr` mode with `start`, `stop`, `status`, `log`): a private, append-only **decision ledger** `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` plus a pointer `.oss-drafts/.track-active`. One active session per project folder.
+- **Decision checkpoints**: a new, separate, advisory `PreToolUse` hook `hooks/scripts/track-checkpoint.sh` for `Edit|Write|MultiEdit|NotebookEdit`. Opt-in per session (no session means no output and no subprocess); fails open; `jq`, then `python3`, else silent allow. Four trigger classes (test weakening, dependency manifests and lock files, opt-in `api_paths`, out-of-scope edits) become "choose, not approve" questions with a Skip option. Budget default 3 questions, a loop guard, `budget: 0` log-only mode, and `OSS_TRACK_DISABLE=1`.
+- The hook auto-allows `Edit` only for the exact active ledger path (no `..`, no symlinks, nothing else) so a checkpoint costs one interruption.
+- Harness `hooks/tests/run-track-tests.sh` with `hooks/tests/track-cases.tsv` (bash 3.2, fixture git repo per case).
+- `oss-researcher` scenario key `track-start`; reference `skills/pr-preparation/references/decision-ledger.md` (canonical ledger format); concept page `docs/concepts/tracked-sessions.md`.
+
+### Changed
+
+- `change-debrief` and the `prepare-pr` scaffold read the ledger as first-hand evidence (`evidenced: ledger <id>`); skipped, over-budget, and hook-skipped decisions become Unknowns; the send block stays `TODO(you)`.
+- `/oss` allowed-tools adds `Edit` (active ledger only); the `mode` list adds `track`; `item` adds `task`.
+
+### Notes
+
+- No guard changes; no scenario or skill count change. Bash commands (`npm install`, `rm`) are not watched; documented as a limit.
+
 ## [0.7.0] - 2026-10-21
 
 ### Added

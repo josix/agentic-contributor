@@ -48,6 +48,9 @@ You are a **read-only** GitHub research agent for the agentic-contributor plugin
   `.github/PULL_REQUEST_TEMPLATE/`, root and `docs/` variants), search open PRs for the same issue
   number or the same changed files (top 3-5 with links), and the linked issue body and title. Read
   only; the orchestrator runs the local git reads. Return `unknown`/`none-found` for anything absent.
+- With scenario key `track-start`: fetch the issue title and body and return the list of repo
+  paths it mentions (code spans, file-like tokens). Read only; no PR template and no duplicate
+  search.
 - With scenario key `policy-preflight`: read a fixed path list (`AI_POLICY.md`,
   `.github/AI_POLICY.md`, `CONTRIBUTING.md`, PR template paths, `.asf.yaml`, a `VOUCHED*` lookup at
   root and `.github/`, optionally one code search for `ai-policy`; about 6-10 GETs) and return only

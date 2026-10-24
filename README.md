@@ -12,6 +12,7 @@ This is the **research-and-engagement half** of a two-plugin system. It surfaces
 - **Draft-only guardrail** — a `PreToolUse` hook actively denies all outbound and mutating actions; drafts are presented for human review before any separate execution step.
 - **MCP + `gh` fallback** — prefers the structured GitHub MCP server when `GITHUB_MCP_TOKEN` is set; falls back to `gh` CLI automatically.
 - **Contributor readiness** — claim and find add a private, advisory self-check of how maintainers will likely see your PR (open PRs vs the project's cap, merged PRs, vouch) and favour track-record-building work; it never blocks a draft. Say "skip readiness" to opt out.
+- **Tracked sessions & decision checkpoints** — `/oss track` keeps a private decision ledger while an agent codes; an advisory, opt-in hook asks you to choose at a few reviewer-relevant moments (test weakening, dependencies, out-of-scope edits) within a small budget. The debrief and PR scaffold reuse the ledger as first-hand evidence.
 - **Configurable target projects** — copy `config/targets.example.yaml` to `config/targets.yaml` to set a personal shortlist of repos.
 
 ## Prerequisites
@@ -21,7 +22,7 @@ This is the **research-and-engagement half** of a two-plugin system. It surfaces
 | Claude Code CLI | latest | Plugin host |
 | GitHub CLI (`gh`) | any | `gh` fallback authentication and read commands |
 | `GITHUB_MCP_TOKEN` env var | — | GitHub personal access token for MCP server (optional but recommended) |
-| `jq` | any | Guardrail script JSON parsing |
+| `jq` | any | Guardrail and checkpoint hook JSON parsing (python3 fallback) |
 
 ## Installation
 
@@ -85,6 +86,8 @@ gh auth status
 /oss help me give feedback on apache/airflow PR #9876
 /oss help me respond to the review on my apache/spark PR #4321
 /oss draft a bug report for apache/airflow about scheduler crashing on database reconnect
+/oss track https://github.com/apache/datafusion/issues/1234 scope: datafusion/sql/**
+/oss track stop
 ```
 
 If you omit arguments, `/oss` presents the full scenario menu and asks which applies.
@@ -153,6 +156,17 @@ The `PreToolUse` guardrail hook (`hooks/hooks.json` + `hooks/scripts/guard-outbo
 
 The denial message explains that the plugin is draft-only and that the execution/submission plugin handles sending.
 
+A second, separate `PreToolUse` hook (`hooks/scripts/track-checkpoint.sh`) is advisory and fails open. It matches `Edit|Write|MultiEdit|NotebookEdit` but does nothing unless an `/oss track` session is active.
+
+| Situation | Result |
+|---|---|
+| no tracked session | silent, no subprocess |
+| dependency, test-weakening, `api_paths`, or out-of-scope edit (budget left) | deny once with a "choose" instruction; the answer is recorded in the private ledger |
+| budget spent | allow, logged as an Unknown |
+| Edit of exactly the active ledger file | allow |
+
+It is not a safety boundary. See [Tracked Sessions & Checkpoints](docs/concepts/tracked-sessions.md).
+
 ## Architecture Principles
 
 ### Draft-Only / Human-in-the-Loop
@@ -185,6 +199,7 @@ All GitHub data access is read-only. The MCP server is configured with a `repo:r
 - [docs/guides/github-access.md](docs/guides/github-access.md) — MCP vs `gh` CLI, token setup, rate limits
 - [docs/concepts/draft-only-guardrail.md](docs/concepts/draft-only-guardrail.md) — guardrail internals, full deny/allow matrix
 - [docs/concepts/two-plugin-system.md](docs/concepts/two-plugin-system.md) — research half vs execution half
+- [docs/concepts/tracked-sessions.md](docs/concepts/tracked-sessions.md) — tracked sessions, decision ledger, checkpoints
 - [docs/reference/commands.md](docs/reference/commands.md) — `/oss` frontmatter and behavior steps
 - [docs/reference/agents.md](docs/reference/agents.md) — `oss-researcher` and `oss-claim-analyst` specs
 - [docs/reference/skills.md](docs/reference/skills.md) — all 9 skills with trigger phrases

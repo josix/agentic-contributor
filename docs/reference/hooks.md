@@ -1,10 +1,10 @@
 # Hooks Reference
 
-The draft-only `PreToolUse` guardrail: registration, matcher, and the full deny/allow matrix.
+The draft-only `PreToolUse` guardrail (registration, matcher, full deny/allow matrix) and the advisory decision-checkpoint hook.
 
 ## Overview
 
-The `agentic-contributor` plugin registers one hook type: a `PreToolUse` hook that runs before every `Bash` call and every GitHub MCP tool call. It enforces the draft-only contract by denying outbound and mutating actions before they execute.
+The `agentic-contributor` plugin registers two `PreToolUse` hooks: the draft-only guardrail, which runs before every `Bash` call and every GitHub MCP tool call and denies outbound and mutating actions before they execute, and an advisory decision-checkpoint hook for Edit/Write that is active only inside an `/oss track` session.
 
 ## Registration (`hooks/hooks.json`)
 
@@ -20,6 +20,16 @@ The `agentic-contributor` plugin registers one hook type: a `PreToolUse` hook th
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-outbound.sh",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-checkpoint.sh",
+            "timeout": 5
           }
         ]
       }
@@ -116,6 +126,35 @@ Everything not matched by a deny pattern:
 - Read-only forms with the same prefixes: `git -C dir log`, `/usr/bin/git status`, `env git diff`, `gh -R o/r pr view 1`, `gh label list`, `gh workflow list`, `curl -X GET …`
 - Build/test commands: `mvn`, `gradle`, `pytest`, `npm test`, `./breeze`, etc.
 - `cat`, `grep`, `find`, `jq`, and other read-only shell commands
+
+---
+
+## `track-checkpoint.sh` (advisory)
+
+**Not a safety boundary.** The guard above is unchanged. This hook turns a few reviewer-relevant edits into "choose, not approve" questions inside a tracked session and records the answers in the private decision ledger. Concept and usage: [Tracked Sessions & Checkpoints](../concepts/tracked-sessions.md). Ledger format: `skills/pr-preparation/references/decision-ledger.md`.
+
+**Matcher:** `Edit|Write|MultiEdit|NotebookEdit`. **Timeout:** 5 seconds. Bash is not watched (`npm install`, `rm` are not caught).
+
+**Opt-in.** With no `.oss-drafts/.track-active` pointer above the edited file (up to the first `.git`), the hook prints nothing and spawns no subprocess (builtins only). Kill switch: `OSS_TRACK_DISABLE=1`. Also silent when the ledger says `status: stopped`, in `permission_mode: plan`, or when the pointer is invalid (it must match `.oss-drafts/track-<name>.md`, no `..`, no symlinks).
+
+**JSON parsing:** `jq` → `python3` → silent allow (no grep fallback; this hook fails open).
+
+**Output:** one `hookSpecificOutput` JSON object on stdout with exit 0. Exit 2 is never used.
+
+| Situation | Result |
+|---|---|
+| no session, stopped session, plan mode, any internal error | silent (no output) |
+| trigger (test weakening, dependency manifest or lock file, opt-in `api_paths`, outside `scope`), id not yet settled, budget left | `deny` with instructions to ask via AskUserQuestion, append a ledger entry, and retry |
+| id already settled, or already logged over budget | silent |
+| budget spent (default 3 questions asked), or `budget: 0` | `additionalContext` only (no permission decision); a `logged-over-budget` line is appended |
+| second retry without a ledger entry (loop guard) | `deny` again once; the third attempt gets context only (no permission decision) and a `skipped` line |
+| tool `Edit` whose path equals exactly the active ledger path | `allow` (so a checkpoint costs one interruption, not two) |
+
+The ledger auto-allow is deliberately narrow: only `Edit` (never Write, MultiEdit, or NotebookEdit), only the byte-for-byte active ledger path read from the pointer, nothing with a `..` segment, and nothing when the ledger, the pointer, or `.oss-drafts/` is a symlink. Every other path, including other files in `.oss-drafts/`, gets no allow.
+
+Checkpoint ids are `<class>:<repo-relative path>`; a lock file maps to its manifest (`yarn.lock` is `dependency:package.json`). The hook appends only class, path, counts, and timestamps with a single `>>`; it never writes tool input into the ledger.
+
+Harness: `bash hooks/tests/run-track-tests.sh` (bash 3.2 compatible; builds a fixture git repo in a temp dir per case).
 
 ---
 

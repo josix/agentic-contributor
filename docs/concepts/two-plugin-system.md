@@ -44,7 +44,7 @@ The execution plugin reads the draft from the `.oss-drafts/` file (the `status: 
 
 From v0.4.0, draft-tier files contain private material (understanding briefs, lint findings) that must never be posted. The execution plugin must therefore:
 
-- Check the `body_format` frontmatter. If it is absent or `1`, the whole body is sendable (legacy behaviour).
+- Check the `body_format` frontmatter. If it is `private`, refuse: nothing in the file is sendable (change debriefs). If it is absent or `1`, the whole body is sendable (legacy behaviour).
 - If it is `2`, post **only** the text between `<!-- oss:send:start -->` and `<!-- oss:send:end -->`. Everything else, including the `## Private notes (not sent)` section, is never posted.
 - **Refuse to send** while any `TODO(you):` remains inside a send block, or when a send block is empty.
 - Show the exact send-block text for final confirmation before posting.
