@@ -183,7 +183,12 @@ Written by `track-breakpoint.sh` (same lock, same single-append rule; it never w
 - drift alert drift:<k>: <n> changed lines (limit <L>), <n> files (limit <F>)[, out-of-scope modules: <m>, …]; <asked|logged only (drift cap spent)|logged only (budget 0)>
 <!-- track:breakpoint at=<UTC> epoch=<unix s> sid=<session_id|-> target=<enc rel>:<line> id=explain:<k> -->
 - breakpoint question explain:<k>: <rel>:<line> (<n>-line change)
+<!-- track:drift-paused at=<UTC> reason=base-moved -->
+- drift and explain-back paused: the base commit moved (rebase, reset, or merge); restart tracking to re-baseline
 ```
+
+`track:drift-paused` is written at most once per ledger (it is the "said once" state). A control
+character in a git-reported file name is replaced with `?` before it reaches a bullet or the output.
 
 `enc` percent-encodes `%` as `%25`, space as `%20`, and `,` as `%2C`. `sid` is kept only if it
 matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
@@ -324,11 +329,13 @@ Additions in v0.9.0:
   Drift C whose files are still in the final diff: Unknown "dropped per ledger drift:<k> but still
   in the diff: ...". A skipped drift entry, a `track:drift` marker without an entry, or an
   `asked=no` marker: Unknown.
+- A `track:drift-paused` line: Unknown "scope drift and explain-back were paused after the base
+  commit moved; changes since then were not checked".
 
 ## 11. Session state file
 
 `<root>/.oss-drafts/<ledger basename without .md>.state`. Plain text, one record per line,
-tab-separated, append-only. Only `track-breakpoint.sh` writes it; `/oss track stop` deletes it. It
+tab-separated, append-only except for compaction. Only `track-breakpoint.sh` writes it; `/oss track stop` deletes it. It
 holds repo-relative paths only, never contents. It is disposable: rate-limit and audit state lives
 in the ledger, so deleting it cannot lift a cap. A missing, malformed, or symlinked state file means
 "no edits" (silent; a symlink disables both features).
@@ -337,18 +344,33 @@ in the ledger, so deleting it cannot lift a cap. A missing, malformed, or symlin
 e<TAB><rel>      PostToolUse: a successful Edit/Write/MultiEdit/NotebookEdit outside .oss-drafts/
 d                PostToolUse: a drift check ran (throttle point)
 m<TAB><q>        Stop: question watermark (questions(q) at this stop)
-b<TAB><id|none>  Stop: breakpoint consumed (explain:<k> asked, or none = no target)
+b<TAB><id|none>  Stop: breakpoint consumed (explain:<k> asked, none = no target, compacted)
+s<TAB><n>        Stop: number of asked=no drift markers already summarised to the user
 ```
 
 "Edits since the last breakpoint" = `e` lines after the last `b` line. Paths under `.oss-drafts/`
-are never logged, so ledger writes never re-arm a breakpoint.
+are never logged, so ledger writes never re-arm a breakpoint. The last `m` and `s` values win.
+
+**Compaction.** Above 400 lines the hook (under the ledger lock; skipped if busy) folds all but the
+newest 100 lines into a prefix: the last `m` and `s`, one `e` per distinct path edited before the
+last dropped `b` (the session-wide set used for untracked-file counting), `b<TAB>compacted`, one
+`e` per distinct path after it, and one `d` if any was dropped. Nothing reads line counts, so only
+the "edits since the last `d`" throttle can be undercounted, which at most postpones one check. An
+`e` line appended by a parallel PostToolUse during the rewrite may be lost (harmless).
 
 ## 12. Scope drift
 
 - **Events**: PostToolUse (throttled: a git check runs only when the edited path is new to the
   session's edit log, or after 5 edits since the last check) and Stop (once per turn end, which also
   catches Bash-made changes). Inside a subagent (`agent_id` present) PostToolUse logs the edit but
-  defers the check to the main thread's Stop.
+  defers the check to the main thread's Stop, without writing a `d` throttle line.
+- **Base moved**: before measuring, the hook checks `git merge-base --is-ancestor <base_commit>
+  HEAD` and `git rev-list --merges <base_commit>..HEAD`. If the base is no longer an ancestor, or a
+  merge commit landed since it (a rebase, reset, or `git pull` with a merge), the diff would count
+  upstream changes as drift: drift and explain-back pause, `track:drift-paused` is written once, and
+  the user is told "base moved — drift paused; restart tracking (/oss track stop + start) to
+  re-baseline" (PostToolUse: `additionalContext` plus `systemMessage`; Stop: `systemMessage` only).
+  A fast-forward pull is not detected. An unknown base commit fails open (silent).
 - **Size**: changed lines = added + deleted from `git diff --numstat <base_commit>` (base vs working
   tree) plus the line count of untracked files created with Edit/Write. Lock files count as files
   but not lines; binary files count as files with 0 lines; `.oss-drafts/` is excluded. Thresholds
@@ -360,7 +382,9 @@ are never logged, so ledger writes never re-arm a breakpoint.
   takes precedence over explain-back at the same stop. If the agent ignores PostToolUse context,
   `emit_post` can switch to a block (one-line change).
 - **Cap**: `drift_max` asked alerts; over the cap, or with `budget: 0`, the marker is written with
-  `asked=no` (log only) and the agent mentions it at the end. The `track:drift` marker is the
+  `asked=no` (log only) and nothing is injected after the edit. At the next Stop the user gets one
+  `systemMessage` summarising the new `asked=no` markers (counted against the state `s` line), and
+  the debrief lists them. The `track:drift` marker is the
   alerted state, so a missing Claude entry never causes a repeat. Simultaneous crossings are merged
   into one alert.
 - **Git safety**: every git call runs with `GIT_OPTIONAL_LOCKS=0 GIT_LITERAL_PATHSPECS=1 git -C
@@ -410,9 +434,12 @@ This is advisory: nothing was blocked. Before your next edit:
 Write "decided_by: user…" only if the user actually answered. The ledger is private: never copy it into any sendable text.
 ```
 
-Drift logged only: `[agentic-contributor · tracked session] Scope drift logged without asking
-(drift:<k>: <lines> lines / <files> files[; modules ...]; <drift cap <n> spent | budget 0>). It will
-appear in the debrief. Continue, and mention it to the user when you finish.`
+Drift logged only: no message to Claude. At Stop, a `systemMessage` to the user:
+`agentic-contributor: <n> scope-drift item(s) logged without asking (drift question cap spent or
+budget 0); they are in the ledger and the debrief.`
+
+`<source>` is a fixed label (`default`, `set by the user`, `from the project's CONTRIBUTING file`,
+`from the ledger`), never the ledger's `drift_source` text.
 
 Explain (Stop block reason):
 

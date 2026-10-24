@@ -19,10 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Separate caps: checkpoints 3 (unchanged), drift 2, explain-back 4. `budget: 0` is now quiet mode for the whole session (no checkpoint, drift, or explain questions; drift is still logged).
 - `change-debrief` and the `prepare-pr` scaffold use explain answers as the strongest Why evidence and turn skipped or unanswered drift and explain items into Unknowns and follow-ups. `/oss track status` and `/oss track stop` report the new counts; `stop` also deletes the state file.
 - `hooks/hooks.json` registers `PostToolUse` and `Stop`.
+- `track-checkpoint.sh` behaviour: with `budget: 0`, an edit that already has a pending marker is now logged as `logged-over-budget` (with the notice) instead of getting a retry/skip prompt, so quiet mode never asks. Its shared code sits in `# --- shared: <name> (keep identical in track-*.sh) ---` blocks (list cleaning, manifest map, glob match added to the v0.8.0 session lookup and lock helpers). Its harness gains a `budget0-pending` case (82/82).
+
+### Fixed
+
+- Scope drift no longer counts upstream changes after a mid-session rebase, reset, or merge: when the base commit is not an ancestor of `HEAD` or a merge commit landed since it, drift and explain-back pause and the user is told once (`track:drift-paused`) to restart tracking to re-baseline. A fast-forward pull is not detected (documented limit).
+- Over the drift question cap or with `budget: 0`, newly seen out-of-scope modules are recorded silently instead of injecting `additionalContext` after each edit; the next Stop gives the user one `systemMessage` summary, and the debrief lists them.
+- The session state file `<ledger>.state` no longer grows without bound: above 400 lines it is compacted (under the ledger lock) to a prefix that keeps the last `m`/`s` values, the distinct edited paths, and the last breakpoint reset, plus the newest 100 lines.
+- Inside a subagent, PostToolUse checks `agent_id` before writing the `d` throttle marker, so a subagent edit no longer postpones the main thread's next drift check.
+- Ported the v0.8.0 security fixes to `track-breakpoint.sh`: the git-dir session pointer (shared lookup block, checked before stdin is read; the `stop_hook_active` guard still runs before any parsing), control characters in `file_path`/`cwd` or other input fields fail open without writing, control characters in git-reported file names are replaced, and no ledger text is echoed (the drift source is shown as a fixed label, never the ledger's `drift_source` value).
+- `docs/reference/hooks.md` documents that `last_assistant_message` (Stop) and `agent_id` (PostToolUse in a subagent) need a Claude Code version that sends them, and what degrades without them.
+- Harness: 90 breakpoint checks (gitdir pointer fixtures run from the fixture root; committed in-worktree pointer, `.git`-file worktree, injection text in `scope`/`drift_source`, control characters in input, rebased and merged base, quiet-mode summary, state compaction, subagent `d` marker, a tracked path with a space in the explain target, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload); also pass with GNU `stat` on `PATH`. The byte-identity check uses the new block delimiters and also compares the set of shared block names.
 
 ### Notes
 
-- Guard untouched (`guard-outbound.sh`, its harness and cases; 271/271). `track-checkpoint.sh` gets comment-only markers; its harness stays 67/67. No scenario or skill count change.
+- Guard untouched (`guard-outbound.sh`, its harness and cases; 271/271). No scenario or skill count change.
 - Hooks never revert, stash, or edit code. Limits: Bash-created untracked files are not counted, `SubagentStop` is not covered, and `Stop` does not run on interrupt.
 
 ## [0.8.0] - 2026-10-24

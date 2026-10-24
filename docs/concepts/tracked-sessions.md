@@ -153,9 +153,19 @@ worktree or submodule has its own git dir and so its own session.
 - The ledger is self-reported by the agent.
 - Files created by Bash are not counted toward drift size, `SubagentStop` is not covered, and
   Stop does not run when you interrupt the agent.
-- Drift is measured against the session base commit; rebasing onto a newer base inflates it (stop
-  and start again). Git work runs only inside a session, throttled, and can take longer on huge
-  repos.
+- Drift is measured against the session base commit. If the base stops being the base of `HEAD`
+  (a rebase, a reset, or a merge commit since the base, for example `git pull` without
+  `--rebase`), drift alerts and explain-back questions pause and you are told once: "base moved —
+  drift paused; restart tracking (`/oss track stop` + start) to re-baseline". A fast-forward pull
+  of upstream commits is not detected and still counts as drift; restart tracking after pulling.
+  Git work runs only inside a session, throttled, and can take longer on huge repos.
+- After the drift question cap is spent, or with `budget: 0`, new drift (including each newly seen
+  out-of-scope module) is recorded silently and summarised once at the end of the turn and in the
+  debrief, never injected after every edit.
+- The "agent is already asking" check needs `last_assistant_message` in the Stop input, and the
+  subagent deferral needs `agent_id` in the PostToolUse input. On a Claude Code version that does
+  not send them, a breakpoint question may follow a question the agent just asked, and a
+  subagent's edits run the drift check themselves.
 - The hook is advisory and fails open; it is not a safety boundary. The draft-only guard is separate.
 
 ---

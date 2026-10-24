@@ -13,12 +13,19 @@
 # any internal error means "no output, exit 0". It never edits code, reverts, stashes, or runs git
 # commands that write.
 #
-# Opt-in per session: it does nothing (no output, no subprocess) unless
-# <root>/.oss-drafts/.track-active exists. The no-session path uses only bash builtins.
+# Opt-in per session: it does nothing (no output, no subprocess, stdin not read) unless the
+# session pointer <gitdir>/agentic-contributor/track-active exists for the repository that
+# contains $CLAUDE_PROJECT_DIR (or $PWD); see track-checkpoint.sh. The no-session path uses only
+# bash builtins.
+#
+# Ledger text (scope, drift_source, any frontmatter value) is never echoed into the output: it is
+# repository-writable data, so echoing it would be a prompt-injection channel. File paths named in
+# the output come from git and the hook input, with control characters rejected or replaced.
 #
 # Format, ids, caps and loop rules: skills/pr-preparation/references/decision-ledger.md (sections
-# 11-14). Blocks marked "shared:<name>" are copied byte for byte from track-checkpoint.sh and
-# checked by hooks/tests/run-breakpoint-tests.sh.
+# 11-14). Blocks between "# --- shared: <name> (keep identical in track-*.sh) ---" and
+# "# --- end shared ---" are copied byte for byte from track-checkpoint.sh and checked by
+# hooks/tests/run-breakpoint-tests.sh.
 #
 # Must run on macOS default bash 3.2: no mapfile, no ${x,,}, no associative arrays.
 
@@ -27,69 +34,80 @@ set -f # never glob-expand patterns such as scope globs
 
 [ "${OSS_TRACK_DISABLE:-}" = 1 ] && exit 0
 
-IFS= read -r -d '' input || true
-[ -n "$input" ] || exit 0
-
-# ── FAST PATH: event + session pointer using only builtins ───────────────────
-re_ev='"hook_event_name"[[:space:]]*:[[:space:]]*"(PostToolUse|Stop)"'
-[[ $input =~ $re_ev ]] || exit 0
-ev="${BASH_REMATCH[1]}"
-if [ "$ev" = Stop ]; then
-  re_sha='"stop_hook_active"[[:space:]]*:[[:space:]]*true'
-  [[ $input =~ $re_sha ]] && exit 0 # loop guard first, zero cost
-fi
-
-# >>> shared:find-root (keep byte-identical in track-checkpoint.sh; checked by run-breakpoint-tests.sh)
-find_root() { # $1 = start dir; walks up to the first .git boundary
-  local d="$1" nd
+# --- shared: session lookup (keep identical in track-*.sh) ---
+# Builtins only. trk_find_session sets trk_root (worktree root), trk_gitdir, trk_ptr,
+# trk_rel_ledger (".oss-drafts/track-*.md") and trk_ledger (absolute); returns 1 when there is
+# no valid session. Callers exit 0 with no output on 1 (fail open).
+trk_find_repo() { # $1 absolute start dir -> trk_root, trk_gitdir (worktree/submodule .git files ok)
+  local d="$1" nd line
   case "$d" in /*) ;; *) return 1 ;; esac
-  while [ -n "$d" ]; do
-    if [[ -f "$d/.oss-drafts/.track-active" ]]; then
-      root="$d"
+  while [ "$d" != "/" ] && [ "${d%/}" != "$d" ]; do d="${d%/}"; done
+  while :; do
+    if [[ -d "$d/.git" ]]; then
+      trk_root="$d"
+      trk_gitdir="$d/.git"
       return 0
     fi
-    [[ -e "$d/.git" ]] && return 1
+    if [[ -f "$d/.git" ]]; then
+      line=""
+      IFS= read -r line < "$d/.git" || [ -n "$line" ] || return 1
+      line="${line%$'\r'}"
+      case "$line" in "gitdir: "?*) line="${line#gitdir: }" ;; *) return 1 ;; esac
+      case "$line" in /*) ;; *) line="$d/$line" ;; esac # relative to the .git file's dir
+      trk_root="$d"
+      trk_gitdir="$line"
+      return 0
+    fi
     [ "$d" = "/" ] && return 1
     nd="${d%/*}"
     [ -z "$nd" ] && nd="/"
     d="$nd"
   done
-  return 1
 }
-# <<< shared:find-root
-
-re_path='"(file_path|notebook_path)"[[:space:]]*:[[:space:]]*"([^"\\]*)"'
-re_cwd='"cwd"[[:space:]]*:[[:space:]]*"([^"\\]*)"'
-fp=""
-cwd=""
-if [ "$ev" = PostToolUse ] && [[ $input =~ $re_path ]]; then fp="${BASH_REMATCH[2]}"; fi
-if [[ $input =~ $re_cwd ]]; then cwd="${BASH_REMATCH[1]}"; fi
-if [ -n "$fp" ] && [ "${fp#/}" = "$fp" ] && [ -n "$cwd" ]; then fp="$cwd/$fp"; fi
-
-root=""
-if [ "$ev" = PostToolUse ]; then
-  for start in "${fp%/*}" "$cwd" "${CLAUDE_PROJECT_DIR:-}"; do
-    [ -n "$start" ] && find_root "$start" && break
+trk_find_session() {
+  local s p re='^\.oss-drafts/track-[A-Za-z0-9._-]+\.md$'
+  trk_root=""; trk_gitdir=""; trk_ptr=""; trk_rel_ledger=""; trk_ledger=""
+  for s in "${CLAUDE_PROJECT_DIR:-}" "${PWD:-}"; do
+    [ -n "$s" ] || continue
+    trk_find_repo "$s" || continue
+    trk_ptr="$trk_gitdir/agentic-contributor/track-active"
+    [[ -f "$trk_ptr" ]] && break
+    trk_ptr=""
   done
-else
-  for start in "$cwd" "${CLAUDE_PROJECT_DIR:-}"; do
-    [ -n "$start" ] && find_root "$start" && break
-  done
-fi
-[ -z "$root" ] && exit 0
+  [ -n "$trk_ptr" ] || return 1
+  # The pointer must be a real file naming a ledger inside this worktree's .oss-drafts/.
+  [[ -L "$trk_ptr" ]] && return 1
+  p=""
+  IFS= read -r p < "$trk_ptr" || [ -n "$p" ] || return 1
+  p="${p%$'\r'}"
+  case "$p" in "$trk_root"/*) p="${p#"$trk_root"/}" ;; esac # absolute path inside the root is ok
+  [[ $p =~ $re ]] || return 1
+  case "$p" in *..*) return 1 ;; esac
+  trk_rel_ledger="$p"
+  trk_ledger="$trk_root/$p"
+  # Directory and ledger must be real (non-symlink) paths, so the ledger cannot leave the root.
+  [[ -L "$trk_root/.oss-drafts" || -L "$trk_ledger" ]] && return 1
+  [[ -f "$trk_ledger" ]] || return 1
+  return 0
+}
+# --- end shared ---
+
+# ── FAST PATH: no session pointer -> exit before reading stdin (builtins only) ──
+trk_find_session || exit 0
 
 # ── SLOW PATH: a session pointer exists. Any failure below fails open. ───────
-# >>> shared:pointer (keep byte-identical in track-checkpoint.sh; checked by run-breakpoint-tests.sh)
-rel_ledger=""
-IFS= read -r rel_ledger < "$root/.oss-drafts/.track-active" || [ -n "$rel_ledger" ] || exit 0
-re_ptr='^\.oss-drafts/track-[A-Za-z0-9._-]+\.md$'
-[[ $rel_ledger =~ $re_ptr ]] || exit 0
-case "$rel_ledger" in *..*) exit 0 ;; esac
-ledger="$root/$rel_ledger"
-# Pointer, directory and ledger must be real (non-symlink) paths.
-[[ -L "$root/.oss-drafts" || -L "$root/.oss-drafts/.track-active" || -L "$ledger" ]] && exit 0
-[[ -f "$ledger" ]] || exit 0
-# <<< shared:pointer
+input="$(cat 2> /dev/null)" || exit 0
+[ -n "$input" ] || exit 0
+re_ev='"hook_event_name"[[:space:]]*:[[:space:]]*"(PostToolUse|Stop)"'
+[[ $input =~ $re_ev ]] || exit 0
+ev="${BASH_REMATCH[1]}"
+if [ "$ev" = Stop ]; then
+  re_sha='"stop_hook_active"[[:space:]]*:[[:space:]]*true'
+  [[ $input =~ $re_sha ]] && exit 0 # loop guard before any parsing or subprocess
+fi
+root="$trk_root"
+ledger="$trk_ledger"
+rel_ledger="$trk_rel_ledger"
 
 state="${ledger%.md}.state"
 [[ -L "$state" ]] && exit 0
@@ -124,7 +142,7 @@ done < "$ledger"
 [ "$fm_plugin" = "agentic-contributor" ] && [ "$fm_mode" = "track" ] || exit 0
 [ "$fm_status" = "active" ] || exit 0
 
-# >>> shared:clean-list (keep byte-identical in track-checkpoint.sh; checked by run-breakpoint-tests.sh)
+# --- shared: list cleaning (keep identical in track-*.sh) ---
 clean_list() { # strip comment, brackets, quotes
   local v="${1%%#*}"
   v="${v//\[/}"
@@ -132,7 +150,7 @@ clean_list() { # strip comment, brackets, quotes
   v="${v//\"/}"
   printf '%s' "$v"
 }
-# <<< shared:clean-list
+# --- end shared ---
 fm_scope="$(clean_list "$fm_scope")"
 
 int_or() { # $1 value, $2 default
@@ -144,7 +162,13 @@ drift_files="$(int_or "$fm_df" 10)"
 drift_max="$(int_or "$fm_dmax" 2)"
 explain_max="$(int_or "$fm_emax" 4)"
 explain_int="$(int_or "$fm_eint" 20)"
-drift_source="${fm_dsrc:-default}"
+# drift_source is ledger text: only a fixed label derived from it is ever shown
+case "${fm_dsrc:-default}" in
+  default) drift_src_label="default" ;;
+  user) drift_src_label="set by the user" ;;
+  contributing:*) drift_src_label="from the project's CONTRIBUTING file" ;;
+  *) drift_src_label="from the ledger" ;;
+esac
 base=""
 re_sha7='^[0-9a-f]{7,64}$'
 [[ $fm_base =~ $re_sha7 ]] && base="$fm_base"
@@ -155,39 +179,49 @@ command -v jq > /dev/null 2>&1 && have_jq=1
 command -v python3 > /dev/null 2>&1 && have_py=1
 [ "$have_jq" -eq 1 ] || [ "$have_py" -eq 1 ] || exit 0
 
-# parse_input: US-separated event, path, permission_mode, session_id, stop_hook_active, agent_id, last char.
+# parse_input: US-separated event, path, permission_mode, session_id, stop_hook_active, agent_id,
+# last char of last_assistant_message, cwd. Any field containing a control character (newline, CR,
+# US, ...) is printed as empty, so it can neither shift the fields nor forge ledger/state lines.
+# last_assistant_message (Stop) and agent_id (PostToolUse in a subagent) need a Claude Code version
+# that sends them; without them the "already asking" and subagent checks simply never fire.
 parse_input() {
   if [ "$have_jq" -eq 1 ]; then
     printf '%s' "$input" | jq -r '
+      def clean: tostring | if test("[\u0000-\u001f\u007f]") then "" else . end;
       (.tool_input // {}) as $ti
       | [(.hook_event_name // ""), ($ti.file_path // $ti.notebook_path // ""), (.permission_mode // ""),
          (.session_id // ""), ((.stop_hook_active // false) | tostring), (.agent_id // ""),
-         ((.last_assistant_message // "") | tostring | sub("[[:space:]]+$"; "") | .[-1:])]
-      | map(tostring) | join("\u001f")' 2> /dev/null
+         ((.last_assistant_message // "") | tostring | sub("[[:space:]]+$"; "") | .[-1:]), (.cwd // "")]
+      | map(clean) | join("\u001f")' 2> /dev/null
   else
     printf '%s' "$input" | python3 -c '
-import sys, json
+import sys, json, re
 d = json.load(sys.stdin)
 ti = d.get("tool_input") or {}
 m = str(d.get("last_assistant_message") or "").rstrip()
-print("\x1f".join([d.get("hook_event_name") or "", ti.get("file_path") or ti.get("notebook_path") or "",
-  d.get("permission_mode") or "", d.get("session_id") or "",
-  "true" if d.get("stop_hook_active") else "false", d.get("agent_id") or "", m[-1:]]))
+def clean(v):
+    v = str(v or "")
+    return "" if re.search("[\x00-\x1f\x7f]", v) else v
+print("\x1f".join(clean(v) for v in [d.get("hook_event_name"), ti.get("file_path") or ti.get("notebook_path"),
+  d.get("permission_mode"), d.get("session_id"),
+  "true" if d.get("stop_hook_active") else "false", d.get("agent_id"), m[-1:], d.get("cwd")]))
 ' 2> /dev/null
   fi
 }
 
 parsed="$(parse_input)" || exit 0
 [ -n "$parsed" ] || exit 0
-IFS=$'\037' read -r p_ev path perm_mode sid sha_active agent_id last_char <<< "$parsed"
+IFS=$'\037' read -r p_ev path perm_mode sid sha_active agent_id last_char cwd <<< "$parsed"
+case "$path$cwd" in *[[:cntrl:]]*) exit 0 ;; esac # belt and braces: never log a control char
 [ "$p_ev" = "$ev" ] || exit 0
 [ "$perm_mode" = "plan" ] && exit 0
 [ "$ev" = Stop ] && [ "$sha_active" = true ] && exit 0
+[ "$ev" = PostToolUse ] && [ -z "$path" ] && exit 0 # missing, or rejected for a control character
 re_sid='^[A-Za-z0-9._-]+$'
 if ! [[ $sid =~ $re_sid ]]; then sid="-"; fi
 
 # ── helpers ──────────────────────────────────────────────────────────────────
-# >>> shared:manifest-map (keep byte-identical in track-checkpoint.sh; checked by run-breakpoint-tests.sh)
+# --- shared: manifest map (keep identical in track-*.sh) ---
 manifest_for() { # echoes the manifest basename if $1 is a dependency file, else nothing
   case "$1" in
     yarn.lock | package-lock.json | pnpm-lock.yaml | npm-shrinkwrap.json | bun.lockb) echo package.json ;;
@@ -206,9 +240,9 @@ manifest_for() { # echoes the manifest basename if $1 is a dependency file, else
       *.gemspec | *.csproj) echo "$1" ;;
   esac
 }
-# <<< shared:manifest-map
+# --- end shared ---
 
-# >>> shared:glob-match (keep byte-identical in track-checkpoint.sh; checked by run-breakpoint-tests.sh)
+# --- shared: glob match (keep identical in track-*.sh) ---
 glob_match() { # $1 rel, $2 comma list
   local g list="$2" IFS=,
   for g in $list; do
@@ -221,7 +255,7 @@ glob_match() { # $1 rel, $2 comma list
   done
   return 1
 }
-# <<< shared:glob-match
+# --- end shared ---
 
 enc() { # percent-encode % space comma (builtins only)
   local s="$1"
@@ -257,47 +291,67 @@ AWK_DQ='function dq(s,   o, i, c, n, m) {
   return o
 }'
 
-emit_json() { # $1 = post|stop, $2 = text
+emit_json() { # $1 = post|stop|note, $2 = text (additionalContext | block reason), $3 = systemMessage
   if [ "$have_jq" -eq 1 ]; then
-    if [ "$1" = post ]; then
-      jq -nc --arg c "$2" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $c}}' 2> /dev/null
-    else
-      jq -nc --arg c "$2" '{decision: "block", reason: $c}' 2> /dev/null
-    fi
+    jq -nc --arg k "$1" --arg c "$2" --arg u "${3:-}" '
+      (if $k == "post" then {hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $c}}
+       elif $k == "stop" then {decision: "block", reason: $c} else {} end)
+      + (if $u != "" then {systemMessage: $u} else {} end)' 2> /dev/null
   else
     python3 -c '
 import sys, json
+o = {}
 if sys.argv[1] == "post":
     o = {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": sys.argv[2]}}
-else:
+elif sys.argv[1] == "stop":
     o = {"decision": "block", "reason": sys.argv[2]}
+if sys.argv[3]: o["systemMessage"] = sys.argv[3]
 print(json.dumps(o))
-' "$1" "$2" 2> /dev/null
+' "$1" "$2" "${3:-}" 2> /dev/null
   fi
   exit 0
 }
 
-take_lock() {
-# >>> shared:lock (keep byte-identical in track-checkpoint.sh; checked by run-breakpoint-tests.sh)
-lock="$ledger.lock"
-tries=0
-until mkdir "$lock" 2> /dev/null; do
-  # a lock older than ~10s is stale (a crashed hook); remove it once and retry
-  lt="$(stat -f %m "$lock" 2> /dev/null || stat -c %Y "$lock" 2> /dev/null)"
-  case "$lt" in '' | *[!0-9]*) ;; *) [ $(($(date +%s) - lt)) -gt 10 ] && rmdir "$lock" 2> /dev/null ;; esac
-  tries=$((tries + 1))
-  [ "$tries" -ge 20 ] && exit 0
-  sleep 0.1 2> /dev/null || exit 0
-done
-trap 'rmdir "$lock" 2> /dev/null' EXIT
-# <<< shared:lock
+# --- shared: lock helpers (keep identical in track-*.sh) ---
+trk_mtime() { # $1 path -> epoch mtime on stdout; GNU stat first (BSD rejects -c), then BSD stat
+  local t
+  t="$(stat -c %Y "$1" 2> /dev/null)" || t=""
+  case "$t" in '' | *[!0-9]*) t="$(stat -f %m "$1" 2> /dev/null)" || t="" ;; esac
+  case "$t" in '' | *[!0-9]*) return 1 ;; esac
+  printf '%s' "$t"
+}
+trk_lock() { # $1 lock dir; returns 1 if still busy after ~2s. Caller sets the EXIT trap.
+  local lock="$1" tries=0 lt now stale="$1.stale.$$"
+  until mkdir "$lock" 2> /dev/null; do
+    # A lock older than ~10s is stale (a crashed hook). Rename it to a name unique to this
+    # process first, so a fresh lock that another process creates meanwhile is never removed by
+    # our rmdir; only the atomic rename can race, and it moves the stale directory at most once.
+    if lt="$(trk_mtime "$lock")" && now="$(date +%s 2> /dev/null)"; then
+      case "$now" in '' | *[!0-9]*) ;; *)
+        if [ $((now - lt)) -gt 10 ]; then
+          rmdir "$stale" 2> /dev/null
+          mv "$lock" "$stale" 2> /dev/null && rmdir "$stale" 2> /dev/null
+        fi ;;
+      esac
+    fi
+    tries=$((tries + 1))
+    [ "$tries" -ge 20 ] && return 1
+    sleep 0.1 2> /dev/null || return 1
+  done
+  return 0
+}
+# --- end shared ---
+take_lock() { # exits 0 (fail open) when the lock stays busy
+  lock="$ledger.lock"
+  trk_lock "$lock" || exit 0
+  trap 'rmdir "$lock" 2> /dev/null' EXIT
 }
 release_lock() { rmdir "$lock" 2> /dev/null; trap - EXIT; }
 
 # ledger_state: one awk pass over the ledger -> globals (see decision-ledger.md section 5)
 ledger_state() {
   local out k v
-  pend_n=0; drift_n=0; drift_asked=0; bp_n=0; bp_last=0; latch=0
+  pend_n=0; drift_n=0; drift_asked=0; drift_logged=0; paused=0; bp_n=0; bp_last=0; latch=0
   alerted_c=","; alerted_m=","; covered=$'\n'; targets="|"
   out="$(TRACK_SID="$sid" TRACK_NOW_S="$now_s" awk '
 function lastid(l,   q, res, found) {
@@ -317,10 +371,11 @@ function mark_cov(i) { if (i ~ /^(test|dependency|api|scope):/) cov[substr(i, in
   if (index($0, " source=breakpoint ") && index($0, " reason=non-interactive ")) ni[i] = 1
 }
 /^<!-- track:drift / {
-  dn++; if (index($0, " asked=yes ")) da++
+  dn++; if (index($0, " asked=yes ")) da++; else dl++
   c = tok($0, "crossed"); if (c != "" && c != "-") ac = ac c ","
   m = tok($0, "modules"); if (m != "" && m != "-") am = am m ","
 }
+/^<!-- track:drift-paused / { dp = 1 }
 /^<!-- track:breakpoint / {
   bn++; e = tok($0, "epoch")
   if (e ~ /^[0-9]+$/ && e + 0 <= ENVIRON["TRACK_NOW_S"] + 0 && e + 0 > bl) bl = e + 0
@@ -331,18 +386,18 @@ END {
   sid = ENVIRON["TRACK_SID"]; lt = 0
   if (sid != "-" && sid != "") for (i in bs) if (bs[i] == sid && (i in ni)) lt = 1
   print "P\t" pend + 0; print "D\t" dn + 0; print "A\t" da + 0; print "B\t" bn + 0; print "E\t" bl + 0
-  print "L\t" lt; print "C\t," ac; print "M\t," am
+  print "L\t" lt; print "C\t," ac; print "M\t," am; print "N\t" dl + 0; print "Z\t" dp + 0
   for (r in cov) print "V\t" r
   for (k = 1; k <= nt; k++) print "T\t" tg[k]
 }' "$ledger" 2> /dev/null)" || return 1
   while IFS=$'\t' read -r k v; do
     case "$k" in
       P) pend_n="$v" ;; D) drift_n="$v" ;; A) drift_asked="$v" ;; B) bp_n="$v" ;; E) bp_last="$v" ;;
-      L) latch="$v" ;; C) alerted_c="$v" ;; M) alerted_m="$v" ;;
+      L) latch="$v" ;; C) alerted_c="$v" ;; M) alerted_m="$v" ;; N) drift_logged="$v" ;; Z) paused="$v" ;;
       V) covered="$covered$v"$'\n' ;; T) targets="$targets$v|" ;;
     esac
   done <<< "$out"
-  case "$pend_n$drift_n$drift_asked$bp_n$bp_last$latch" in '' | *[!0-9]*) return 1 ;; esac
+  case "$pend_n$drift_n$drift_asked$drift_logged$paused$bp_n$bp_last$latch" in '' | *[!0-9]*) return 1 ;; esac
   return 0
 }
 
@@ -366,8 +421,10 @@ BEGIN {
   FS = "\t"
   nl = split("yarn.lock package-lock.json pnpm-lock.yaml npm-shrinkwrap.json bun.lockb Cargo.lock go.sum poetry.lock uv.lock Gemfile.lock Pipfile.lock composer.lock mix.lock Package.resolved", lk, " ")
   for (i = 1; i <= nl; i++) islock[lk[i]] = 1
+  cc = sprintf("[%c-%c%c]", 1, 31, 127)
 }
 function add(p, c,   a, m, b) {
+  gsub(cc, "?", p) # a control character in a file name never reaches the output or the ledger
   m = split(p, a, "/"); b = a[m]
   if (b in islock) c = 0
   files++; lines += c; np++; pn[np] = p; pc[np] = c
@@ -477,7 +534,7 @@ drift_text() { # $1 = post|stop, $2 = alert number, $3 = drift id number
   [ -n "$crossed" ] || crossed="none"
   t="[agentic-contributor · tracked session] Scope drift alert $2/$drift_max: the change has grown since the session base ${base:0:7}."
   [ "$1" = stop ] && t="${t%.} Handle it before ending your turn:"
-  t="$t${nl}Size: $d_lines changed lines (limit $drift_lines, $drift_source), $d_files files (limit $drift_files). Crossed: $crossed."
+  t="$t${nl}Size: $d_lines changed lines (limit $drift_lines, $drift_src_label), $d_files files (limit $drift_files). Crossed: $crossed."
   mt="$(mod_text)"
   [ -n "$mt" ] && t="$t${nl}Out-of-scope modules with changes no checkpoint covered: $mt"
   [ -n "$d_top" ] && t="$t${nl}Largest files: $d_top"
@@ -518,9 +575,88 @@ drift_enabled() {
   [ -n "$base" ] && { [ "$drift_lines" -gt 0 ] || [ "$drift_files" -gt 0 ] || [ -n "$fm_scope" ]; }
 }
 
+# base_check: 0 = the session base is still the base of HEAD; 1 = it moved (a rebase, reset or
+# merge since tracking started, so a diff against it would count upstream changes as drift);
+# 2 = git cannot answer (fail open). Result cached for this run.
+base_rc=""
+base_check() {
+  local m
+  if [ -z "$base_rc" ]; then
+    if ! gitq cat-file -e "$base^{commit}" 2> /dev/null; then
+      base_rc=2
+    elif ! gitq merge-base --is-ancestor "$base" HEAD 2> /dev/null; then
+      base_rc=1
+    elif ! m="$(gitq rev-list --merges -n 1 "$base..HEAD" 2> /dev/null)"; then
+      base_rc=2
+    elif [ -n "$m" ]; then
+      base_rc=1
+    else
+      base_rc=0
+    fi
+  fi
+  return "$base_rc"
+}
+
+PAUSE_MSG="agentic-contributor: base moved — drift paused; restart tracking (/oss track stop + start) to re-baseline."
+PAUSE_CTX="[agentic-contributor · tracked session] The session base commit is no longer the base of HEAD (a rebase, reset, or merge since tracking started), so scope-drift alerts and explain-back questions are paused for this session. Nothing was blocked. Tell the user once: to re-baseline, run /oss track stop, then /oss track start."
+
+# record_pause: write the one-time drift-paused marker. Returns 1 if it was already written.
+record_pause() {
+  take_lock
+  read -r now_utc now_s <<< "$(date -u '+%Y-%m-%dT%H:%M:%SZ %s' 2> /dev/null)"
+  [ -n "$now_utc" ] || exit 0
+  ledger_state || exit 0
+  if [ "$paused" -eq 1 ]; then release_lock; return 1; fi
+  printf '%s\n%s\n' "<!-- track:drift-paused at=$now_utc reason=base-moved -->" \
+    "- drift and explain-back paused: the base commit moved (rebase, reset, or merge); restart tracking to re-baseline" \
+    >> "$ledger" 2> /dev/null || exit 0
+  release_lock
+  return 0
+}
+
+# compact_state: keep <ledger>.state bounded. Above STATE_MAX lines, the oldest lines are folded
+# into a short prefix that preserves everything the readers use: the last m and s values, every
+# distinct edited path (for the session-wide untracked-file count), the last b reset with the
+# distinct paths edited after it, and one d (an edit count since the last d may be undercounted,
+# which at most postpones one throttled drift check). The newest STATE_KEEP lines stay verbatim.
+# Skipped when the ledger lock is busy; an e line appended while it runs may be lost (harmless).
+STATE_MAX=400
+STATE_KEEP=100
+compact_state() { # $1 = current line count
+  local tmp="$state.tmp.$$"
+  case "$1" in '' | *[!0-9]*) return 0 ;; esac
+  [ "$1" -gt "$STATE_MAX" ] || return 0
+  trk_lock "$ledger.lock" || return 0
+  lock="$ledger.lock"
+  trap 'rmdir "$lock" 2> /dev/null' EXIT
+  if [[ ! -L "$tmp" ]] && awk -F'\t' -v keep="$STATE_KEEP" '
+{ ln[NR] = $0; k[NR] = $1; v[NR] = $2 }
+END {
+  cut = NR - keep; nb = 0; hd = 0; m = ""; s = ""
+  for (i = 1; i <= cut; i++) {
+    if (k[i] == "b") nb = i
+    else if (k[i] == "d") hd = 1
+    else if (k[i] == "m" && v[i] ~ /^[0-9]+$/) m = v[i]
+    else if (k[i] == "s" && v[i] ~ /^[0-9]+$/) s = v[i]
+  }
+  if (m != "") print "m\t" m
+  if (s != "") print "s\t" s
+  for (i = nb + 1; i <= cut; i++) if (k[i] == "e" && v[i] != "") after[v[i]] = 1
+  for (i = 1; i < nb; i++) if (k[i] == "e" && v[i] != "" && !(v[i] in after) && !(v[i] in pre)) { pre[v[i]] = 1; print "e\t" v[i] }
+  if (nb) print "b\tcompacted"
+  for (i = nb + 1; i <= cut; i++) if (k[i] == "e" && v[i] != "" && !(v[i] in post)) { post[v[i]] = 1; print "e\t" v[i] }
+  if (hd) print "d"
+  for (i = cut + 1; i <= NR; i++) print ln[i]
+}' "$state" > "$tmp" 2> /dev/null; then
+    mv -f "$tmp" "$state" 2> /dev/null
+  fi
+  rm -f "$tmp" 2> /dev/null
+  release_lock
+}
+
 # ── PostToolUse ──────────────────────────────────────────────────────────────
 post_tool_use() {
-  local abs="$path" rel st seen since_d t
+  local abs="$path" rel st seen since_d nlines
   [ -n "$abs" ] || exit 0
   if [ "${abs#/}" = "$abs" ]; then
     [ -n "$cwd" ] || exit 0
@@ -529,27 +665,34 @@ post_tool_use() {
   case "$abs" in */.oss-drafts/*) exit 0 ;; esac
   rel="${abs#"$root"/}"
   [ "$rel" = "$abs" ] && exit 0
-  case "$rel" in *$'\n'* | *$'\t'*) exit 0 ;; esac
+  case "$rel" in *[[:cntrl:]]*) exit 0 ;; esac
   printf 'e\t%s\n' "$rel" >> "$state" 2> /dev/null || exit 0
   drift_enabled || exit 0
-  st="$(awk -F'\t' -v r="$rel" '$1 == "e" { if ($2 == r) seen++; since++ } $1 == "d" { since = 0 } END { print seen + 0, since + 0 }' "$state" 2> /dev/null)" || exit 0
-  read -r seen since_d <<< "$st"
-  case "$seen$since_d" in '' | *[!0-9]*) exit 0 ;; esac
+  st="$(awk -F'\t' -v r="$rel" '$1 == "e" { if ($2 == r) seen++; since++ } $1 == "d" { since = 0 } END { print seen + 0, since + 0, NR + 0 }' "$state" 2> /dev/null)" || exit 0
+  read -r seen since_d nlines <<< "$st"
+  case "$seen$since_d$nlines" in '' | *[!0-9]*) exit 0 ;; esac
+  compact_state "$nlines"
   # throttle: git only for a path new to the session or every 5th edit
   if [ "$seen" -gt 1 ] && [ "$since_d" -lt 5 ]; then exit 0; fi
+  [ -n "$agent_id" ] && exit 0 # subagent: the main thread's Stop checks (no d marker, no git)
   printf 'd\n' >> "$state" 2> /dev/null || exit 0
-  [ -n "$agent_id" ] && exit 0 # subagent: the main thread's Stop checks
   now_s=0
   ledger_state || exit 0
+  base_check
+  case "$base_rc" in
+    1)
+      [ "$paused" -eq 1 ] && exit 0
+      record_pause || exit 0
+      emit_json post "$PAUSE_CTX" "$PAUSE_MSG" ;;
+    2) exit 0 ;;
+  esac
+  [ "$paused" -eq 1 ] && exit 0 # base is back, but the session stays paused until a restart
   drift_eval || exit 0
   [ -z "$d_new_c$d_new_m" ] && exit 0
   record_drift || exit 0
-  if [ "$rd_asked" = yes ]; then
-    emit_json post "$(drift_text post "$rd_alert" "$rd_k")"
-  fi
-  t="[agentic-contributor · tracked session] Scope drift logged without asking (drift:$rd_k: $d_lines lines / $d_files files"
-  [ -n "$d_new_m" ] && t="$t; modules $(mod_text)"
-  emit_json post "$t; $rd_why). It will appear in the debrief. Continue, and mention it to the user when you finish."
+  # cap spent or quiet mode: the marker is recorded silently and summarised at Stop / debrief
+  [ "$rd_asked" = yes ] && emit_json post "$(drift_text post "$rd_alert" "$rd_k")"
+  exit 0
 }
 
 # pick_target: sets t_rel t_line t_size from the files edited since the last breakpoint
@@ -578,6 +721,7 @@ pick_target() { # $1 = newline list of edited rels
   res="$(printf '%s\n%s\n' "$d" "$tagged" | TRACK_ROOT="$root" TRACK_TARGETS="$targets" awk "$AWK_DQ"'
 function enc(s) { gsub(/%/, "%25", s); gsub(/ /, "%20", s); gsub(/,/, "%2C", s); return s }
 function consider(rel, ln, sz) {
+  if (rel ~ sprintf("[%c-%c%c]", 1, 31, 127)) return
   nh++; hr[nh] = rel; hl[nh] = ln; hs[nh] = sz
 }
 /^\001U\t/ {
@@ -631,30 +775,43 @@ explain_text() { # uses k t_rel t_line t_size
   printf '%s' "[agentic-contributor · tracked session] Breakpoint question $1/$explain_max (explain-back). Before ending your turn:${nl}Target: $t_rel:$t_line. This is the largest change since the session base ($t_size lines) that no checkpoint or earlier question covered.${nl}1. Read $t_rel around line $t_line and pick the one specific change there (a function, condition, value, or call).${nl}2. Ask the user with AskUserQuestion (header \"Explain\"): ONE question, \"In one sentence, why does <that specific change>? Type your answer under Other, or pick an option.\" Do not hint at the answer. Options:${nl}   A) Skip — not sure (recorded as an Unknown)${nl}   B) I didn't ask for this change${nl}3. Read $rel_ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### explain:$1 · <UTC now>${nl}<!-- track:entry status=<answered|skipped> source=breakpoint asked=<yes|no> at=<UTC now> id=explain:$1 -->${nl}- trigger: explain — $t_rel:$t_line${nl}- files: $t_rel${nl}- question: <the question exactly as asked>${nl}- chosen: <typed|not-requested|skip>${nl}- reason: <the user's typed words verbatim | not requested by the user | TODO(you)>${nl}- answered_by: user${nl}   Typed answer: status=answered, chosen: typed, reason = their words verbatim. B: status=answered, chosen: not-requested, reason: not requested by the user. A: status=skipped, chosen: skip, reason: TODO(you).${nl}4. If AskUserQuestion is unavailable (non-interactive run or subagent): do not ask. Write \`<!-- track:entry status=skipped source=breakpoint asked=no reason=non-interactive at=<UTC now> id=explain:$1 -->\` with chosen: none, reason: non-interactive, answered_by: agent.${nl}5. Do not grade or correct the answer and make no code edits now. End your turn with one short line.${nl}Write \"answered_by: user\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
 }
 
-read_edits() { # sets q_mark, edited from the edit log (a breakpoint marker resets the list)
+read_edits() { # sets q_mark, s_mark, n_lines, edited from the edit log (a b line resets the list)
   local st line rest
   st="$(awk -F'\t' '
 $1 == "b" { n = 0; split("", seen) }
 $1 == "e" && $2 != "" && !($2 in seen) { seen[$2] = 1; list[++n] = $2 }
 $1 == "m" && $2 ~ /^[0-9]+$/ { qm = $2 + 0 }
-END { print "M\t" qm + 0; for (i = 1; i <= n; i++) print "R\t" list[i] }' "$state" 2> /dev/null)" || return 1
-  q_mark=0; edited=""
+$1 == "s" && $2 ~ /^[0-9]+$/ { sm = $2 + 0 }
+END { print "M\t" qm + 0; print "S\t" sm + 0; print "N\t" NR + 0; for (i = 1; i <= n; i++) print "R\t" list[i] }' "$state" 2> /dev/null)" || return 1
+  q_mark=0; s_mark=0; n_lines=0; edited=""
   while IFS=$'\t' read -r line rest; do
-    case "$line" in M) q_mark="$rest" ;; R) edited="$edited$rest"$'\n' ;; esac
+    case "$line" in M) q_mark="$rest" ;; S) s_mark="$rest" ;; N) n_lines="$rest" ;; R) edited="$edited$rest"$'\n' ;; esac
   done <<< "$st"
-  case "$q_mark" in '' | *[!0-9]*) return 1 ;; esac
+  case "$q_mark$s_mark$n_lines" in '' | *[!0-9]*) return 1 ;; esac
   return 0
 }
 
 # ── Stop ─────────────────────────────────────────────────────────────────────
+# A user-facing systemMessage (sys_note) never blocks; it rides along with a block, or is emitted
+# alone when the turn ends without one.
+finish() {
+  [ -n "$sys_note" ] && emit_json note "" "$sys_note"
+  exit 0
+}
+
 stop_event() {
-  local edited q_mark q_now k
+  local edited q_mark s_mark n_lines q_now k had_state
+  sys_note=""
   read -r now_utc now_s <<< "$(date -u '+%Y-%m-%dT%H:%M:%SZ %s' 2> /dev/null)"
   [ -n "$now_utc" ] || exit 0
   ledger_state || exit 0
+  [ -n "$base" ] && base_check
 
-  # (a) drift, once per newly crossed threshold or module
-  if drift_enabled && drift_eval && [ -n "$d_new_c$d_new_m" ]; then
+  # (a) drift, once per newly crossed threshold or module; paused once the base moved
+  if [ "$base_rc" = 1 ] && [ "$paused" -eq 0 ] && drift_enabled; then
+    record_pause && sys_note="$PAUSE_MSG"
+    ledger_state || exit 0
+  elif [ "$base_rc" = 0 ] && [ "$paused" -eq 0 ] && drift_enabled && drift_eval && [ -n "$d_new_c$d_new_m" ]; then
     if record_drift && [ "$rd_asked" = yes ]; then
       emit_json stop "$(drift_text stop "$rd_alert" "$rd_k")"
     fi
@@ -662,41 +819,53 @@ stop_event() {
   fi
 
   # (b) explain-back
-  [ "$budget" -gt 0 ] && [ "$explain_max" -gt 0 ] && [ -n "$base" ] || exit 0
-  [ -f "$state" ] || exit 0
-  read_edits || exit 0
+  q_mark=0; s_mark=0; n_lines=0; edited=""
+  had_state=0
+  if [ -f "$state" ]; then
+    had_state=1
+    read_edits || finish
+    compact_state "$n_lines"
+  fi
+  # drift recorded without asking (cap spent or quiet mode) is summarised here, once per new item
+  if [ "$drift_logged" -gt "$s_mark" ]; then
+    printf 's\t%s\n' "$drift_logged" >> "$state" 2> /dev/null &&
+      sys_note="${sys_note:+$sys_note }agentic-contributor: $((drift_logged - s_mark)) scope-drift item(s) logged without asking (drift question cap spent or budget 0); they are in the ledger and the debrief."
+  fi
+  [ "$budget" -gt 0 ] && [ "$explain_max" -gt 0 ] && [ -n "$base" ] || finish
+  [ "$base_rc" = 0 ] && [ "$paused" -eq 0 ] || finish # base moved or unknown: explain-back paused
+  [ "$had_state" -eq 1 ] || finish                     # no edit logged this session
   q_now=$((pend_n + drift_asked))
-  printf 'm\t%s\n' "$q_now" >> "$state" 2> /dev/null || exit 0
-  [ -n "$edited" ] || exit 0
-  [ "$q_now" -gt "$q_mark" ] && exit 0 # a question already interrupted since the last stop
-  [ "$last_char" = "?" ] && exit 0     # the agent is already waiting on the user
-  [ "$bp_n" -ge "$explain_max" ] && exit 0
-  if [ "$explain_int" -gt 0 ] && [ $((now_s - bp_last)) -lt $((explain_int * 60)) ]; then exit 0; fi
-  [ "$latch" -eq 1 ] && exit 0
+  printf 'm\t%s\n' "$q_now" >> "$state" 2> /dev/null || finish
+  [ -n "$edited" ] || finish
+  [ "$q_now" -gt "$q_mark" ] && finish # a question already interrupted since the last stop
+  [ "$last_char" = "?" ] && finish     # the agent is already waiting on the user
+  [ "$bp_n" -ge "$explain_max" ] && finish
+  if [ "$explain_int" -gt 0 ] && [ $((now_s - bp_last)) -lt $((explain_int * 60)) ]; then finish; fi
+  [ "$latch" -eq 1 ] && finish
   if ! pick_target "$edited"; then
     printf 'b\tnone\n' >> "$state" 2> /dev/null
-    exit 0
+    finish
   fi
   take_lock
   read -r now_utc now_s <<< "$(date -u '+%Y-%m-%dT%H:%M:%SZ %s' 2> /dev/null)"
-  [ -n "$now_utc" ] || exit 0
-  ledger_state || exit 0
-  [ "$bp_n" -ge "$explain_max" ] && exit 0
-  if [ "$explain_int" -gt 0 ] && [ $((now_s - bp_last)) -lt $((explain_int * 60)) ]; then exit 0; fi
-  [ "$latch" -eq 1 ] && exit 0
+  [ -n "$now_utc" ] || finish
+  ledger_state || finish
+  [ "$bp_n" -ge "$explain_max" ] && finish
+  if [ "$explain_int" -gt 0 ] && [ $((now_s - bp_last)) -lt $((explain_int * 60)) ]; then finish; fi
+  [ "$latch" -eq 1 ] && finish
   # revalidate under the lock: a concurrent Stop may have consumed the edits or targeted this spot
-  read_edits || exit 0
-  [ -n "$edited" ] || exit 0
+  read_edits || finish
+  [ -n "$edited" ] || finish
   q_now=$((pend_n + drift_asked))
-  [ "$q_now" -gt "$q_mark" ] && exit 0 # a checkpoint/drift question landed after the first check
-  pick_target "$edited" || exit 0
+  [ "$q_now" -gt "$q_mark" ] && finish # a checkpoint/drift question landed after the first check
+  pick_target "$edited" || finish
   k=$((bp_n + 1))
   printf '%s\n%s\n' \
     "<!-- track:breakpoint at=$now_utc epoch=$now_s sid=$sid target=$(enc "$t_rel"):$t_line id=explain:$k -->" \
-    "- breakpoint question explain:$k: $t_rel:$t_line (${t_size}-line change)" >> "$ledger" 2> /dev/null || exit 0
-  printf 'b\texplain:%s\n' "$k" >> "$state" 2> /dev/null || exit 0
+    "- breakpoint question explain:$k: $t_rel:$t_line (${t_size}-line change)" >> "$ledger" 2> /dev/null || finish
+  printf 'b\texplain:%s\n' "$k" >> "$state" 2> /dev/null || finish
   release_lock
-  emit_json stop "$(explain_text "$k")"
+  emit_json stop "$(explain_text "$k")" "$sys_note"
 }
 
 now_utc=""; now_s=0

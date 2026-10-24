@@ -118,6 +118,11 @@ During a session, when the hook denies an edit, follow the instructions in its m
 AskUserQuestion (the user chooses, never approve/deny), append the entry with Edit, then retry.
 When the hook adds a drift alert after an edit, or holds a stop for a breakpoint question, follow
 its instructions the same way (entries per `decision-ledger.md` section 4; never revert or stash).
+Limits: drift is measured from `base_commit`. If the base moves (a rebase, reset, or merge since
+the base), the hook pauses drift and explain-back and says "base moved — drift paused" once; tell
+the user to run `/oss track stop` then start to re-baseline. A fast-forward pull is not detected.
+Over the drift cap or with `budget: 0`, drift is recorded silently and only summarised at the end
+of a turn and in the debrief.
 Never write `decided_by: user` or `answered_by: user` unless the user answered.
 
 ## Procedure 1: Pre-flight (run in parallel where possible)
