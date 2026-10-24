@@ -25,8 +25,9 @@ approving a diff is not.
 /oss track stop
 ```
 
-- **start** writes a ledger and a one-line pointer `.oss-drafts/.track-active`, and tells you the
-  triggers, the budget, and how to stop. Restart Claude Code if the plugin was just enabled.
+- **start** writes a ledger under `.oss-drafts/` and a one-line pointer
+  `<gitdir>/agentic-contributor/track-active` (the git dir from `git rev-parse --git-dir`, never the
+  worktree), and tells you the triggers, the budget, and how to stop. Tracked sessions require git. Restart Claude Code if the plugin was just enabled.
 - **status** shows the task, age, base, branch (with a warning on mismatch), scope, budget used,
   and the entries. Sessions are never auto-closed; the age is shown instead.
 - **log** appends a manual entry. In plain chat, "log this decision" means the same thing on a
@@ -136,12 +137,18 @@ held again. A subagent's edits are logged, and the main thread's Stop does the d
 ## Stopping and disabling
 
 `/oss track stop`; `OSS_TRACK_DISABLE=1` in the environment as a kill switch; or delete
-`.oss-drafts/.track-active`. With no session the hook prints nothing and starts no subprocess.
+`"$(git rev-parse --git-dir)/agentic-contributor/track-active"`. With no session the hook prints
+nothing, starts no subprocess, and does not read its input.
+
+The pointer lives in the git dir on purpose: git never clones the git dir, so a repository cannot
+ship an active session (a committed `.oss-drafts/.track-active` or ledger is ignored). Each linked
+worktree or submodule has its own git dir and so its own session.
 
 ## Limits
 
 - Bash commands are not watched: `npm install`, `rm tests/…`, or `git rm` are not caught.
-- One session per project folder.
+- One session per project folder. Tracked sessions require git: outside a git repository the
+  hook is inactive.
 - "Log this decision" in plain chat is best effort.
 - The ledger is self-reported by the agent.
 - Files created by Bash are not counted toward drift size, `SubagentStop` is not covered, and

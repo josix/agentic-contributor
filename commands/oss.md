@@ -48,7 +48,7 @@ All scenario outputs are saved to `.oss-drafts/` in the user's current working d
 - Example: `.oss-drafts/engage-apache-airflow-pr9876-20260611T143000Z.md`
 - Example (report): `.oss-drafts/report-apache-airflow-issue-bug-20260612T100000Z.md`
 - Example (prepare-pr): `.oss-drafts/prepare-pr-apache-datafusion-issue1234-20260612T100000Z.md`; debrief mode: `.oss-drafts/prepare-pr-apache-datafusion-debrief-20260612T100000Z.md`
-- Example (track ledger): `.oss-drafts/track-apache-datafusion-issue1234-20261024T101500Z.md`, plus the one-line pointer `.oss-drafts/.track-active`
+- Example (track ledger): `.oss-drafts/track-apache-datafusion-issue1234-20261024T101500Z.md`, plus the one-line pointer `<gitdir>/agentic-contributor/track-active` (in the git dir from `git rev-parse --git-dir`, never in the worktree)
 
 **Frontmatter** (include at the top of every draft file):
 
@@ -96,8 +96,8 @@ Only text between the markers is sendable; everything else is for the user only:
 
 **Gitignore:** Before writing the first draft file in a run, ensure `.oss-drafts/` is excluded from version control in the user's project:
 
-1. If `.git/` exists in the cwd, ensure `.oss-drafts/` is in `.git/info/exclude` using the idempotent one-liner:
-   `grep -qxF '.oss-drafts/' .git/info/exclude || echo '.oss-drafts/' >> .git/info/exclude`
+1. If the cwd is in a git repo, resolve the exclude file with `ex="$(git rev-parse --git-path info/exclude)"` (works in linked worktrees and submodules, where `.git` is a file) and ensure `.oss-drafts/` is in it using the idempotent one-liner:
+   `grep -qxF '.oss-drafts/' "$ex" || echo '.oss-drafts/' >> "$ex"`
    (Non-invasive — does not dirty the user's tracked `.gitignore`. Creates the file if it does not exist.)
 2. If not in a git repo, skip silently.
 
@@ -236,8 +236,10 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
   user's filled-in send block with AP1-AP9. Policy use: disclosure text when `disclosure: required`;
   advise (never rewrite) on AI co-author trailers when `coauthor_trailer_forbidden: true`.
   **Track mode** (`mode: track`) follows Procedure 0 in `pr-preparation`: Write creates the ledger
-  `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` and the pointer `.oss-drafts/.track-active`;
-  Edit is used only on the active ledger (append entries, stop). No policy preflight, no readiness.
+  `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md`, then the pointer
+  `"$(git rev-parse --git-dir)/agentic-contributor/track-active"` (git dir, never the worktree;
+  tracked sessions require git); stop removes that pointer with `rm -f`. Edit is used only on the
+  active ledger (append entries, stop). No policy preflight, no readiness.
   Besides the PreToolUse checkpoints, an advisory PostToolUse/Stop hook may add a scope-drift alert
   or hold a stop for one breakpoint question; follow its instructions (ask, then record the entry
   with Edit on the active ledger; never revert or stash).
@@ -247,10 +249,10 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
   open-PR count/cap, and `gfi_ai_ban` to the issue-matching ranking. When `gfi_ai_ban: true`, good
   first issues go in the unranked "Policy-reserved" footer, not the ranking.
 
-Before writing any file: ensure `.git/info/exclude` (or equivalent) excludes `.oss-drafts/` as
+Before writing any file: ensure the exclude file from `git rev-parse --git-path info/exclude` excludes `.oss-drafts/` as
 described in the convention block above.
 
-Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path. Edit is allowed only on the active track ledger.
+Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path, except the track-session pointer `<gitdir>/agentic-contributor/track-active` (track start only). Edit is allowed only on the active track ledger.
 
 ### Claim → Engage Branch
 

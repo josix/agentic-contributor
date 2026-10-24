@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Tracked sessions** (`/oss track`, a `prepare-pr` mode with `start`, `stop`, `status`, `log`): a private, append-only **decision ledger** `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` plus a pointer `.oss-drafts/.track-active`. One active session per project folder.
+- **Tracked sessions** (`/oss track`, a `prepare-pr` mode with `start`, `stop`, `status`, `log`): a private, append-only **decision ledger** `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` plus a pointer `<gitdir>/agentic-contributor/track-active` in the git dir (never the worktree). One active session per project folder; tracked sessions require git.
 - **Decision checkpoints**: a new, separate, advisory `PreToolUse` hook `hooks/scripts/track-checkpoint.sh` for `Edit|Write|MultiEdit|NotebookEdit`. Opt-in per session (no session means no output and no subprocess); fails open; `jq`, then `python3`, else silent allow. Four trigger classes (test weakening, dependency manifests and lock files, opt-in `api_paths`, out-of-scope edits) become "choose, not approve" questions with a Skip option. Budget default 3 questions, a loop guard, `budget: 0` log-only mode, and `OSS_TRACK_DISABLE=1`.
 - The hook auto-allows `Edit` only for the exact active ledger path (no `..`, no symlinks, nothing else) so a checkpoint costs one interruption.
 - Harness `hooks/tests/run-track-tests.sh` with `hooks/tests/track-cases.tsv` (bash 3.2, fixture git repo per case).
@@ -39,6 +39,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `change-debrief` and the `prepare-pr` scaffold read the ledger as first-hand evidence (`evidenced: ledger <id>`); skipped, over-budget, and hook-skipped decisions become Unknowns; the send block stays `TODO(you)`.
 - `/oss` allowed-tools adds `Edit` (active ledger only); the `mode` list adds `track`; `item` adds `task`.
+
+### Security
+
+- The tracked-session pointer moved from `.oss-drafts/.track-active` (worktree) to `<gitdir>/agentic-contributor/track-active`, resolved without forking by walking up to `.git` (a directory, or a `.git` file's `gitdir:` line for linked worktrees and submodules). A cloned repository can no longer ship an active session: a committed pointer or ledger is ignored. A pointer naming a ledger outside the repository root is refused (fail open).
+- The checkpoint hook never echoes ledger text (`scope`, `api_paths`, any frontmatter value) into `permissionDecisionReason`, `additionalContext`, or `systemMessage`, closing a prompt-injection channel; it names only the edited file's repo-relative path.
+- A `file_path` or `cwd` containing a control character (newline, carriage return, ...) makes the hook fail open without writing, so a file name cannot forge ledger marker lines. The hooks reference no longer claims the hook "never writes tool input into the ledger"; it states exactly what is written.
+
+### Fixed
+
+- No-session fast path: the hook now checks for the pointer (from `$CLAUDE_PROJECT_DIR`, else `$PWD`) before reading stdin, so a large edit payload no longer costs seconds on every edit in every project (3 MB: about 1.5 s before, about 0.01 s after).
+- Stale-lock detection works on Linux: the lock mtime comes from `stat -c %Y` (GNU) then `stat -f %m` (BSD), validated as numeric. GNU `stat -f` prints filesystem status, so the old order never produced a number there.
+- Stale-lock cleanup renames the stale lock to a per-process name before `rmdir`, so a fresh lock created by another process is not removed.
+- Over-budget and loop-guard notices also set a top-level `systemMessage`, so the user sees them on Claude Code versions without PreToolUse `additionalContext` support.
+- The `.oss-drafts/` exclude step uses `git rev-parse --git-path info/exclude` instead of assuming `.git/info/exclude` (linked worktrees, submodules).
+- The session lookup and lock helpers are delimited `# --- shared: ... (keep identical in track-*.sh) ---` blocks in `track-checkpoint.sh`.
+- Harness: 81 cases (committed in-worktree pointer, `.git` file worktrees with relative and absolute `gitdir:`, injection text in `scope`/`api_paths`, control characters in `file_path`, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload); fixtures put the pointer in the git dir and run the hook from the fixture root.
 
 ### Notes
 
