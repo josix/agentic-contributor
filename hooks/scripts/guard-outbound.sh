@@ -54,18 +54,22 @@ deny() {
   exit 2
 }
 
-# ── Check MCP write tools ─────────────────────────────────────────────────────
-# Deny any GitHub MCP tool that performs a write/mutation.
-# Write-verb suffixes (after the last '__'):
-WRITE_VERBS="create|update|delete|merge|add_comment|add_issue_comment|add_sub_issue|push|fork|request_copilot|create_or_update|create_pull_request|create_branch|create_repository|assign|transfer|lock|unlock|submit|dispatch|edit"
-
+# ── Check MCP tools (default-deny allowlist) ─────────────────────────────────
+# The plugin's GitHub MCP namespace is DEFAULT-DENY: only read tools pass.
+# Read tools are recognised by name (the suffix after the last '__'):
+#   get_* | list_* | search_* | *_read   (e.g. get_me, list_issues, search_code,
+#   issue_read, pull_request_read). Everything else -- issue_write, push_files,
+#   merge_pull_request, fork_repository, create_*, update_*, delete_*, *_write,
+#   add_*, assign_*, request_*, and any tool added upstream later -- is denied.
 if [[ "$tool_name" == mcp__plugin_agentic-contributor_github__* ]]; then
   suffix="${tool_name##*__}"
-  if [[ "$suffix" =~ ^($WRITE_VERBS)$ ]]; then
-    deny "$tool_name"
-  fi
-  # Allow all other MCP read tools
-  exit 0
+  case "$suffix" in
+    *[!a-z0-9_]*|'') deny "$tool_name" ;;
+    # belt and braces: a write verb anywhere in the name denies even with a read prefix
+    *write*|*create*|*delete*|*submit*|*fork*) deny "$tool_name" ;;
+    get_?*|list_?*|search_?*|?*_read) exit 0 ;;
+  esac
+  deny "$tool_name"
 fi
 
 # ── Shell-text preprocessing (awk, bash 3.2 safe) ─────────────────────────────
@@ -303,6 +307,8 @@ check_gh_api() {
     seg="$raw"
     for t in "${NA[@]}"; do toks[${#toks[@]}]="$t"; done
   else
+    # cheap pre-check (no fork): the regex below needs literal "gh" and "api"
+    [[ "$raw" == *gh* && "$raw" == *api* ]] || return 0
     seg="$(strip_prefix "$raw")"
     [[ "$seg" =~ ^gh[[:space:]]+api([[:space:]]|$) ]] || return 0
     if ! tok_out="$(printf '%s\n' "$seg" | awk "$AWK_TOKENIZE" 2>/dev/null)"; then
@@ -380,6 +386,7 @@ check_gh_api() {
 # redirections (for gh api option parsing). Runs IN ADDITION to the raw-text
 # rules, never instead of them, so it can only add denials.
 NORM_RM=$'\001'
+GIT_INLINE_ALIAS=""
 
 # True when redirection token $1 carries no target of its own (target is next word).
 rd_is_bare() {
@@ -422,6 +429,19 @@ nt_skip_wrapper_opts() {
   done
 }
 
+# Flag an inline `-c alias.<name>=<value>` whose value pushes/sends or runs a
+# shell command (`!...`): the alias name would hide the real subcommand.
+git_alias_check() {
+  local kv="$1" key val
+  key="$(printf '%s' "${kv%%=*}" | tr 'A-Z' 'a-z')"
+  [[ "$key" == alias.* ]] || return 0
+  val="${kv#*=}"
+  case "$val" in
+    *push*|*send-email*|*send-pack*|*dcommit*|'!'*) GIT_INLINE_ALIAS="$kv" ;;
+  esac
+  return 0
+}
+
 # Skip git global options (before the subcommand) starting at p.
 nt_skip_git_globals() {
   local o
@@ -432,14 +452,18 @@ nt_skip_git_globals() {
     [[ "$o" == -?* ]] || return 0
     p=$((p + 1))
     case "$o" in
-      -C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--config-env|--attr-source) p=$((p + 1)) ;;
+      -c|--config-env)
+        # inline alias that pushes: git -c alias.p=push p  /  git -c 'alias.p=!git push' p
+        git_alias_check "${all[$p]:-}"
+        p=$((p + 1)) ;;
+      -C|--git-dir|--work-tree|--namespace|--super-prefix|--attr-source) p=$((p + 1)) ;;
     esac
   done
 }
 
 normalize_segment() {
   local seg="$1" tok_out t w base k all=() p=0 n
-  NT=(); NA=()
+  NT=(); NA=(); GIT_INLINE_ALIAS=""
   tok_out="$(printf '%s\n' "$seg" | awk "$AWK_TOKENIZE" 2>/dev/null)" || return 1
   [[ -n "$tok_out" ]] || return 0
   while IFS= read -r t; do all[${#all[@]}]="$t"; done <<< "$tok_out"
@@ -482,20 +506,32 @@ normalize_segment() {
 }
 
 # gh group/verb pairs that write to GitHub (or the local gh config).
+# $1 = group, $2 = verb, $3 = sub-verb (for three-level commands such as
+# `gh repo deploy-key add`). Read verbs (list, view, status, ...) and local-only
+# verbs (repo set-default, pr checkout) are not listed and stay allowed.
 gh_is_write() {
   local verbs=""
   case "$1" in
-    pr) verbs=" create comment review edit merge close reopen lock unlock ready update-branch --fill " ;;
+    pr) verbs=" create comment review edit merge close reopen lock unlock ready update-branch revert --fill " ;;
     issue) verbs=" create comment edit close reopen lock unlock delete transfer pin unpin develop " ;;
-    release) verbs=" create edit delete upload " ;;
-    repo) verbs=" create fork delete edit sync rename archive unarchive " ;;
-    gist) verbs=" create edit delete " ;;
+    release) verbs=" create edit delete delete-asset upload " ;;
+    repo)
+      case "$2" in
+        deploy-key) verbs=" add delete " ;;
+        autolink) verbs=" create delete " ;;
+      esac
+      if [[ -n "$verbs" ]]; then [[ "$verbs" == *" ${3:-} "* ]]; return; fi
+      verbs=" create fork delete edit sync rename archive unarchive " ;;
+    gist) verbs=" create edit delete rename " ;;
     label) verbs=" create edit delete clone " ;;
+    project) verbs=" create edit delete close copy link unlink mark-template item-add item-create item-edit item-delete item-archive field-create field-delete " ;;
+    ssh-key|gpg-key) verbs=" add delete " ;;
+    cache) verbs=" delete " ;;
     workflow) verbs=" run enable disable " ;;
     run) verbs=" rerun cancel delete " ;;
     secret|variable) verbs=" set delete " ;;
-    alias) verbs=" set " ;;
-    codespace) verbs=" create " ;;
+    alias) verbs=" set delete import " ;;
+    codespace) verbs=" create delete edit stop rebuild " ;;
   esac
   [[ -n "$verbs" && "$verbs" == *" $2 "* ]]
 }
@@ -560,21 +596,47 @@ check_norm_rules() {
   local raw="$1"
   case "${NT[0]:-}" in
     git)
+      [[ -n "$GIT_INLINE_ALIAS" ]] && deny "git -c $GIT_INLINE_ALIAS (inline alias): $raw"
       case "${NT[1]:-}" in
         push|send-email|send-pack) deny "git ${NT[1]}: $raw" ;;
         svn) [[ "${NT[2]:-}" == dcommit ]] && deny "git svn dcommit: $raw" ;;
       esac ;;
     gh)
-      if gh_is_write "${NT[1]:-}" "${NT[2]:-}"; then deny "gh ${NT[1]} ${NT[2]}: $raw"; fi ;;
+      if gh_is_write "${NT[1]:-}" "${NT[2]:-}" "${NT[3]:-}"; then deny "gh ${NT[1]:-} ${NT[2]:-} ${NT[3]:-}: $raw"; fi ;;
     curl) check_curl_norm "$raw" ;;
     wget) check_wget_norm "$raw" ;;
   esac
   return 0
 }
 
+# Trigger test for the fast paths. Every deny rule for Bash needs one of the
+# command words gh / git / curl / wget. The tokenizer only ever REMOVES quote
+# and backslash characters (and the preprocessor removes backslash-newline), so
+# after deleting all of them (plus newlines/CRs) any word the rules could see
+# is still a contiguous substring. Matched case-insensitively (conservative).
+# Returns 0 when the text MAY contain a trigger (slow path required).
+# $2 = "big": delete with one tr fork (bash 3.2 ${x//pat/} is quadratic on
+# long multi-line text); otherwise pure bash (short single-line segments).
+has_trigger() {
+  local t="$1"
+  if [[ "${2:-}" == big ]]; then
+    t="$(printf '%s' "$t" | tr -d "\"'\\\\\n\r")" || return 0
+  else
+    t="${t//\"/}"; t="${t//\'/}"; t="${t//\\/}"
+    t="${t//$'\n'/}"; t="${t//$'\r'/}"
+  fi
+  case "$t" in
+    *[gG][hH]*|*[gG][iI][tT]*|*[cC][uU][rR][lL]*|*[wW][gG][eE][tT]*) return 0 ;;
+  esac
+  return 1
+}
+
 # Raw (original) and normalized checks for one segment.
 check_segment() {
   local seg="$1" full="$2"
+  # Per-segment fast path: no trigger word -> no rule can deny this segment
+  # (substitution bodies are walked separately by check_cmd_text).
+  has_trigger "$seg" || return 0
   check_gh_api "$seg" "$full"
   [[ "$seg" =~ [^[:space:]] ]] || return 0
   normalize_segment "$seg" || deny "command segment could not be analysed: $seg"
@@ -592,6 +654,8 @@ check_cmd_text() {
   while IFS= read -r segment; do
     check_segment "$segment" "$full"
   done <<< "$segments"
+  # No substitutions -> the outer pass yields exactly the same segments; skip it.
+  [[ "$outer_out" == "$segments" ]] && return 0
   while IFS= read -r segment; do
     if [[ "$segment" == $'\002'* ]]; then
       body="${segment#?}"; body="${body//$'\003'/$'\n'}"
@@ -605,6 +669,13 @@ check_cmd_text() {
 
 # ── Check Bash commands ───────────────────────────────────────────────────────
 if [[ "$tool_name" == "Bash" ]]; then
+
+  # Whole-command fast path: if neither the raw command nor its
+  # continuation-joined form contains gh/git/curl/wget (after deleting quotes,
+  # backslashes and newlines -- see has_trigger), no rule below can deny it.
+  if ! has_trigger "$command_str" big && ! has_trigger "$stripped" big; then
+    exit 0
+  fi
 
   # SEP matches "command position": start-of-string or a real shell separator
   # (;  |  &  &&  ||  $(  backtick  newline), optionally followed by whitespace.

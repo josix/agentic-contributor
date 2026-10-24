@@ -19,7 +19,7 @@ The `agentic-contributor` plugin registers two `PreToolUse` hooks: the draft-onl
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-outbound.sh",
-            "timeout": 10
+            "timeout": 30
           }
         ]
       },
@@ -40,7 +40,7 @@ The `agentic-contributor` plugin registers two `PreToolUse` hooks: the draft-onl
 
 **Matcher:** `Bash|mcp__plugin_agentic-contributor_github__.*` — matches all Bash tool calls and all GitHub MCP tool calls namespaced to this plugin.
 
-**Timeout:** 10 seconds. The script runs in well under 1 second in practice (pure bash string matching, no network calls).
+**Timeout:** 30 seconds. Typical commands finish in well under 1 second (bash string matching plus a few `awk` passes, no network calls). A command that contains none of the trigger words `gh`, `git`, `curl`, or `wget` (checked case-insensitively after deleting quotes, backslashes, and newlines, so `g\it` or `"g"it` still count) is allowed immediately. Segments without a trigger word are skipped one by one, so a 600-segment one-liner or a 300-line script that runs `git` on every line still finishes in a few seconds. The 30-second timeout leaves headroom for slow machines.
 
 ## `guard-outbound.sh` Logic
 
@@ -71,22 +71,19 @@ Known gaps are recorded as `known-bypass` rows in `hooks/tests/guard-cases.tsv`.
 
 ## Deny / Allow Matrix
 
-### MCP Write Tools — DENY
+### MCP Tools — default DENY, read allowlist
 
-The script extracts the suffix after the last `__` and matches it against the write-verb list:
+The plugin's GitHub MCP namespace is **default-deny**. The script takes the tool-name suffix after the last `__` and allows it only when it names a read tool:
 
 ```
-create | update | delete | merge | add_comment | add_issue_comment | add_sub_issue |
-push | fork | request_copilot | create_or_update | create_pull_request |
-create_branch | create_repository | assign | transfer | lock | unlock |
-submit | dispatch | edit
+get_*  |  list_*  |  search_*  |  *_read
 ```
 
-Any `mcp__plugin_agentic-contributor_github__` tool whose suffix matches any of these verbs is denied. All other MCP tools (all read tools) are allowed immediately.
+Even with one of those prefixes, a suffix that contains `write`, `create`, `delete`, `submit`, or `fork` is denied. A suffix with characters other than `a-z`, `0-9`, and `_` is denied too. Every other tool is denied, including tools the upstream GitHub MCP server adds later.
 
-### MCP Read Tools — ALLOW
+**ALLOW examples:** `get_me`, `get_file_contents`, `get_commit`, `list_issues`, `list_pull_requests`, `list_releases`, `search_code`, `search_issues`, `search_repositories`, `issue_read`, `pull_request_read`.
 
-Any `mcp__plugin_agentic-contributor_github__` tool whose suffix does not match a write verb. Examples: `list_issues`, `get_pull_request`, `get_file_contents`, `list_releases`, `search_repositories`, `search_issues`, `list_pull_requests`.
+**DENY examples:** `issue_write`, `sub_issue_write`, `pull_request_review_write`, `add_issue_comment`, `add_comment_to_pending_review`, `create_pull_request`, `create_branch`, `create_repository`, `create_or_update_file`, `delete_file`, `push_files`, `merge_pull_request`, `update_pull_request`, `update_pull_request_branch`, `fork_repository`, `assign_copilot_to_issue`, `request_copilot_review`.
 
 ### Bash Commands — DENY
 
@@ -94,12 +91,14 @@ Any `mcp__plugin_agentic-contributor_github__` tool whose suffix does not match 
 |---|---|
 | `git push` at command position | `git push origin main` |
 | `git push`, `git send-email`, `git send-pack`, `git svn dcommit`, also after global options (`-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`, `--no-pager`, …), a path-qualified binary, or a wrapper prefix | `git -C dir push`, `/usr/bin/git push`, `env git push` |
-| `gh pr create/comment/review/edit/merge/close/reopen/lock/unlock/ready/update-branch/--fill` | `gh pr create --title "…"` |
+| `git -c alias.<name>=<value>` whose value contains `push`, `send-email`, `send-pack`, or `dcommit`, or starts with `!` (shell alias) | `git -c alias.p=push p origin main` |
+| `gh pr create/comment/review/edit/merge/close/reopen/lock/unlock/ready/update-branch/revert/--fill` | `gh pr create --title "…"` |
 | `gh issue create/comment/edit/close/reopen/lock/unlock/delete/transfer/pin/unpin/develop` | `gh issue comment 123 --body "…"` |
-| `gh release create/edit/delete/upload` | `gh release create v1.0` |
-| `gh repo create/fork/delete/edit/sync/rename/archive/unarchive` | `gh repo fork apache/airflow` |
-| `gh gist create/edit/delete` | `gh gist create file.txt` |
-| `gh label create/edit/delete/clone`, `gh workflow run/enable/disable`, `gh run rerun/cancel/delete`, `gh secret set/delete`, `gh variable set/delete`, `gh alias set`, `gh codespace create` | `gh workflow run ci.yml` |
+| `gh release create/edit/delete/delete-asset/upload` | `gh release create v1.0` |
+| `gh repo create/fork/delete/edit/sync/rename/archive/unarchive`, `gh repo deploy-key add/delete`, `gh repo autolink create/delete` | `gh repo fork apache/airflow` |
+| `gh gist create/edit/delete/rename` | `gh gist create file.txt` |
+| `gh label create/edit/delete/clone`, `gh workflow run/enable/disable`, `gh run rerun/cancel/delete`, `gh secret set/delete`, `gh variable set/delete`, `gh alias set/delete/import`, `gh codespace create/delete/edit/stop/rebuild` | `gh workflow run ci.yml` |
+| `gh project create/edit/delete/close/copy/link/unlink/mark-template/item-add/item-create/item-edit/item-delete/item-archive/field-create/field-delete`, `gh ssh-key add/delete`, `gh gpg-key add/delete`, `gh cache delete` | `gh project item-add 1 --url …` |
 | any `gh` form above or `gh api` with `-R`/`--repo`, a wrapper prefix, or a path-qualified binary | `gh -R owner/repo pr create`, `./gh pr create` |
 | `gh api` with `-X POST/PUT/PATCH/DELETE` (also `-XPOST`, `-X=POST`, any case) | `gh api repos/… -X POST -f …` |
 | `gh api` with `--method POST/PUT/PATCH/DELETE` (also `--method=POST`) | `gh api repos/… --method PATCH` |
@@ -118,6 +117,7 @@ Everything not matched by a deny pattern:
 - `gh pr view`, `gh pr list`, `gh pr checks`, `gh pr diff`
 - `gh issue view`, `gh issue list`
 - `gh release list`, `gh release view`
+- `gh project list/view/item-list/field-list`, `gh ssh-key list`, `gh gpg-key list`, `gh cache list`, `gh repo deploy-key list`, `gh repo autolink list`, `gh repo set-default` (local only)
 - `gh api repos/…` (plain GET, no write flags)
 - `gh api graphql -f query='query {…}'` (read-only query: no `mutation`, no `=@file`, no `--input`)
 - `gh api -X GET search/issues -f q=…` (explicit GET; fields are query parameters)
