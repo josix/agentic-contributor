@@ -119,6 +119,7 @@ while IFS= read -r line; do
 done < "$ledger"
 [ "$fm_plugin" = "agentic-contributor" ] && [ "$fm_mode" = "track" ] || exit 0
 
+# --- shared: list cleaning (keep identical in track-*.sh) ---
 clean_list() { # strip comment, brackets, quotes
   local v="${1%%#*}"
   v="${v//\[/}"
@@ -126,6 +127,7 @@ clean_list() { # strip comment, brackets, quotes
   v="${v//\"/}"
   printf '%s' "$v"
 }
+# --- end shared ---
 fm_scope="$(clean_list "$fm_scope")"
 fm_api="$(clean_list "$fm_api")"
 case "$fm_budget" in '' | *[!0-9]*) fm_budget=3 ;; esac
@@ -252,6 +254,7 @@ re_testdir='(^|/)(tests?|__tests__|specs?|testing)/'
 re_testfile='^test_.*\.py$|_test\.(py|go|rb|exs?|dart)$|\.(test|spec)\.(m?[jt]sx?|cjs)$|(Tests?|IT)\.(java|kt|scala|cs)$|_spec\.rb$|Tests?\.swift$'
 is_test_path() { [[ $1 =~ $re_testdir ]] || [[ ${1##*/} =~ $re_testfile ]]; }
 
+# --- shared: manifest map (keep identical in track-*.sh) ---
 manifest_for() { # echoes the manifest basename if $1 is a dependency file, else nothing
   case "$1" in
     yarn.lock | package-lock.json | pnpm-lock.yaml | npm-shrinkwrap.json | bun.lockb) echo package.json ;;
@@ -270,7 +273,9 @@ manifest_for() { # echoes the manifest basename if $1 is a dependency file, else
       *.gemspec | *.csproj) echo "$1" ;;
   esac
 }
+# --- end shared ---
 
+# --- shared: glob match (keep identical in track-*.sh) ---
 glob_match() { # $1 rel, $2 comma list
   local g list="$2" IFS=,
   for g in $list; do
@@ -283,6 +288,7 @@ glob_match() { # $1 rel, $2 comma list
   done
   return 1
 }
+# --- end shared ---
 
 class=""
 key="$rel"
@@ -410,18 +416,19 @@ if [ "$ack" -eq 1 ]; then
   exit 0
 fi
 
+# budget 0 is quiet mode: never ask or retry, even with a pending marker
+if [ "$fm_budget" -eq 0 ] || { [ "$pend_n" -eq 0 ] && [ "$asked" -ge "$fm_budget" ]; }; then
+  append "<!-- track:entry status=logged-over-budget source=hook asked=no at=$now id=$id -->" \
+    "- logged-over-budget: $class — $rel ($now), not asked; budget $fm_budget spent"
+  emit "" "" "[agentic-contributor · tracked session] Checkpoint budget $fm_budget/$fm_budget is spent. Logged $id ($class, $rel) to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish." \
+    "agentic-contributor: checkpoint budget spent; $id logged to $rel_ledger without asking."
+fi
+
 if [ "$pend_n" -ge 2 ]; then
   append "<!-- track:entry status=skipped source=hook asked=yes reason=no-ledger-entry at=$now id=$id -->" \
     "- skipped (no ledger entry recorded after 2 checkpoint prompts): $class — $rel"
   emit "" "" "[agentic-contributor · tracked session] No ledger entry for $id after 2 checkpoint prompts. The hook recorded it as skipped and allowed this edit. Tell the user that this decision was not recorded." \
     "agentic-contributor: checkpoint $id was not answered after 2 prompts; recorded as skipped in $rel_ledger."
-fi
-
-if [ "$pend_n" -eq 0 ] && [ "$asked" -ge "$fm_budget" ]; then
-  append "<!-- track:entry status=logged-over-budget source=hook asked=no at=$now id=$id -->" \
-    "- logged-over-budget: $class — $rel ($now), not asked; budget $fm_budget spent"
-  emit "" "" "[agentic-contributor · tracked session] Checkpoint budget $fm_budget/$fm_budget is spent. Logged $id ($class, $rel) to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish." \
-    "agentic-contributor: checkpoint budget spent; $id logged to $rel_ledger without asking."
 fi
 
 retry=""

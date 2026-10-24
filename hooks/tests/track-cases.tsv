@@ -51,6 +51,7 @@ silent	skipped-dep	Edit	yarn.lock	a	b	-
 allow-logged	spent	Edit	package.json	a	b	dependency:package.json
 silent	spent-logged	Edit	package.json	a	b	-
 allow-logged	budget0	Edit	package.json	a	b	dependency:package.json
+allow-logged	budget0-pending	Edit	package.json	a	b	dependency:package.json
 deny	exempt	Edit	package.json	a	b	dependency:package.json
 silent-consume	na-dep-layout	Edit	package.json	a	b	-
 deny	na-dep-later	Edit	package.json	a	b	dependency:package.json

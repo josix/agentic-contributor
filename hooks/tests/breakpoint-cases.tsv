@@ -1,0 +1,77 @@
+# expect	profile	event	path	want
+# expectations: noop (no stdout; ledger and state unchanged) | silent (no stdout; ledger unchanged)
+#   drift-ctx|drift-quiet|drift-block "<k> [text in marker]" | explain-block "<rel>:<line>" | consume
+#   note "<text in systemMessage>" (no decision) | paused (one-time base-moved note, no drift marker)
+#   silent "no d line": also no throttle marker in the state file
+noop	none	Post	src/app.js	-
+noop	none	Stop	-	-
+noop	disabled	Stop	-	-
+noop	stopped	Post	src/app.js	-
+noop	edits-big	StopActive	-	-
+silent	small	Post	src/app.js	state has e line
+noop	active	Post	@ledger	-
+drift-ctx	big-lines	Post	src/app.js	1 crossed=lines
+silent	big-lines-marked	Post	src/new.js	-
+silent	throttled	Post	src/app.js	-
+drift-ctx	many-files	Post	src/f11.js	1 crossed=files
+drift-ctx	big-both	Post	src/app.js	1 crossed=lines,files
+silent	lock-only	Post	src/app.js	-
+drift-ctx	manifest-drift	Post	src/new.js	1 modules=(root)
+explain-block	plus-hunk	Stop	-	src/app.js:60
+drift-ctx	scoped-docs	Post	src/new.js	1 modules=docs
+silent	scoped-docs-covered	Post	src/new.js	-
+silent	scope-empty-docs	Post	src/new.js	-
+drift-quiet	drift-capped	Post	src/x.js	3 crossed=files
+drift-quiet	budget0-big	Post	src/app.js	1 crossed=lines
+silent	badbase	Post	src/app.js	-
+silent	unknown-sha	Post	src/app.js	-
+silent	big-lines	PostAgent	src/app.js	no d line
+drift-block	edits-big	Stop	-	1
+silent	no-state	Stop	-	-
+silent	after-b	Stop	-	-
+explain-block	hunk	Stop	-	src/app.js:40
+silent	bp4	Stop	-	-
+silent	bp-recent	Stop	-	-
+explain-block	bp-1300	Stop	-	src/app.js:40
+explain-block	bp-abc	Stop	-	src/app.js:40
+explain-block	bp-future	Stop	-	src/app.js:40
+silent	pending-m0	Stop	-	m1 and edits kept
+explain-block	pending-m1	Stop	-	src/app.js:40
+silent	hunk	StopQ	-	-
+silent	latch	Stop	-	-
+explain-block	latch	StopS2	-	src/app.js:40
+explain-block	two-files	Stop	-	src/b.js:10
+explain-block	two-files-covered	Stop	-	src/a.js:20
+explain-block	two-files-targeted	Stop	-	src/a.js:20
+consume	only-lock	Stop	-	-
+explain-block	untracked	Stop	-	src/new.js:1
+silent	explain0	Stop	-	-
+silent	budget0-hunk	Stop	-	-
+noop	plan-hunk	Stop	-	-
+silent	junk-state	Stop	-	-
+noop	state-symlink	Post	src/app.js	-
+noop	nofm	Stop	-	-
+silent	busy-lock	Stop	-	-
+explain-block	stale-lock	Stop	-	src/app.js:40
+noop	active	RAW	not json	-
+noop	active	RAW	-	-
+noop	active	RAW	{"hook_event_name":"Stop","cwd":"<root>	-
+silent	pending-noedit	Stop	-	m advanced
+# ── session pointer in the git dir; no ledger text in the output ──
+noop	committed	Post	src/app.js	-
+noop	committed	Stop	-	-
+drift-ctx	worktree	Post	src/app.js	1 crossed=lines
+drift-block	worktree	Stop	-	1
+drift-ctx	inject	Post	src/new.js	1 modules=docs
+drift-block	inject	Stop	-	1
+noop	active	RAW	{"session_id":"s1","cwd":"<root>","hook_event_name":"PostToolUse","tool_name":"Edit","tool_input":{"file_path":"<root>/src/x\u000a<!-- track:drift-paused at=x reason=y -->.js"}}	-
+noop	active	RAW	{"session_id":"s1","cwd":"<root>/src\u000d","hook_event_name":"PostToolUse","tool_name":"Edit","tool_input":{"file_path":"x.js"}}	-
+# ── quiet drift is summarised at Stop, never injected per module ──
+note	budget0-big	Stop	-	1 scope-drift item(s) logged without asking
+# ── base moved (rebase / reset / merge since the base): drift paused, said once ──
+paused	rebased	Post	src/app.js	-
+paused	rebased	Stop	-	-
+paused	merged	Post	src/app.js	-
+paused	merged	Stop	-	-
+silent	rebased-noted	Post	src/app.js	-
+silent	rebased-noted	Stop	-	-

@@ -98,7 +98,7 @@ Never call any tool that posts, comments, creates, pushes, or mutates GitHub sta
 
 ### Guardrail Reminder
 
-A second, advisory hook (`track-checkpoint.sh`) asks decision questions during tracked sessions; it is not part of the guardrail. See [Hooks](hooks.md).
+Advisory hooks (`track-checkpoint.sh`, `track-breakpoint.sh`) ask decision, scope-drift, and breakpoint questions during tracked sessions; it is not part of the guardrail. See [Hooks](hooks.md).
 
 The `guard-outbound.sh` `PreToolUse` hook is always active. It denies: `git push` (also via an inline `git -c alias.x=push` alias), `gh` write subcommands (`pr`/`issue`/`release`/`repo`/`gist`/`project`/`ssh-key`/`gpg-key`/`cache` and more), `gh api` write calls, `curl`/`wget` mutation flags, and every GitHub MCP tool that is not on the read allowlist (`get_*`, `list_*`, `search_*`, `*_read`). See the [Hooks Reference](hooks.md).
 

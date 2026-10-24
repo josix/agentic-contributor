@@ -1,10 +1,10 @@
 # Hooks Reference
 
-The draft-only `PreToolUse` guardrail (registration, matcher, full deny/allow matrix) and the advisory decision-checkpoint hook.
+The draft-only `PreToolUse` guardrail (registration, matcher, full deny/allow matrix) the advisory decision-checkpoint hook, and the advisory scope-drift and breakpoint hook.
 
 ## Overview
 
-The `agentic-contributor` plugin registers two `PreToolUse` hooks: the draft-only guardrail, which runs before every `Bash` call and every GitHub MCP tool call and denies outbound and mutating actions before they execute, and an advisory decision-checkpoint hook for Edit/Write that is active only inside an `/oss track` session.
+The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostToolUse` and a `Stop` hook. The first `PreToolUse` hook is the draft-only guardrail, which runs before every `Bash` call and every GitHub MCP tool call and denies outbound and mutating actions before they execute. The second is an advisory decision-checkpoint hook for Edit/Write. The `PostToolUse` and `Stop` hooks are one advisory script (`track-breakpoint.sh`) for scope-drift alerts and breakpoint questions. The advisory hooks are active only inside an `/oss track` session.
 
 ## Registration (`hooks/hooks.json`)
 
@@ -31,6 +31,21 @@ The `agentic-contributor` plugin registers two `PreToolUse` hooks: the draft-onl
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-checkpoint.sh",
             "timeout": 5
           }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-breakpoint.sh", "timeout": 10 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-breakpoint.sh", "timeout": 15 }
         ]
       }
     ]
@@ -161,6 +176,33 @@ Checkpoint ids are `<class>:<repo-relative path>`; a lock file maps to its manif
 **Locking.** Reading state, checking the budget, and appending a pending marker happen under a `mkdir` lock (`<ledger>.lock`). A lock older than about 10 seconds is treated as stale: its mtime comes from `stat -c %Y` (GNU) or `stat -f %m` (BSD), validated as a number, and it is renamed to a per-process name before removal so a fresh lock is never deleted. If the lock stays busy for about 2 seconds the hook fails open.
 
 Harness: `bash hooks/tests/run-track-tests.sh` (bash 3.2 compatible; builds a fixture git repo in a temp dir per case).
+
+## `track-breakpoint.sh` (advisory)
+
+A separate, advisory hook for tracked sessions only. Like `track-checkpoint.sh` it is not the safety guard, fails open (any internal error means no output and exit 0), prints nothing and starts no subprocess when no session is active (builtins only), needs `jq` or `python3` (else silent), honours `OSS_TRACK_DISABLE=1` and `permission_mode: plan`, and never reverts, stashes, or edits code. It reads `hook_event_name` and handles two events:
+
+| Event | What it does | Output |
+|---|---|---|
+| `PostToolUse` (`Edit\|Write\|MultiEdit\|NotebookEdit`) | appends the edited path to the session state file `<ledger>.state` (ledger writes are never logged). Runs a drift check only when the path is new to the session or every 5th edit; skips the check inside a subagent (`agent_id` present) | `hookSpecificOutput.additionalContext` with a "choose: keep / separate PR / drop / skip" alert. Over the drift cap or with `budget: 0` the marker is recorded silently (no output). Never a block |
+| `Stop` | exits first when `stop_hook_active` is true. Otherwise runs the drift check once, then at most one explain-back question | `{"decision":"block","reason":...}` with the instructions, at most one block per stop; drift takes precedence. A top-level `systemMessage` (alone, or with the block) summarises drift logged without asking |
+
+Caps (separate pools, in the ledger frontmatter): checkpoints `budget` 3, drift `drift_max` 2, breakpoint questions `explain_max` 4 at least `explain_interval_min` 20 minutes apart. `budget: 0` is quiet mode. Drift thresholds are `drift_lines` 400 and `drift_files` 10 (strictly greater), plus out-of-scope modules that no checkpoint covered.
+
+Loop safety: `stop_hook_active` exit, the ledger marker and the state `b` line are written before the block is emitted, ledger-based count and interval caps, and a per-session non-interactive latch so `claude -p` never hangs. Rate-limit state lives in the ledger (`track:drift`, `track:breakpoint`), so the disposable state file cannot lift a cap. Timestamps use the same normalisation as v0.8.0 (a malformed or future `epoch=`/`at=` reads as oldest) and the same `<ledger>.lock` directory (stale after 10 seconds; a busy lock fails open).
+
+Git use is read-only and bounded: `GIT_OPTIONAL_LOCKS=0 GIT_LITERAL_PATHSPECS=1 git -C <root> -c core.quotepath=off ... --no-ext-diff --no-textconv --no-renames`, never inside the ledger lock. If the agent does not act on `PostToolUse` context, `emit_post` can switch to a block (a one-line change).
+
+**Opt-in and input.** Same session lookup as `track-checkpoint.sh`: the git-dir pointer is checked before stdin is read; a committed in-worktree pointer is ignored. A `file_path`, `cwd`, or other input field with a control character is treated as empty (fail open, nothing written). Ledger text (`scope`, `drift_source`, any frontmatter value) is never echoed; the drift source is shown as a fixed label.
+
+**Base moved.** If the session base is no longer an ancestor of `HEAD`, or a merge commit landed since it, drift and explain-back pause and the hook says once "base moved — drift paused; restart tracking (/oss track stop + start) to re-baseline" (a `track:drift-paused` ledger line records it). A fast-forward pull is not detected.
+
+**Input fields by Claude Code version.** Two optional fields need a Claude Code version that sends them: `last_assistant_message` on `Stop` (skip the breakpoint question when the agent's last message already ends with `?`) and `agent_id` on `PostToolUse` inside a subagent (defer the drift check to the main thread). Without them the hook still works: a breakpoint question may follow a question the agent just asked, and a subagent's edits run the throttled drift check themselves.
+
+**State file.** `<ledger>.state` is compacted above 400 lines to a short prefix plus the newest 100 lines, preserving what the hook reads (see `decision-ledger.md` section 11).
+
+Code shared with `track-checkpoint.sh` lives between `# --- shared: <name> (keep identical in track-*.sh) ---` and `# --- end shared ---` lines (session lookup, list cleaning, manifest map, glob match, lock helpers) and is checked for byte-equality by the harness.
+
+Harness: `bash hooks/tests/run-breakpoint-tests.sh` (bash 3.2 compatible; fixture git repo per case with the pointer in the git dir, run from the fixture root; loop, parallel-lock, python3-fallback, shared-code, base-moved, compaction, ledger-injection, and `.git`-file worktree checks).
 
 ---
 

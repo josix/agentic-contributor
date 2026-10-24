@@ -178,7 +178,7 @@ Missing evidence is always marked with `TODO:` placeholders; required fields are
 - A problem-first description scaffold in an `oss:send` block: Why this approach, What changed, and Unknowns & assumptions are `TODO(you)`; "How it's tested" names tests, never commands that passed.
 - Disclosure text when policy requires it, and advice (never rewrites) on AI co-author trailers when forbidden.
 - Lint mode using the AP1-AP9 rules.
-- Procedure 0, tracked session (`mode: track`): start / stop / status / log of a private decision ledger; ledger entries become hints in Private notes and seed Unknowns, never the send block.
+- Procedure 0, tracked session (`mode: track`): start / stop / status / log of a private decision ledger (with scope-drift and explain-back entries from v0.9.0); ledger entries become hints in Private notes and seed Unknowns, never the send block.
 
 **References:** `skills/pr-preparation/SKILL.md`, `skills/pr-preparation/references/decision-ledger.md`, `skills/smart-questions/references/smart-questions-principles.md`
 
@@ -192,7 +192,7 @@ Missing evidence is always marked with `TODO:` placeholders; required fields are
 - A private, read-only debrief of a local change, saved to `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md` with no send block, never formatted as PR text.
 - Changes grouped by purpose with `file:line`; each traced to the issue, a commit message, or an agent transcript (opt-in only); untraceable changes flagged "unexplained, possibly out of scope".
 - The agent's implicit decisions, impact (callers, API/config, compatibility, test coverage), every statement marked evidenced or inferred.
-- A tracked-session decision ledger, when present, as first-hand evidence (`evidenced: ledger <id>`); skipped, over-budget, and hook-skipped entries become Unknowns.
+- A tracked-session decision ledger, when present, as first-hand evidence (`evidenced: ledger <id>`); skipped, over-budget, and hook-skipped entries become Unknowns; explain-back answers are cited as `evidenced: ledger explain:<k>`, and drift decisions feed Unknowns and follow-ups.
 - 2-3 explain-back questions and an Unknowns list that seeds the PR description and the `review-reply` brief.
 
 **References:** `skills/change-debrief/SKILL.md`

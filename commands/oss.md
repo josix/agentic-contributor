@@ -241,6 +241,9 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
   `"$(git rev-parse --git-dir)/agentic-contributor/track-active"` (git dir, never the worktree;
   tracked sessions require git); stop removes that pointer with `rm -f`. Edit is used only on the
   active ledger (append entries, stop). No policy preflight, no readiness.
+  Besides the PreToolUse checkpoints, an advisory PostToolUse/Stop hook may add a scope-drift alert
+  or hold a stop for one breakpoint question; follow its instructions (ask, then record the entry
+  with Edit on the active ledger; never revert or stash).
 - **find** policy use: record the `policy` block in frontmatter and mention any open-PR cap, vouch
   requirement, or good-first-issue AI ban in the shortlist notes. Put the readiness summary at the
   top of the file (private, report tier), set `readiness_login` and `readiness`, and pass the tier,
@@ -316,8 +319,8 @@ Then ask the user to review and modify the file, and confirm whether they want a
 **prepare-pr debrief mode** writes a private notes file with no send block: show the file path and a
 short summary in chat, say it is private and not PR text, and skip the "ready to send" framing.
 
-**prepare-pr track mode** shows the ledger path and a short session summary (scope, budget, how to
-stop). The ledger is private; there is no DRAFT notice and no send block.
+**prepare-pr track mode** shows the ledger path and a short session summary (scope, budget, drift
+and breakpoint limits and how to quiet them, how to stop). The ledger is private; there is no DRAFT notice and no send block.
 
 ### Hard rule
 
@@ -357,5 +360,6 @@ GETs, `git clone`, and the allowlisted MCP read tools above — are allowed.
 Local file writes via the Write tool are NOT covered by the guardrail (they cannot reach GitHub)
 and are explicitly permitted for draft file export.
 
-`hooks/scripts/track-checkpoint.sh` is a separate, advisory PreToolUse hook for Edit/Write inside a
-tracked session. It is not part of the draft-only guardrail above and fails open.
+`hooks/scripts/track-checkpoint.sh` (PreToolUse) and `hooks/scripts/track-breakpoint.sh`
+(PostToolUse and Stop) are separate, advisory hooks for Edit/Write inside a tracked session. They
+are not part of the draft-only guardrail above and fail open.
