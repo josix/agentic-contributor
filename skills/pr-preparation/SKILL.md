@@ -32,7 +32,7 @@ contributor get there; the contributor writes the reasoning.
    Track mode writes only `.oss-drafts/` files; the checkpoint hook never edits code.
 4. Local git is read-only: `git diff`, `git diff --stat`, `git log`, `git merge-base`,
    `git remote -v`, `git rev-parse HEAD`, `git rev-parse --abbrev-ref HEAD`,
-   `git rev-parse --show-toplevel`, `git rev-parse --git-path info/exclude`, and
+   `git rev-parse --show-toplevel`, `git rev-parse --git-dir`, `git rev-parse --git-path info/exclude`, and
    `git merge-base --is-ancestor`. Nothing else.
 5. Readiness and policy findings are **advisory**: they never block or delay the draft.
 
@@ -60,10 +60,13 @@ into a send block.
 
 **Start** (`/oss track [issue-url | task text] [scope: a/**, b.md] [budget N]`):
 
-1. Resolve `<root>` (`git rev-parse --show-toplevel`, else the cwd). Record `branch` and
-   `base_commit` (`git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD`).
-2. If `<root>/.oss-drafts/.track-active` exists and its ledger is `status: active`, ask the one
-   allowed question: stop the old session or keep it (never run two).
+1. Resolve `<root>` (`git rev-parse --show-toplevel`) and the pointer path
+   `ptr="$(git rev-parse --git-dir)/agentic-contributor/track-active"`. Outside a git repository,
+   say that tracked sessions require git and stop. Record `branch` and `base_commit`
+   (`git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD`).
+2. If `$ptr` exists and its ledger is `status: active`, ask the one allowed question: stop the old
+   session or keep it (never run two). A `.oss-drafts/.track-active` file in the worktree is not a
+   session (it may have been committed by the repository); ignore it.
 3. Check `command -v jq || command -v python3`. If neither exists, warn that checkpoints are
    disabled (the ledger still works).
 4. Make sure `.oss-drafts/` is excluded: `ex="$(git rev-parse --git-path info/exclude)"` and the
@@ -74,17 +77,18 @@ into a send block.
    the repo (a file is an exact path, a directory becomes `dir/**`; `scope_source: issue`), else
    `[]` (`none`, which turns the out-of-scope checkpoint off). Suggest adding matching test dirs.
    Budget: the user's `budget N`, else 3.
-6. Write the ledger (Write tool, `decision-ledger.md` sections 1 to 3), then the pointer
-   `.oss-drafts/.track-active` (one line, ledger path relative to root).
+6. Write the ledger (Write tool, `decision-ledger.md` sections 1 to 3), then the pointer in the git
+   dir: `mkdir -p "$(dirname "$ptr")"` and Write `$ptr` (one line, ledger path relative to root).
+   The pointer never goes in the worktree.
 7. Tell the user in chat: the four triggers (test weakening, dependencies, opt-in `api_paths`,
    out-of-scope edits), the budget, that a checkpoint is a choose-question with a Skip option,
    `/oss track stop`, that "log this decision" appends a manual entry (best effort in plain chat),
    `OSS_TRACK_DISABLE=1` as the kill switch, and to restart Claude Code if the plugin was just
    enabled.
 
-**Stop:** Edit the frontmatter (`status: stopped`, add `stopped_at`), then `rm -f
-.oss-drafts/.track-active` (fixed path; if that fails, Write an empty pointer, which the hook
-treats as no session). List entries whose reason is `TODO(you)` and the skipped, over-budget, and
+**Stop:** Edit the frontmatter (`status: stopped`, add `stopped_at`), then
+`rm -f "$(git rev-parse --git-dir)/agentic-contributor/track-active"` (if that fails, Write an
+empty pointer, which the hook treats as no session). List entries whose reason is `TODO(you)` and the skipped, over-budget, and
 hook-skipped items. Offer the debrief in one line.
 
 **Status:** task, age, base, branch (warn on mismatch with the current branch), scope, budget used

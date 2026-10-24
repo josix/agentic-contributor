@@ -31,7 +31,7 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
 2. **Agent transcript: opt-in only.** Read a session transcript only when the user points to one
    (for example a Claude Code session JSONL path). Never search for one. When no transcript is
    used, state that the "why" is weaker without it.
-3. **Decision ledger (when present).** Look for `.oss-drafts/.track-active` first, else the newest
+3. **Decision ledger (when present).** Look for the pointer `"$(git rev-parse --git-dir)/agentic-contributor/track-active"` first, else the newest
    `.oss-drafts/track-*.md` whose `branch` equals the current branch and whose `base_commit` is an
    ancestor of HEAD (`git merge-base --is-ancestor`). Format: `skills/pr-preparation/references/decision-ledger.md`.
    If the user gives no base, mention the ledger's `base_commit` as the session start. The ledger is

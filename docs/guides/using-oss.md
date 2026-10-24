@@ -188,7 +188,7 @@ If you say you want to open a PR (for example "submit a fix for X in apache/data
 
 ## Draft-Review Behavior
 
-All 10 scenarios save their output to `.oss-drafts/` in your current working directory as an editable markdown file. The `.oss-drafts/` directory is automatically excluded from version control via `.git/info/exclude` when `/oss` first writes a file in a git repo.
+All 10 scenarios save their output to `.oss-drafts/` in your current working directory as an editable markdown file. The `.oss-drafts/` directory is automatically excluded from version control via the repo's exclude file (`git rev-parse --git-path info/exclude`) when `/oss` first writes a file in a git repo.
 
 ### Report tier (scenarios 1–4)
 

@@ -67,7 +67,7 @@ Prefer `mcp__plugin_agentic-contributor_github__*` read tools inside subagents. 
 | report | `issue-drafting` | DRAFT new issue (bug/feature) | `.oss-drafts/report-…` |
 | prepare-pr | `pr-preparation` (+ `change-debrief`, `contributor-readiness`) | Problem-first PR description scaffold, private debrief (`mode: debrief`), or private decision ledger (`mode: track`) | `.oss-drafts/prepare-pr-…` |
 
-Before writing any file, ensure `.git/info/exclude` (or equivalent) excludes `.oss-drafts/` as
+Before writing any file, ensure the exclude file from `git rev-parse --git-path info/exclude` excludes `.oss-drafts/` as
 described in the Draft File Convention section of `commands/oss.md`. Use the Write tool to create
 the file.
 
