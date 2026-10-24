@@ -79,8 +79,8 @@ drift_marker() { # crossed modules asked id
 predict_entry() { # n status
   printf '<!-- track:entry status=%s source=predict asked=yes at=%s id=predict:%s -->\n- phase: diagnosis\n' "$2" "$T" "$1" >> "$ledger"
 }
-predict_noidea() { # n
-  printf '<!-- track:entry status=answered source=predict asked=yes at=%s id=predict:%s -->\n- phase: diagnosis\n- prediction: No idea\n' "$T" "$1" >> "$ledger"
+predict_noidea() { # n [prediction text, default "No idea"]
+  printf '<!-- track:entry status=answered source=predict asked=yes at=%s id=predict:%s -->\n- phase: diagnosis\n- prediction: %s\n' "$T" "$1" "${2:-No idea}" >> "$ledger"
 }
 explain_entry() { # k status chosen
   printf '<!-- track:entry status=%s source=breakpoint asked=yes at=%s id=explain:%s -->\n- chosen: %s\n' "$2" "$T" "$1" "$3" >> "$ledger"
@@ -159,7 +159,7 @@ setup() { # $1 profile -> sets d root ledger pointer state evil env_extra perm
     predict-off) extra="predict: false" ;;
     predict-b0) extra="predict: true"; budget=0 ;;
     predict-stopped) extra="predict: true"; status=stopped ;;
-    auto-new | auto-busy | auto-slash | auto-dedup) extra=$'predict: auto\nuser_commits: 2\nprior_unknowns: 0' ;;
+    auto-new | auto-busy | auto-slash | auto-dedup | auto-noidea-dash | auto-noidea-dot | auto-noidea-lower | auto-noidea-guess) extra=$'predict: auto\nuser_commits: 2\nprior_unknowns: 0' ;;
     auto-new-b0) extra=$'predict: auto\nuser_commits: 2'; budget=0 ;;
     auto-new-cap) extra=$'predict: auto\npredict_max: 2\nuser_commits: 2' ;;
     auto-vet | auto-vet-marker | auto-explain-skip | auto-explain-nr | auto-noidea | auto-noidea-marker) extra=$'predict: auto\nuser_commits: 50\nprior_unknowns: 0' ;;
@@ -249,6 +249,10 @@ setup() { # $1 profile -> sets d root ledger pointer state evil env_extra perm
     predict-stop) predict_entry 1 answered ;;
     auto-noidea) predict_noidea 1; predict_noidea 2 ;;
     auto-noidea-marker) auto_marker on newcomer; predict_noidea 1; predict_noidea 2 ;;
+    auto-noidea-dash) auto_marker on newcomer; predict_noidea 1 'No idea — go ahead'; predict_noidea 2 'No idea — go ahead' ;;
+    auto-noidea-dot) auto_marker on newcomer; predict_noidea 1 'No idea.'; predict_noidea 2 '  No idea.' ;;
+    auto-noidea-lower) auto_marker on newcomer; predict_noidea 1 'no idea'; predict_noidea 2 '"no idea"' ;;
+    auto-noidea-guess) predict_noidea 1 'No idea — go ahead'; predict_noidea 2 'no ideas yet, maybe src/app.js' ;;
     auto-vet-marker) auto_marker on newcomer ;;
     auto-explain-skip) explain_entry 1 skipped skip ;;
     auto-explain-nr) explain_entry 1 answered not-requested ;;
@@ -619,6 +623,22 @@ predict_noidea 1; predict_noidea 2
 run_hook "$(build_prompt 'Why does the build fail?')"
 { [ -z "$out" ] && [ "$(grep -c '^<!-- track:predict-auto ' "$ledger")" = 2 ] && grep '^<!-- track:predict-auto ' "$ledger" | tail -1 | grep -q 'state=off reason=two-no-idea'; } \
   && ok || bad "(o) on->off transition: [$out] $(grep '^<!-- track:predict-auto' "$ledger")"
+
+# (p) predict off (no key or false): a prompt exits after the builtin frontmatter read, before any
+#     jq/python3 parse. Fake jq/python3 on PATH record a call; predict: true must call them.
+spy="$d/spy"; mkdir -p "$spy"
+for b in jq python3; do printf '#!/bin/sh\ntouch "%s/called"\nexit 1\n' "$spy" > "$spy/$b"; chmod +x "$spy/$b"; done
+for pf in active predict-off predict-on; do
+  setup "$pf"
+  rm -f "$spy/called"
+  json="$(build_prompt 'Why does the build fail?')"
+  out="$(cd "$root" && printf '%s' "$json" | env -u CLAUDE_PROJECT_DIR PATH="$spy:/usr/bin:/bin" "$runner" "$hook" 2> /dev/null)"
+  if [ "$pf" = predict-on ]; then
+    [ -e "$spy/called" ] && ok || bad "(p) spy not reached with predict on (test is vacuous)"
+  else
+    { [ -z "$out" ] && [ ! -e "$spy/called" ]; } && ok || bad "(p) $pf prompt started a parser or printed: $out"
+  fi
+done
 
 total=$((pass + fail))
 echo "breakpoint tests ($runner): $pass/$total passed"

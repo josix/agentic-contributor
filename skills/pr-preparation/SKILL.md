@@ -91,9 +91,11 @@ into a send block.
    writes `predict: false`; `--predict=auto` writes `auto`. Also record two facts, local reads only:
    `user_commits: <n>`: run `git config user.email` first; if it prints an email, count
    `git log --oneline --author="<that email>" | wc -l` (quote the email). No email, or no git: `-1`,
-   which alone never turns predict on. `prior_unknowns: <n>` = the count of
-   `status=skipped` plus `logged-over-budget` entries in the most recent stopped `track-*.md` ledger
-   in `.oss-drafts/` for the same repo (none: `0`).
+   which alone never turns predict on. `prior_unknowns: <n>` = the Unknowns the user left in the
+   most recent stopped `track-*.md` ledger in `.oss-drafts/` for the same repo (none: `0`): count
+   `logged-over-budget` entries plus `status=skipped` entries, but do not count skips that are not
+   the user's: `reason=non-interactive` / `reason: non-interactive` (headless or subagent),
+   `source=drift` (a set-aside scope choice), or `source=predict` (predictions skipped via option B).
 6. Write the ledger (Write tool, `decision-ledger.md` sections 1 to 3), then the pointer in the git
    dir: `mkdir -p "$(dirname "$ptr")"` and Write `$ptr` (one line, ledger path relative to root).
    The pointer never goes in the worktree.

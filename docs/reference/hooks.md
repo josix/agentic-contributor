@@ -4,7 +4,7 @@ The draft-only `PreToolUse` guardrail (registration, matcher, full deny/allow ma
 
 ## Overview
 
-The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostToolUse`, a `Stop`, and a `UserPromptSubmit` hook. The first `PreToolUse` hook is the draft-only guardrail, which runs before every `Bash` call and every GitHub MCP tool call and denies outbound and mutating actions before they execute. The second is an advisory decision-checkpoint hook for Edit/Write. The `PostToolUse`, `Stop` and `UserPromptSubmit` hooks are one advisory script (`track-breakpoint.sh`) for scope-drift alerts, breakpoint questions, and opt-in predict-then-reveal. The advisory hooks are active only inside an `/oss track` session.
+The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostToolUse`, a `Stop`, and a `UserPromptSubmit` hook. The first `PreToolUse` hook is the draft-only guardrail, which runs before every `Bash` call and every GitHub MCP tool call and denies outbound and mutating actions before they execute. The second is an advisory decision-checkpoint hook for Edit/Write. The `PostToolUse`, `Stop` and `UserPromptSubmit` hooks are one advisory script (`track-breakpoint.sh`) for scope-drift alerts, breakpoint questions, and predict-then-reveal (`predict: auto` by default for new sessions: fixed rules switch it on or off; `--predict` / `--no-predict` force it). The advisory hooks are active only inside an `/oss track` session.
 
 ## Registration (`hooks/hooks.json`)
 

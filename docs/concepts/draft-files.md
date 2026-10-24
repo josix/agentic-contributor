@@ -95,7 +95,7 @@ body_format: 2
 | `readiness_login` | v0.6.0+, `claim`, `find`, and `prepare-pr`: the GitHub login the readiness check used (absent when skipped) |
 | `readiness` | v0.6.0+, `claim`, `find`, and `prepare-pr`: `{open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}`; `unknown` for anything not read. Advisory; also shown in private notes, never in a send block |
 | `task`, `issue`, `branch`, `base_commit`, `started_at`, `stopped_at`, `scope`, `scope_source`, `api_paths`, `budget` | v0.8.0+, track ledgers only (see below); `status` is `active` or `stopped` there |
-| `predict`, `predict_max` | v0.10.0+, track ledgers only: opt-in predict-then-reveal (default `false`) and its per-session cap (default 4) |
+| `predict`, `predict_max`, `user_commits`, `prior_unknowns` | v0.10.0+, track ledgers only: predict-then-reveal mode (`auto` for new sessions, `true`, or `false`; a ledger without the key stays off), its per-session cap (default 4), and the two facts `auto` reads (your commit count in the repo, `-1` = unknown; Unknowns you left in the previous session) |
 | `drift_lines`, `drift_files`, `drift_source`, `drift_max`, `explain_max`, `explain_interval_min` | v0.9.0+, track ledgers only: scope-drift thresholds and caps, and breakpoint-question limits (a v0.8.0 ledger without them uses the defaults 400 / 10 / default / 2 / 4 / 20) |
 | `routed_from` | v0.5.0+, only when a PR-intent request was rerouted to `report` (issue-first); names the original scenario |
 

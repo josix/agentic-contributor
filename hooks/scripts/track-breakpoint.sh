@@ -114,6 +114,7 @@ if [ "$ev" = Stop ]; then
 fi
 root="$trk_root"
 ledger="$trk_ledger"
+# shellcheck disable=SC2034 # set by the shared lookup; instructions use the absolute $ledger
 rel_ledger="$trk_rel_ledger"
 
 state="${ledger%.md}.state"
@@ -153,6 +154,10 @@ while IFS= read -r line; do
 done < "$ledger"
 [ "$fm_plugin" = "agentic-contributor" ] && [ "$fm_mode" = "track" ] || exit 0
 [ "$fm_status" = "active" ] || exit 0
+# Predict off (no key, false, anything else): a prompt costs no subprocess at all.
+if [ "$ev" = UserPromptSubmit ]; then
+  case "$fm_predict" in true | on | auto) ;; *) exit 0 ;; esac
+fi
 
 # --- shared: list cleaning (keep identical in track-*.sh) ---
 clean_list() { # strip comment, brackets, quotes
@@ -889,13 +894,15 @@ stop_event() {
 
 predict_text() { # $1 = used count, $2 = auto reason label (empty when explicit)
   local nl=$'\n'
-  printf '%s' "[agentic-contributor · tracked session] Predict mode is on${2:+ (auto: $2)} ($1/$predict_max used). Only if this prompt asks you to diagnose a problem (a bug, failure, or unexpected behaviour) or to propose a plan or approach for a code change, and you have not already asked for a prediction about this same problem in this conversation:${nl}1. Before investigating deeply or revealing your diagnosis or plan, ask the user with AskUserQuestion (header \"Predict\"): ONE question. For a diagnosis: \"Where do you think the problem is?\" For a plan: \"Which files or parts do you expect need to change?\" Options: A) No idea — go ahead | B) Skip predictions for this task. Ask them to type their guess under Other. Do not hint.${nl}2. Do the work. When you reveal your diagnosis or plan, add a short \"Your prediction vs. what I found\" section: where the prediction matched and where it differed, each with file:line. Never score or judge it.${nl}3. Read $ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### predict:$(($1 + 1)) · <UTC now>${nl}<!-- track:entry status=<answered|skipped> source=predict asked=yes at=<UTC now> id=predict:$(($1 + 1)) -->${nl}- phase: <diagnosis|plan>${nl}- prediction: <the user's words verbatim | no idea>${nl}- outcome: <one line: matched / partly / differed, with file:line>${nl}- answered_by: user${nl}   For B use status=skipped and also set \`predict: false\` in the ledger frontmatter (the user opted out).${nl}4. If AskUserQuestion is unavailable (non-interactive run or subagent): do not ask and do not record anything.${nl}Otherwise ignore this note. The ledger is private: never copy it into any sendable text."
+  printf '%s' "[agentic-contributor · tracked session] Predict mode is on${2:+ (auto: $2)} ($1/$predict_max used). Only if this prompt asks you to diagnose a problem (a bug, failure, or unexpected behaviour) or to propose a plan or approach for a code change, and you have not already asked for a prediction about this same problem in this conversation:${nl}1. Before investigating deeply or revealing your diagnosis or plan, ask the user with AskUserQuestion (header \"Predict\"): ONE question. For a diagnosis: \"Where do you think the problem is?\" For a plan: \"Which files or parts do you expect need to change?\" Options: A) No idea — go ahead | B) Skip predictions for this session. Ask them to type their guess under Other. Do not hint.${nl}2. Do the work. When you reveal your diagnosis or plan, add a short \"Your prediction vs. what I found\" section: where the prediction matched and where it differed, each with file:line. Never score or judge it.${nl}3. Read $ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### predict:$(($1 + 1)) · <UTC now>${nl}<!-- track:entry status=<answered|skipped> source=predict asked=yes at=<UTC now> id=predict:$(($1 + 1)) -->${nl}- phase: <diagnosis|plan>${nl}- prediction: <the user's typed words verbatim | no idea>${nl}- outcome: <one line: matched / partly / differed, with file:line>${nl}- answered_by: user${nl}   Typed guess: status=answered, prediction = their words verbatim. A: status=answered, prediction: exactly \`no idea\`. B: status=skipped, prediction: none, and also set \`predict: false\` in the ledger frontmatter (the user opted out for the rest of this session).${nl}4. If AskUserQuestion is unavailable (non-interactive run or subagent): do not ask and do not record anything.${nl}Otherwise ignore this note. The ledger is private: never copy it into any sendable text."
 }
 
 # ── UserPromptSubmit ─────────────────────────────────────────────────────────
 # predict: auto rules (decision-ledger.md section 15). Facts: user_commits and prior_unknowns from the
 # frontmatter, explain/predict entries and the last predict-auto marker from one awk pass. No git.
 # Sets a_state (on|off), a_reason (a fixed label), a_last (state of the last marker; none = off).
+# A prediction counts as "no idea" when, lowercased and stripped of leading spaces/punctuation, it
+# starts with the words "no idea" (so "No idea — go ahead", "No idea." and "no idea" all count).
 auto_eval() {
   local out k v uc pu a_expl a_noidea
   a_expl=""; a_noidea=0; a_last=off
@@ -918,8 +925,8 @@ cur ~ /^explain:/ && /^- chosen: (skip|not-requested)[ \t]*$/ {
   next
 }
 cur ~ /^predict:/ && /^- prediction: / {
-  v = $0; sub(/^- prediction: */, "", v); sub(/[ \t]+$/, "", v)
-  np++; pred[np] = (tolower(v) == "no idea") ? 1 : 0
+  v = tolower($0); sub(/^- prediction: */, "", v); sub(/^[^a-z0-9]+/, "", v)
+  np++; pred[np] = (v ~ /^no idea([^a-z0-9]|$)/) ? 1 : 0
 }
 END {
   print "X\t" expl; print "N\t" (np >= 2 && pred[np] && pred[np - 1] ? 1 : 0); print "S\t" (last == "" ? "off" : last)
@@ -927,8 +934,10 @@ END {
   while IFS=$'\t' read -r k v; do
     case "$k" in X) a_expl="$v" ;; N) a_noidea="$v" ;; S) a_last="$v" ;; esac
   done <<< "$out"
+  case "$a_expl" in '' | explain-skipped | explain-not-requested) ;; *) a_expl="" ;; esac
   uc="$fm_ucommits"; pu="$(int_or "$fm_punk" 0)"
   case "$uc" in -1) ;; '' | *[!0-9]* | ???????????*) uc=-1 ;; esac
+  case "$pu" in ???????????*) pu=0 ;; esac
   if [ "$a_noidea" = 1 ]; then a_state=off; a_reason=two-no-idea
   elif [ "$uc" -ge 0 ] && [ "$uc" -lt 5 ]; then a_state=on; a_reason=newcomer
   elif [ -n "$a_expl" ]; then a_state=on; a_reason="$a_expl"

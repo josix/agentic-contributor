@@ -139,8 +139,9 @@ New tracked sessions start with `predict: auto`. Fixed rules switch it:
 
 - On when you are new to the repo (fewer than 5 of your commits there), after you skipped or did
   not request an explain-back answer in this session, or when your previous session ended with 3 or
-  more unknowns.
-- Off after two "no idea" predictions in a row (sticky for the session).
+  more unknowns you left yourself (skips and over-budget items; not non-interactive, drift, or
+  predict skips).
+- Off after two "no idea" predictions in a row (sticky for the session). Picking "No idea — go ahead" records `prediction: no idea`; any prediction that starts with the words "no idea" counts.
 - Otherwise off. If your commit count cannot be read, that alone does not turn it on.
 
 Every switch is logged in the ledger with its reason (`predict auto: on (newcomer)`), and the
@@ -148,7 +149,8 @@ injected note says `(auto: <reason>)`. Force it with `--predict` / `--predict=on
 `--no-predict` / `--predict=off` (never) or `--predict=auto`; change it in a running session with
 `/oss track predict on|off|auto`. A ledger from before v0.10.0 has no `predict` key and stays off.
 
-- At most `predict_max` (default 4) per session; "Skip predictions for this task" turns it off.
+- At most `predict_max` (default 4) per session; "Skip predictions for this session" turns it off
+  for the rest of the session.
   `budget: 0` (quiet mode) and slash commands keep it silent.
 - A `UserPromptSubmit` hook adds the instruction to your prompt as context. It never blocks a prompt
   and runs no git. Its only write is the auto switch marker, under the ledger lock; if the lock is
@@ -189,6 +191,8 @@ worktree or submodule has its own git dir and so its own session.
   `--rebase`), drift alerts and explain-back questions pause and you are told once: "base moved —
   drift paused; restart tracking (`/oss track stop` + start) to re-baseline". A fast-forward pull
   of upstream commits is not detected and still counts as drift; restart tracking after pulling.
+  Predict-then-reveal compares your guess with the agent's own findings, not with a diff against
+  the base, so it keeps running while drift is paused.
   Git work runs only inside a session, throttled, and can take longer on huge repos.
 - After the drift question cap is spent, or with `budget: 0`, new drift (including each newly seen
   out-of-scope module) is recorded silently and summarised once at the end of the turn and in the

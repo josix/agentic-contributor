@@ -83,7 +83,10 @@ generated_at: <ISO-8601 UTC>
 - `predict`: `auto` (written for new sessions), `true` or `false` (`on` / `off` are accepted
   aliases) controls predict-then-reveal (section 15). `predict_max` (default 4): predict entries per
   session, answered or skipped; `0` = off. `user_commits` (integer, `-1` = unknown) and
-  `prior_unknowns` (integer) are facts recorded once at track start and only read by `auto`. A
+  `prior_unknowns` (integer) are facts recorded once at track start and only read by `auto`.
+  `prior_unknowns` counts the Unknowns the user left in the previous stopped ledger of the same
+  repo: `logged-over-budget` entries plus `status=skipped` entries, excluding non-interactive skips
+  (`reason=non-interactive`), drift skips (`source=drift`) and predict skips (`source=predict`). A
   ledger without a `predict` key (v0.8.0 / v0.9.0) works with predict off.
 - The frontmatter is mutable (for example `scope:` is widened at a scope checkpoint); entries are
   append-only.
@@ -177,12 +180,14 @@ Written by Claude when predict mode is on and the user is asked for a prediction
 ### predict:<n> · <UTC>
 <!-- track:entry status=<answered|skipped> source=predict asked=yes at=<UTC> id=predict:<n> -->
 - phase: <diagnosis|plan>
-- prediction: <user's words verbatim | no idea>
+- prediction: <user's typed words verbatim | no idea>
 - outcome: <one line: matched / partly / differed, with file:line>
 - answered_by: user
 ```
 
-Skipped (option B) also sets `predict: false` in the frontmatter. Never write a predict entry when
+Option A ("No idea — go ahead") is recorded as exactly `prediction: no idea` (status=answered).
+Skipped (option B, "Skip predictions for this session") uses `status=skipped`, `prediction: none`,
+and also sets `predict: false` in the frontmatter for the rest of the session. Never write a predict entry when
 the question could not be asked. Predictions are private learning notes: never scored, never in send
 blocks or PR text.
 
@@ -494,14 +499,19 @@ and record a predict entry. It is silent when: no session; status not `active`; 
 `true` / `auto` (or `auto` computes off); `budget: 0`; predict_n >= `predict_max`; the prompt is
 empty or starts with `/`; plan mode; or any parse error. Consumers: `change-debrief` lists predict
 entries and auto switches in a private "Your predictions" subsection; `describe` never uses them.
+With no `predict` key, or a value other than `true` / `on` / `auto`, the hook exits after reading the
+frontmatter with builtins, before any JSON parse. A paused session (`track:drift-paused`, base
+moved) still predicts: the comparison is against the agent's own findings, never a diff against the
+base.
 
 **Auto rules** (fixed, read-only facts; evaluated on every eligible prompt):
 - ON if any (first match is the reason): `0 <= user_commits < 5` (`newcomer`); an explain entry
   (`explain:<k>`) with `chosen: skip` (`explain-skipped`) or `chosen: not-requested`
   (`explain-not-requested`); `prior_unknowns >= 3` (`prior-unknowns`). `user_commits: -1` (unknown)
   alone does not turn it on.
-- OFF overrides ON, and is sticky: the last two predict entries both have `prediction: no idea`
-  (`two-no-idea`). Otherwise OFF (`no-signal`).
+- OFF overrides ON, and is sticky: the last two predict entries both have a "no idea" prediction
+  (`two-no-idea`): lowercased, with leading spaces and punctuation removed, the text starts with the
+  words `no idea` (so `no idea`, `No idea.` and `No idea — go ahead` all count). Otherwise OFF (`no-signal`).
 - The injected text reads `Predict mode is on (auto: <reason>) (<used>/<predict_max> used)`.
 
 **Switch marker.** When the computed state differs from the last marker (none = off), the hook
