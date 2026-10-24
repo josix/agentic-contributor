@@ -1,5 +1,5 @@
 {
-  "description": "Draft-only guardrail: blocks all outbound/mutating actions (GitHub writes, git push, posting comments) so this plugin can only research and draft. Sending is handled by the separate execution/submission plugin.",
+  "description": "Draft-only guardrail: blocks all outbound/mutating actions (GitHub writes, git push, posting comments) so this plugin can only research and draft. Sending is handled by the separate execution/submission plugin. Also: advisory decision checkpoints on Edit/Write, active only inside an `/oss track` session.",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +9,16 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-outbound.sh",
             "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-checkpoint.sh",
+            "timeout": 5
           }
         ]
       }

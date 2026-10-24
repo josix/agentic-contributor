@@ -8,6 +8,8 @@ Every piece of outbound text produced by this plugin — a claim comment, a set 
 
 This is not just a convention in the command instructions. It is enforced at the tool level by a `PreToolUse` hook that runs before every `Bash` call and every GitHub MCP tool call.
 
+A second, advisory hook (`track-checkpoint.sh`) is not part of the guardrail; see [Tracked Sessions & Checkpoints](tracked-sessions.md).
+
 ## How the Guardrail Works
 
 `hooks/hooks.json` registers a `PreToolUse` hook that matches `Bash|mcp__plugin_agentic-contributor_github__.*` and calls `hooks/scripts/guard-outbound.sh` before the tool executes.
@@ -80,8 +82,8 @@ constraint:
 - Local file writes cannot reach GitHub, post comments, push branches, or trigger any outbound action.
 - The guardrail hook does not intercept Write tool calls (it matches only `Bash` and `mcp__plugin_agentic-contributor_github__*` tools).
 
-The `.oss-drafts/` directory is automatically excluded from version control via `.git/info/exclude`
-on the first write (non-invasive — does not dirty the user's tracked `.gitignore`).
+The `.oss-drafts/` directory is automatically excluded from version control via the repo's exclude file
+(`git rev-parse --git-path info/exclude`) on the first write (non-invasive — does not dirty the user's tracked `.gitignore`).
 
 See [Draft Files](draft-files.md) for the naming convention, frontmatter schema, and per-scenario
 file paths.

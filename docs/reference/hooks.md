@@ -1,10 +1,10 @@
 # Hooks Reference
 
-The draft-only `PreToolUse` guardrail: registration, matcher, and the full deny/allow matrix.
+The draft-only `PreToolUse` guardrail (registration, matcher, full deny/allow matrix) and the advisory decision-checkpoint hook.
 
 ## Overview
 
-The `agentic-contributor` plugin registers one hook type: a `PreToolUse` hook that runs before every `Bash` call and every GitHub MCP tool call. It enforces the draft-only contract by denying outbound and mutating actions before they execute.
+The `agentic-contributor` plugin registers two `PreToolUse` hooks: the draft-only guardrail, which runs before every `Bash` call and every GitHub MCP tool call and denies outbound and mutating actions before they execute, and an advisory decision-checkpoint hook for Edit/Write that is active only inside an `/oss track` session.
 
 ## Registration (`hooks/hooks.json`)
 
@@ -20,6 +20,16 @@ The `agentic-contributor` plugin registers one hook type: a `PreToolUse` hook th
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-outbound.sh",
             "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-checkpoint.sh",
+            "timeout": 5
           }
         ]
       }
@@ -116,6 +126,41 @@ Everything not matched by a deny pattern:
 - Read-only forms with the same prefixes: `git -C dir log`, `/usr/bin/git status`, `env git diff`, `gh -R o/r pr view 1`, `gh label list`, `gh workflow list`, `curl -X GET …`
 - Build/test commands: `mvn`, `gradle`, `pytest`, `npm test`, `./breeze`, etc.
 - `cat`, `grep`, `find`, `jq`, and other read-only shell commands
+
+---
+
+## `track-checkpoint.sh` (advisory)
+
+**Not a safety boundary.** The guard above is unchanged. This hook turns a few reviewer-relevant edits into "choose, not approve" questions inside a tracked session and records the answers in the private decision ledger. Concept and usage: [Tracked Sessions & Checkpoints](../concepts/tracked-sessions.md). Ledger format: `skills/pr-preparation/references/decision-ledger.md`.
+
+**Matcher:** `Edit|Write|MultiEdit|NotebookEdit`. **Timeout:** 5 seconds. Bash is not watched (`npm install`, `rm` are not caught).
+
+**Opt-in.** The session pointer is `<gitdir>/agentic-contributor/track-active`, in the git dir of the repository containing `$CLAUDE_PROJECT_DIR` (else the hook's working directory). The hook finds it by walking up to the first `.git`; a `.git` file (linked worktree, submodule) is followed through its `gitdir:` line. Without that pointer the hook exits before reading stdin, prints nothing, and spawns no subprocess (builtins only), so large edit payloads cost nothing. Tracked sessions require git: outside a git repository the hook is inactive. A `.oss-drafts/.track-active` file or ledger committed to a repository is ignored, because git never clones the git dir. Kill switch: `OSS_TRACK_DISABLE=1`. Also silent when the ledger says `status: stopped`, in `permission_mode: plan`, when the edited file is outside the repository root, or when the pointer is invalid (it must name `.oss-drafts/track-<name>.md` inside the root, no `..`, no symlinks).
+
+**JSON parsing:** `jq` → `python3` → silent allow (no grep fallback; this hook fails open).
+
+**Output:** one `hookSpecificOutput` JSON object on stdout with exit 0. Exit 2 is never used.
+
+| Situation | Result |
+|---|---|
+| no session, stopped session, plan mode, any internal error | silent (no output) |
+| trigger (test weakening, dependency manifest or lock file, opt-in `api_paths`, outside `scope`), id not yet settled, budget left | `deny` with instructions to ask via AskUserQuestion, append a ledger entry, and retry |
+| id already settled, or already logged over budget | silent |
+| budget spent (default 3 questions asked), or `budget: 0` | `additionalContext` plus a short `systemMessage` (no permission decision); a `logged-over-budget` line is appended |
+| second retry without a ledger entry (loop guard) | `deny` again once; the third attempt gets `additionalContext` plus a `systemMessage` (no permission decision) and a `skipped` line |
+| tool `Edit` whose path equals exactly the active ledger path | `allow` (so a checkpoint costs one interruption, not two) |
+
+The ledger auto-allow is deliberately narrow: only `Edit` (never Write, MultiEdit, or NotebookEdit), only the byte-for-byte active ledger path read from the pointer, nothing with a `..` segment, and nothing when the ledger, the pointer, or `.oss-drafts/` is a symlink. Every other path, including other files in `.oss-drafts/`, gets no allow.
+
+Checkpoint ids are `<class>:<repo-relative path>`; a lock file maps to its manifest (`yarn.lock` is `dependency:package.json`). The hook appends only the class, the edited file's repo-relative path, and timestamps with a single `>>`; it never writes old/new strings or file content into the ledger. A path (or `cwd`) containing a control character such as a newline or carriage return makes the hook fail open without writing, so a file name cannot forge ledger marker lines.
+
+**No ledger text in output.** The ledger is repository-writable data, so the hook never echoes `scope`, `api_paths`, or any other frontmatter value into `permissionDecisionReason`, `additionalContext`, or `systemMessage`. Messages say "the ledger's scope" or "an API path listed in the ledger" and name only the edited file's repo-relative path.
+
+**Context-only notices.** The over-budget and loop-guard notices rely on `additionalContext` in a PreToolUse hook without a permission decision, which needs a Claude Code version that supports PreToolUse `additionalContext`. On older versions Claude does not see the note, so the hook also sets a top-level `systemMessage` that the user sees either way.
+
+**Locking.** Reading state, checking the budget, and appending a pending marker happen under a `mkdir` lock (`<ledger>.lock`). A lock older than about 10 seconds is treated as stale: its mtime comes from `stat -c %Y` (GNU) or `stat -f %m` (BSD), validated as a number, and it is renamed to a per-process name before removal so a fresh lock is never deleted. If the lock stays busy for about 2 seconds the hook fails open.
+
+Harness: `bash hooks/tests/run-track-tests.sh` (bash 3.2 compatible; builds a fixture git repo in a temp dir per case).
 
 ---
 
