@@ -251,8 +251,9 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
   `"$(git rev-parse --git-dir)/agentic-contributor/track-active"` (git dir, never the worktree;
   tracked sessions require git); stop removes that pointer with `rm -f`. Edit is used only on the
   active ledger (append entries, stop). No policy preflight, no readiness.
-  Besides the PreToolUse checkpoints, an advisory PostToolUse/Stop hook may add a scope-drift alert
-  or hold a stop for one breakpoint question; follow its instructions (ask, then record the entry
+  Besides the PreToolUse checkpoints, an advisory PostToolUse/Stop/UserPromptSubmit hook may add a scope-drift alert,
+  hold a stop for one breakpoint question, or (predict mode, diagnosis/planning prompts) ask for
+  your prediction before you answer; follow its instructions (ask, then record the entry
   with Edit on the active ledger; never revert or stash).
 - **find** policy use: record the `policy` block in frontmatter and mention any open-PR cap, vouch
   requirement, or good-first-issue AI ban in the shortlist notes. Put the readiness summary at the

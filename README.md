@@ -161,7 +161,7 @@ The `PreToolUse` guardrail hook (`hooks/hooks.json` + `hooks/scripts/guard-outbo
 
 The denial message explains that the plugin is draft-only and that the execution/submission plugin handles sending.
 
-A second, separate `PreToolUse` hook (`hooks/scripts/track-checkpoint.sh`) is advisory and fails open. It matches `Edit|Write|MultiEdit|NotebookEdit` but does nothing unless an `/oss track` session is active. A third, equally advisory script (`hooks/scripts/track-breakpoint.sh`) is registered on `PostToolUse` (same matcher) and `Stop`, again for tracked sessions only.
+A second, separate `PreToolUse` hook (`hooks/scripts/track-checkpoint.sh`) is advisory and fails open. It matches `Edit|Write|MultiEdit|NotebookEdit` but does nothing unless an `/oss track` session is active. A third, equally advisory script (`hooks/scripts/track-breakpoint.sh`) is registered on `PostToolUse` (same matcher), `Stop` and `UserPromptSubmit`, again for tracked sessions only.
 
 | Situation | Result |
 |---|---|
@@ -170,6 +170,7 @@ A second, separate `PreToolUse` hook (`hooks/scripts/track-checkpoint.sh`) is ad
 | budget spent | no permission decision (normal prompts apply); logged as an Unknown |
 | Edit that appends one entry at `<!-- track:end -->` of the active ledger | allow (any other ledger edit gets the normal prompt) |
 | change grows past the drift limits, or out-of-scope modules no checkpoint covered (drift cap left) | `PostToolUse`: context, never a block; at `Stop`: may hold the stop once (block). Asks keep / separate PR / drop / skip; at most 2 per session |
+| prompt that asks for diagnosis or planning (predict mode on, under `predict_max`) | `UserPromptSubmit`: context, never a block; asks for your prediction first, then shows where it matched or differed (`file:line`) and records it privately; silent for `/name` commands, trivial prompts, and when predict is off or `budget: 0` |
 | agent stops after edits (breakpoint) | one rate-limited, skippable question about a `file:line`, held once at `Stop`; at most 4 per session, 20 minutes apart; `budget: 0` is quiet mode |
 
 It is not a safety boundary. See [Tracked Sessions & Checkpoints](docs/concepts/tracked-sessions.md).

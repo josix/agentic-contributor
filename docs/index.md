@@ -39,7 +39,7 @@ flowchart TD
     CA -.-> GRD
 
     OSS -.->|PreToolUse Edit/Write| TCK["hooks/scripts/track-checkpoint.sh<br/>advisory checkpoints, tracked sessions only"]
-    OSS -.->|PostToolUse / Stop| BRK["hooks/scripts/track-breakpoint.sh<br/>drift alerts + breakpoint questions"]
+    OSS -.->|PostToolUse / Stop / UserPromptSubmit| BRK["hooks/scripts/track-breakpoint.sh<br/>drift alerts, breakpoint questions, predict-then-reveal"]
 ```
 
 ## Quick Links

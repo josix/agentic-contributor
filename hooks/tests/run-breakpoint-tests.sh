@@ -581,6 +581,33 @@ else
   echo "info: (f) python3 fallback skipped (no jq-free PATH with a working python3)"
 fi
 
+# (f2) old jq (< 1.6 has no utf8bytelength): a jq shim that cannot compile the parse program must
+# fall through to python3, not silently exit 0 for every event.
+if command -v jq > /dev/null 2>&1 && command -v python3 > /dev/null 2>&1; then
+  jqshim="$(mktemp -d)"
+  tmps="$tmps $jqshim"
+  real_jq="$(command -v jq)"
+  printf '#!/bin/bash\nfor a in "$@"; do case "$a" in *utf8bytelength*) exit 3 ;; esac; done\nexec "%s" "$@"\n' "$real_jq" > "$jqshim/jq"
+  chmod +x "$jqshim/jq"
+  setup hunk
+  json="$(build_stop s1 false)"
+  out="$(cd "$root" && printf '%s' "$json" | env -u CLAUDE_PROJECT_DIR PATH="$jqshim:$PATH" "$runner" "$hook" 2> /dev/null)"
+  printf '%s' "$out" | python3 -c 'import sys,json; r=json.load(sys.stdin); assert r["decision"]=="block" and "Target: src/app.js:40" in r["reason"]' 2> /dev/null \
+    && ok || bad "(f2) old-jq shim: Stop expected python3 fallback explain block, got: $out"
+  setup big-lines
+  json="$(build_post "$root/src/app.js")"
+  out="$(cd "$root" && printf '%s' "$json" | env -u CLAUDE_PROJECT_DIR PATH="$jqshim:$PATH" "$runner" "$hook" 2> /dev/null)"
+  printf '%s' "$out" | python3 -c 'import sys,json; r=json.load(sys.stdin); assert "Drift id: drift:1" in r["hookSpecificOutput"]["additionalContext"]' 2> /dev/null \
+    && ok || bad "(f2) old-jq shim: PostToolUse expected drift context, got: $out"
+  setup predict-on
+  json="$(build_prompt 'Why does the build fail?')"
+  out="$(cd "$root" && printf '%s' "$json" | env -u CLAUDE_PROJECT_DIR PATH="$jqshim:$PATH" "$runner" "$hook" 2> /dev/null)"
+  printf '%s' "$out" | python3 -c 'import sys,json; r=json.load(sys.stdin); assert r["hookSpecificOutput"]["hookEventName"]=="UserPromptSubmit" and "Predict mode is on (0/4" in r["hookSpecificOutput"]["additionalContext"]' 2> /dev/null \
+    && ok || bad "(f2) old-jq shim: UserPromptSubmit expected predict context, got: $out"
+else
+  echo "info: (f2) old-jq shim skipped (needs jq and python3)"
+fi
+
 # (g) path with a space: marker target is percent-encoded, the reason is plain.
 setup active
 gen_lines sp 30 > "$root/src/my file.js"

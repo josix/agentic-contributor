@@ -283,8 +283,9 @@ command -v python3 > /dev/null 2>&1 && have_py=1
 # that sends them; without them the "already asking" and subagent checks simply never fire.
 KW_RE='bug|fail|error|crash|broken|wrong|why|fix|plan|approach|design|implement|refactor|debug|problem|issue|slow|leak|panic|exception|hangs|hanging|hung|flaky|stuck|timeout|broke'
 parse_input() {
+  local out=""
   if [ "$have_jq" -eq 1 ]; then
-    printf '%s' "$input" | jq -r --arg kw "$KW_RE" '
+    out="$(printf '%s' "$input" | jq -r --arg kw "$KW_RE" '
       def clean: tostring | if test("[\u0000-\u001f\u007f]") then "" else . end;
       def endsq: test("[?\uff1f]$");
       def item: test("^\\s*([0-9]+[.)]|[-*\u2022+]|\\(?[A-Za-z][.)])\\s+");
@@ -304,8 +305,12 @@ parse_input() {
          (((.prompt // "") | tostring | sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "")) as $p
           | (if $p == "" then "empty" elif ($p | test("^/[A-Za-z0-9_:-]+(\\s|$)")) then "slash" else "text" end),
             (if ($p | utf8bytelength) <= 24 and ($p | test("[?\uff1f]") | not) and ($p | test($kw; "i") | not) then "1" else "0" end))]
-      | map(clean) | join("\u001f")' 2> /dev/null
-  else
+      | map(clean) | join("\u001f")' 2> /dev/null)"
+    # A jq that cannot compile the program (utf8bytelength needs jq >= 1.6) prints nothing: fall
+    # through to python3 instead of silently exiting.
+    if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
+  fi
+  if [ "$have_py" -eq 1 ]; then
     printf '%s' "$input" | python3 -c '
 import sys, json, re
 d = json.load(sys.stdin)
