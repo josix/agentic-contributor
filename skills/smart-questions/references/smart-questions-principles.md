@@ -130,8 +130,10 @@ Ask: "This reply is not written yet. Is it ready to send?" Severity: `fix-before
 
 ### AP9 — AI co-author trailer or "Generated with…" footer (active from v0.5.0)
 Active when the draft frontmatter has a `policy` block and either `coauthor_trailer_forbidden: true`
-or `ai_policy` is other than `none-found`. If there is no `policy` block, or neither holds, mark AP9
-**unevaluated** (not passed) and say why in the Lint section.
+or `ai_policy` is other than `none-found`. `ai_policy: unknown` (the preflight could not check the
+policy) keeps AP9 active: evaluate conservatively and tell the user the policy could not be checked.
+If there is no `policy` block, or neither holds, mark AP9 **unevaluated** (not passed) and say why
+in the Lint section.
 Evaluate the actual rule before flagging:
 - `coauthor_trailer_forbidden: true`: flag any AI trailer or footer ("Co-Authored-By: Claude …",
   "Generated with …").

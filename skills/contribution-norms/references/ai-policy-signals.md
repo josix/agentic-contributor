@@ -10,9 +10,9 @@ Discourse, or mailing lists that this plugin cannot see.
 ```yaml
 policy:
   repo: <owner/repo>                        # exact repository this block describes; required for cache reuse
-  ai_policy: none-found|disclosure-required|restricted|banned   # restricted = e.g. no AI on good first issues
+  ai_policy: unknown|none-found|disclosure-required|restricted|banned   # restricted = e.g. no AI on good first issues; unknown = could not check
   ai_policy_sources: [<path-or-url>, ...]
-  disclosure: required|recommended|none-found
+  disclosure: required|recommended|none-found|unknown   # unknown = could not check
   disclosure_mechanism: pr-template-checkbox|statement|trailer|unknown
   coauthor_trailer_forbidden: true|false|unknown
   open_pr_cap: <int>|unknown
@@ -32,6 +32,10 @@ Stance (D8):
 
 - Every field defaults to `unknown` or `none-found`. It becomes `false`/`none` only when a source
   document says so explicitly.
+- `none-found` means the sources were read and held no signal; `unknown` means they could not be
+  checked (the preflight failed or the fetches errored). A failed preflight sets `ai_policy` and
+  `disclosure` to `unknown`, never `none-found`, so consumers keep treating the policy as possibly
+  present (AP9 stays active) and tell the user it could not be checked.
 - `confidence: high` only when a dedicated policy file or an explicit config key was found.
   `medium` for CONTRIBUTING or template wording matched by keywords. `low` for a single weak hint.
 - Findings are advisory. They never block a draft.

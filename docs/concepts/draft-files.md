@@ -114,9 +114,9 @@ never PR text. The full format (frontmatter, entries, hook-written lines, trigge
 
 ```yaml
 policy:
-  ai_policy: none-found|disclosure-required|restricted|banned
+  ai_policy: unknown|none-found|disclosure-required|restricted|banned
   ai_policy_sources: [<path-or-url>]
-  disclosure: required|recommended|none-found
+  disclosure: required|recommended|none-found|unknown
   disclosure_mechanism: pr-template-checkbox|statement|trailer|unknown
   coauthor_trailer_forbidden: true|false|unknown
   open_pr_cap: <int>|unknown
@@ -130,7 +130,8 @@ policy:
 ```
 
 Heuristic and advisory: `none-found`/`unknown` means the plugin did not find a signal, not that the
-project has no policy. `/oss` reuses the block from the newest draft for the same repo when
+project has no policy. `none-found` means the sources were read and held no signal; `unknown` means
+they could not be checked (for example, the preflight fetch failed). `/oss` reuses the block from the newest draft for the same repo when
 `fetched_at` is under 7 days old. Readers that do not know the field ignore it.
 
 ## Body Format
