@@ -114,7 +114,7 @@ Inputs: diff <base>...<head>, <N> commits, issue text <#N|none>, ledger <path|no
 
 ## Your predictions (private; only when predict entries or auto switches exist)
 - auto switches: <on|off> (<reason>) at <UTC> — one line per `track:predict-auto` marker
-- <phase> — you predicted: "<prediction>" — outcome: <outcome with file:line>
+- <phase> — you predicted: "<prediction>" — outcome: <outcome with file:line, from the `### predict:<n> outcome` block; the entry's inline `outcome:` when there is no block; `pending` if neither was written>
 
 ## Explain-back (answer in your own words)
 1. <question citing file:line> TODO(you)

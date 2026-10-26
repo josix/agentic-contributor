@@ -191,9 +191,22 @@ Written by Claude when predict mode is on and the user is asked for a prediction
 <!-- track:entry status=<answered|skipped> source=predict asked=yes at=<UTC> id=predict:<n> -->
 - phase: <diagnosis|plan>
 - prediction: <user's typed words verbatim | no idea>
-- outcome: <one line: matched / partly / differed, with file:line>
+- outcome: pending
 - answered_by: user
 ```
+
+The entry is written right after the answer (so it counts toward `predict_max` and the watermark at
+ask time, even if the turn ends before the reveal), with `- outcome: pending`. At the reveal the agent
+appends, by the same sentinel append (PR2 auto-allows it), and never edits the entry above:
+
+```markdown
+### predict:<n> outcome
+<!-- track:outcome at=<UTC> id=predict:<n> -->
+- outcome: <one line: matched / partly / differed, with file:line>
+```
+
+`track:outcome` is not an entry and does not count toward predict_n. `change-debrief` reads the outcome
+block when present and falls back to the inline outcome line.
 
 Option A ("No idea — go ahead") is recorded as exactly `prediction: no idea` (status=answered).
 Skipped (option B, "Skip predictions for this session") uses `status=skipped`, `prediction: none`,
@@ -323,8 +336,9 @@ behaves like `*`). A trailing `/` means prefix. Comparison is against the repo-r
   and says so in `additionalContext` (plus a short `systemMessage` for the user). No deny loops.
 - A settled id is never asked again. An over-logged id is silent.
 - Separate caps (v0.9.0): checkpoints keep `budget` (3); drift has `drift_max` (2); breakpoint
-  questions have `explain_max` (4), at least `explain_interval_min` (20) minutes apart. Worst case
-  3+2+4 = 9 questions per session; typical 0 to 3. `budget: 0` is quiet mode for all three.
+  questions have `explain_max` (4), at least `explain_interval_min` (20) minutes apart; predictions
+  have `predict_max` (4). Worst case 3+2+4+4 = 13 questions per session; typical 0 to 3. `budget: 0` is
+  quiet mode for all four.
 - Silent with no session (no git-dir pointer, or not a git repository), `status: stopped`, `OSS_TRACK_DISABLE=1`, `permission_mode: plan`, an
   invalid pointer, or any internal error (the hook is advisory and fails open).
 
@@ -530,7 +544,11 @@ set it. `track-breakpoint.sh` handles `UserPromptSubmit`: no git, never a block.
 prediction first, reveal its own with a "Your prediction vs. what I found" comparison (file:line),
 and record a predict entry. It is silent when: no session; status not `active`; `predict` not
 `true` / `auto` (or `auto` computes off); `budget: 0`; predict_n >= `predict_max`; the prompt is
-empty or starts with `/`; plan mode; or any parse error. Consumers: `change-debrief` lists predict
+empty, a slash command (`/name` followed by a space or end; a path such as `/src/a.c:4 ...` is text),
+or trivial (24 characters or fewer, no `?`, no diagnosis or planning keyword, e.g. `thanks!`); or any
+parse error. Plan mode does not silence it (planning prompts are what it is for): the note says to
+write the entry as soon as plan mode ends. The full note is sent once per session (a `p<TAB><sid>`
+line in `<ledger>.state`); later prompts get a short reminder with the absolute path of this section. Consumers: `change-debrief` lists predict
 entries and auto switches in a private "Your predictions" subsection; `describe` never uses them.
 With no `predict` key, or a value other than `true` / `on` / `auto`, the hook exits after reading the
 frontmatter with builtins, before any JSON parse. A paused session (`track:drift-paused`, base
@@ -543,8 +561,9 @@ base.
   (`explain-not-requested`); `prior_unknowns >= 3` (`prior-unknowns`). `user_commits: -1` (unknown)
   alone does not turn it on.
 - OFF overrides ON, and is sticky: the last two predict entries both have a "no idea" prediction
-  (`two-no-idea`): lowercased, with leading spaces and punctuation removed, the text starts with the
-  words `no idea` (so `no idea`, `No idea.` and `No idea — go ahead` all count). Otherwise OFF (`no-signal`).
+  (`two-no-idea`): lowercased and stripped of surrounding spaces, quotes and punctuation, the text is
+  exactly `no idea` or `no idea — go ahead` (any dash or comma; so `no idea`, `No idea.` and
+  `No idea — go ahead` count, `No idea, maybe lexer.c` is a guess and does not). Otherwise OFF (`no-signal`).
 - The injected text reads `Predict mode is on (auto: <reason>) (<used>/<predict_max> used)`.
 
 **Switch marker.** When the computed state differs from the last marker (none = off), the hook
@@ -554,5 +573,8 @@ computed state), re-checks inside the lock so concurrent prompts write one marke
 <!-- track:predict-auto at=<UTC> state=<on|off> reason=<reason> -->
 - predict auto: <on|off> (<reason>)
 ```
-This is the only write the `UserPromptSubmit` hook makes. Markers are not entries: they do not count
+The marker is logged when auto is evaluated (eligible prompts: active session, predict auto, budget
+above 0, not a slash or trivial prompt, cap not reached), not on every prompt: the state only matters
+when it would inject a note. Besides this marker, the only other write of the `UserPromptSubmit` hook
+is the `p<TAB><sid>` state line. Markers are not entries: they do not count
 toward predict_n or any budget.

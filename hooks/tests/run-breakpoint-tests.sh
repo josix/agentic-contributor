@@ -14,7 +14,8 @@
 set -u
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-hook="$here/../scripts/track-breakpoint.sh"
+plugin_root="$(cd "$here/../.." && pwd)" # canonical, so the hook can derive the reference path
+hook="$plugin_root/hooks/scripts/track-breakpoint.sh"
 chook="$here/../scripts/track-checkpoint.sh"
 cases="$here/breakpoint-cases.tsv"
 
@@ -163,12 +164,13 @@ setup() { # $1 profile -> sets d root ledger pointer state evil env_extra perm
     badbase) base=zzz ;;
     unknown-sha) base=1234567890abcdef1234567890abcdef12345678 ;;
     explain0 | explain0-pending) extra="explain_max: 0" ;;
-    predict-on | predict-2 | predict-full | predict-stop | predict-mixed) extra="predict: true" ;;
+    predict-on | predict-2 | predict-full | predict-stop | predict-mixed | predict-plan | predict-short) extra="predict: true" ;;
     predict-max2) extra=$'predict: true\npredict_max: 2' ;;
     predict-off) extra="predict: false" ;;
     predict-b0) extra="predict: true"; budget=0 ;;
     predict-stopped) extra="predict: true"; status=stopped ;;
-    auto-new | auto-busy | auto-slash | auto-dedup | auto-noidea-dash | auto-noidea-dot | auto-noidea-lower | auto-noidea-guess) extra=$'predict: auto\nuser_commits: 2\nprior_unknowns: 0' ;;
+    auto-new | auto-busy | auto-slash | auto-dedup | auto-noidea-dash | auto-noidea-dot | auto-noidea-lower | auto-noidea-guess | auto-noidea-maybe) extra=$'predict: auto\nuser_commits: 2\nprior_unknowns: 0' ;;
+    auto-padded) extra=$'predict: auto\nuser_commits:        2\nprior_unknowns: 0' ;;
     auto-new-b0) extra=$'predict: auto\nuser_commits: 2'; budget=0 ;;
     auto-new-cap) extra=$'predict: auto\npredict_max: 2\nuser_commits: 2' ;;
     auto-vet | auto-vet-marker | auto-explain-skip | auto-explain-nr | auto-noidea | auto-noidea-marker) extra=$'predict: auto\nuser_commits: 50\nprior_unknowns: 0' ;;
@@ -266,7 +268,7 @@ setup() { # $1 profile -> sets d root ledger pointer state evil env_extra perm
     two-files-targeted) bp_marker "$old" s0 explain:1 src/b.js:10 ;;
     stale-lock) mkdir "$ledger.lock"; touch -t 202001010000 "$ledger.lock" ;;
     busy-lock) mkdir "$ledger.lock" ;;
-    plan-hunk) perm=plan ;;
+    plan-hunk | predict-plan) perm=plan ;;
     predict-2 | predict-max2) predict_entry 1 answered; predict_entry 2 skipped ;;
     predict-full) predict_entry 1 answered; predict_entry 2 answered; predict_entry 3 skipped; predict_entry 4 answered ;;
     predict-stop) predict_entry 1 answered ;;
@@ -275,6 +277,8 @@ setup() { # $1 profile -> sets d root ledger pointer state evil env_extra perm
     auto-noidea-dash) auto_marker on newcomer; predict_noidea 1 'No idea — go ahead'; predict_noidea 2 'No idea — go ahead' ;;
     auto-noidea-dot) auto_marker on newcomer; predict_noidea 1 'No idea.'; predict_noidea 2 '  No idea.' ;;
     auto-noidea-lower) auto_marker on newcomer; predict_noidea 1 'no idea'; predict_noidea 2 '"no idea"' ;;
+    auto-noidea-maybe) predict_noidea 1 'No idea, maybe lexer.c'; predict_noidea 2 'No idea, maybe lexer.c' ;;
+    predict-short) st_add 'p\ts1\n' ;;
     auto-noidea-guess) predict_noidea 1 'No idea — go ahead'; predict_noidea 2 'no ideas yet, maybe src/app.js' ;;
     auto-vet-marker) auto_marker on newcomer ;;
     auto-explain-skip) explain_entry 1 skipped skip ;;
@@ -334,6 +338,7 @@ while IFS="$tab" read -r expect profile event ptoken want || [ -n "${expect:-}" 
     PromptSlash) json="$(build_prompt '/oss track predict off')" ;;
     PromptSpaceSlash) json="$(build_prompt '  /help')" ;;
     PromptEmpty) json="$(build_prompt '')" ;;
+    PromptM:*) json="$(build_prompt "${event#PromptM:}")" ;;
     StopQ) json="$(build_stop s1 false 'Should I continue?')" ;;
     StopM:*) json="$(build_stop s1 false "$(printf '%b' "${event#StopM:}")")" ;;
     StopS2) json="$(build_stop s2 false)" ;;
@@ -341,10 +346,12 @@ while IFS="$tab" read -r expect profile event ptoken want || [ -n "${expect:-}" 
   esac
   l_before="$(lsize "$ledger")"
   s_before="$(lsize "$state")"
+  snp_before="$(grep -v "^p$tab" "$state" 2> /dev/null)"
   evil_before="$(cat "$evil")"
   run_hook "$json"
   l_after="$(lsize "$ledger")"
   s_after="$(lsize "$state")"
+  snp_after="$(grep -v "^p$tab" "$state" 2> /dev/null)"
   good=1
   [ "$rc" -eq 0 ] || { bad "$label rc=$rc"; good=0; }
   [ "$(cat "$evil")" = "$evil_before" ] || { bad "$label wrote through a symlink"; good=0; }
@@ -402,9 +409,16 @@ while IFS="$tab" read -r expect profile event ptoken want || [ -n "${expect:-}" 
           bad "$label marker/state not written before the block"; good=0; fi ;;
       predict-ctx)
         pu="${want%% *}"; pn="${want#* }"
-        if [ "$l_before" != "$l_after" ] || [ "$s_before" != "$s_after" ]; then bad "$label hook wrote to ledger/state"; good=0
+        if [ "$l_before" != "$l_after" ] || [ "$snp_before" != "$snp_after" ]; then bad "$label hook wrote to ledger or to non-p state lines"; good=0
+        elif ! grep -qx "p$tab"s1 "$state"; then bad "$label full note sent but no p line recorded"; good=0
         elif [ "$(jqf '.decision // empty')" != "" ] || ! jqt --arg a "Predict mode is on ($pu used)" --arg n "id=$pn -->" '.hookSpecificOutput.hookEventName == "UserPromptSubmit" and (.hookSpecificOutput.additionalContext | contains($a) and contains($n) and contains("Only if this prompt asks you to diagnose") and contains("never copy it into any sendable text"))' > /dev/null 2>&1; then
           bad "$label expected predict context ($want), got: $out"; good=0; fi ;;
+      predict-ctx-short)
+        # repeat note: no new p line, compact (text minus the reference path <= 600 bytes), keeps the gate
+        pn="${want#* }"
+        if [ "$l_before" != "$l_after" ] || [ "$s_before" != "$s_after" ]; then bad "$label hook wrote to ledger/state"; good=0
+        elif ! jqt --arg n "$pn" --arg r "$plugin_root/skills/pr-preparation/references/decision-ledger.md" '.hookSpecificOutput.additionalContext | (length - ($r | length)) <= 600 and contains("Predict mode is on") and contains("Only if this prompt asks you to diagnose") and contains("Record " + $n + " right after the answer") and contains($r) and contains("never copy it into any sendable text")' > /dev/null 2>&1; then
+          bad "$label expected the short predict note, got: $out"; good=0; fi ;;
       auto-ctx)
         # want: "<reason> <markers>"; markers = count of predict-auto markers after the run
         ar="${want%% *}"; am="${want#* }"
@@ -710,6 +724,47 @@ t1="$(date +%s)"
 echo "info: 2000-path Stop drift took $((t1 - t0)) s"
 if [ $((t1 - t0)) -lt 12 ] && [ "$(jqf '.decision // empty')" = block ] && jqt '.reason | contains("Drift id: drift:1")'; then ok
 else bad "(q) 2000-path Stop: $((t1 - t0)) s, out=$(printf '%s' "$out" | cut -c1-200)"; fi
+
+# (r) predict regressions: the p line survives state compaction; the plan-mode note carries its hint;
+#     the repeat note is sent once a p line exists; the user_commits recipe yields -1 on a shallow clone.
+setup predict-on
+{ printf 'p\ts1\n'; i=0; while [ "$i" -lt 250 ]; do printf 'e\tsrc/a.js\nd\n'; i=$((i + 1)); done; } > "$state"
+run_hook "$(build_post "$root/src/a.js")"
+{ [ "$(wc -l < "$state" | tr -d ' ')" -lt 150 ] && [ "$(grep -c "^p${tab}s1\$" "$state")" = 1 ]; } && ok || bad "(r) compaction dropped or duplicated the p line"
+setup predict-on
+run_hook "$(build_prompt 'Why does the build fail?')"
+run_hook "$(build_prompt 'Why does the build fail?')"
+{ jqt '.hookSpecificOutput.additionalContext | (length < 1200) and contains("decision-ledger.md")' && [ "$(grep -c "^p${tab}s1\$" "$state")" = 1 ]; } && ok || bad "(r) second prompt did not get the short note: $out"
+setup predict-plan
+run_hook "$(build_prompt 'Plan the fix for the build failure')"
+jqt '.hookSpecificOutput.additionalContext | contains("You are in plan mode: write the predict entry as soon as plan mode ends")' && ok || bad "(r) plan-mode note missing: $out"
+setup predict-on
+run_hook "$(build_prompt 'Why does the build fail?')"
+jqt '.hookSpecificOutput.additionalContext | contains("- outcome: pending") and contains("### predict:1 outcome") and contains("track:outcome at=")' && ok || bad "(r) pending/outcome-block instructions missing: $out"
+if command -v git > /dev/null 2>&1 && grep -q 'is-shallow-repository' "$plugin_root/skills/pr-preparation/SKILL.md"; then
+  sd="$(mktemp -d)"
+  (
+    cd "$sd" && git init -q src && cd src \
+      && git -c user.email=a@b -c user.name=n commit -q --allow-empty -m one \
+      && git -c user.email=a@b -c user.name=n commit -q --allow-empty -m two
+  ) > /dev/null 2>&1
+  user_commits_recipe() { # mirrors the recipe in skills/pr-preparation/SKILL.md
+    local e n
+    [ "$(git rev-parse --is-shallow-repository 2> /dev/null)" = true ] && { echo -1; return; }
+    e="$(git config user.email)"; n="$(git config user.name)"
+    if [ -z "$e" ] && [ -z "$n" ]; then echo -1; return; fi
+    set --; [ -n "$e" ] && set -- "$@" --author="$e"; [ -n "$n" ] && set -- "$@" --author="$n"
+    git rev-list --count -F "$@" HEAD | tr -d ' '
+  }
+  full="$(cd "$sd/src" && git -c user.email=a@b -c user.name=n -c core.abbrev=7 rev-list --count HEAD 2> /dev/null)"
+  (cd "$sd" && git clone -q --depth 1 "file://$sd/src" shallow > /dev/null 2>&1)
+  sh_out="$(cd "$sd/shallow" 2> /dev/null && git config user.email a@b && git config user.name n && user_commits_recipe)"
+  ok_out="$(cd "$sd/src" && git config user.email a@b && git config user.name n && user_commits_recipe)"
+  { [ "$sh_out" = -1 ] && [ "$ok_out" = "$full" ]; } && ok || bad "(r) user_commits recipe: shallow=[$sh_out] full=[$ok_out] want -1 and $full"
+  rm -rf "$sd"
+else
+  bad "(r) SKILL.md user_commits recipe lacks the shallow-clone guard"
+fi
 
 total=$((pass + fail))
 echo "breakpoint tests ($runner): $pass/$total passed"

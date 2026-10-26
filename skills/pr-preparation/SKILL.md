@@ -89,9 +89,10 @@ into a send block.
    Predict settings: write `predict: auto` and `predict_max: 4` (auto is the default). `--predict`,
    `--predict=on` or "with predictions" writes `predict: true`; `--predict=off` or `--no-predict`
    writes `predict: false`; `--predict=auto` writes `auto`. Also record two facts, local reads only:
-   `user_commits: <n>`: run `git config user.email` first; if it prints an email, count
-   `git log --oneline --author="<that email>" | wc -l` (quote the email). No email, or no git: `-1`,
-   which alone never turns predict on. `prior_unknowns: <n>` = the Unknowns the user left in the
+   `user_commits: <n>`: if `git rev-parse --is-shallow-repository` prints `true`, or there is neither
+   `git config user.email` nor `git config user.name`, write `-1`. Otherwise run
+   `git rev-list --count -F --author=<email> --author=<name> HEAD` (leave out an empty one; quote
+   the values). `-1` alone never turns predict on. `prior_unknowns: <n>` = the Unknowns the user left in the
    most recent stopped `track-*.md` ledger in `.oss-drafts/` for the same repo (none: `0`): count
    `logged-over-budget` entries plus `status=skipped` entries, but do not count skips that are not
    the user's: `reason=non-interactive` / `reason: non-interactive` (headless or subagent),

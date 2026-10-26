@@ -92,6 +92,15 @@ noop	predict-stopped	Prompt	-	-
 noop	predict-on	PromptSlash	-	-
 noop	predict-on	PromptSpaceSlash	-	-
 noop	predict-on	PromptEmpty	-	-
+# path-like prompts are text, not slash commands; trivial prompts are silent; plan mode still predicts
+predict-ctx	predict-on	PromptM:/src/parser.c:42 crashes on empty input, why?	-	0/4 predict:1
+noop	predict-on	PromptM:/oss track status	-	-
+noop	predict-on	PromptM:/agentic-contributor:oss track	-	-
+noop	predict-on	PromptM:thanks!	-	-
+noop	predict-on	PromptM:ok	-	-
+predict-ctx	predict-on	PromptM:could you take a look at the build setup	-	0/4 predict:1
+predict-ctx	predict-plan	Prompt	-	0/4 predict:1
+predict-ctx-short	predict-short	Prompt	-	0/4 predict:1
 noop	predict-on	RAW	{"hook_event_name":"UserPromptSubmit","cwd":"<root>	-
 noop	predict-on	RAW	{"hook_event_name":"UserPromptSubmit","cwd":"<root>","prompt":	-
 silent	predict-stop	Stop	-	m advanced
@@ -109,6 +118,9 @@ auto-silent	auto-noidea-dash	Prompt	-	2 off
 auto-silent	auto-noidea-dot	Prompt	-	2 off
 auto-silent	auto-noidea-lower	Prompt	-	2 off
 auto-ctx	auto-noidea-guess	Prompt	-	newcomer 1
+# exact match only: "No idea, maybe lexer.c" is a guess; a column-padded user_commits parses
+auto-ctx	auto-noidea-maybe	Prompt	-	newcomer 1
+auto-ctx	auto-padded	Prompt	-	newcomer 1
 auto-silent	auto-unknown	Prompt	-	0
 auto-silent	auto-nokey	Prompt	-	0
 auto-silent	auto-new-b0	Prompt	-	0

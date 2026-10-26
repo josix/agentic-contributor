@@ -94,8 +94,8 @@ since the previous stop, and the agent is not already waiting on you.
 ## Fatigue budget
 
 - Three separate pools: checkpoints **3** (`budget N`), drift alerts **2** (`drift_max`), breakpoint
-  questions **4** (`explain_max`, at least 20 minutes apart). The worst case is 9 questions in a
-  session; a typical session sees 0 to 3. Edit the keys in the ledger frontmatter.
+  questions **4** (`explain_max`, at least 20 minutes apart). The worst case is 13 questions in a
+  session (3+2+4, plus up to 4 predictions); a typical session sees 0 to 3. Edit the keys in the ledger frontmatter.
 - Past a cap, events are still logged (`logged-over-budget`, or `asked=no` for drift) but you are
   not asked, and the agent mentions it at the end.
 - `budget: 0` is **quiet mode** for the whole session: no checkpoint, drift, or breakpoint question
@@ -142,7 +142,7 @@ New tracked sessions start with `predict: auto`. Fixed rules switch it:
   not request an explain-back answer in this session, or when your previous session ended with 3 or
   more unknowns you left yourself (skips and over-budget items; not non-interactive, drift, or
   predict skips).
-- Off after two "no idea" predictions in a row (sticky for the session). Picking "No idea — go ahead" records `prediction: no idea`; any prediction that starts with the words "no idea" counts.
+- Off after two "no idea" predictions in a row (sticky for the session). Picking "No idea — go ahead" records `prediction: no idea`; only an exact "no idea" (or "No idea — go ahead") counts, so "No idea, maybe lexer.c" does not.
 - Otherwise off. If your commit count cannot be read, that alone does not turn it on.
 
 Every switch is logged in the ledger with its reason (`predict auto: on (newcomer)`), and the
@@ -152,10 +152,11 @@ injected note says `(auto: <reason>)`. Force it with `--predict` / `--predict=on
 
 - At most `predict_max` (default 4) per session; "Skip predictions for this session" turns it off
   for the rest of the session.
-  `budget: 0` (quiet mode) and slash commands keep it silent.
+  `budget: 0` (quiet mode), slash commands and trivial prompts ("thanks!") keep it silent; plan mode does not.
 - A `UserPromptSubmit` hook adds the instruction to your prompt as context. It never blocks a prompt
-  and runs no git. Its only write is the auto switch marker, under the ledger lock; if the lock is
-  busy it skips the write. With predict off or no session it prints nothing.
+  and runs no git. Its writes are the auto switch marker (under the ledger lock; if the lock is
+  busy it skips the write; logged when auto is evaluated) and a one-line session note so the full
+  instruction is sent once and later prompts get a short reminder. With predict off or no session it prints nothing.
 - A prediction counts as a question for explain-back, so you are not asked both in one turn.
 - Headless runs and subagents cannot ask, so nothing is recorded.
 - `/oss track predict off` or `OSS_TRACK_DISABLE=1` turns it off.

@@ -11,9 +11,9 @@
 #                                                    the agent asks the user before it finishes
 #   UserPromptSubmit                                 predict-then-reveal (predict: auto | true | false):
 #                                                    additionalContext asking the agent to collect the
-#                                                    user's prediction first; never blocks, no git. The
-#                                                    only write is a predict-auto switch marker, under
-#                                                    the ledger lock, fail open. It does not depend on
+#                                                    user's prediction first; never blocks, no git. Writes:
+#                                                    a predict-auto switch marker (ledger lock, fail open)
+#                                                    and a `p<TAB>sid` line in the state file (full note sent). It does not depend on
 #                                                    the session base, so it keeps running when drift
 #                                                    and explain-back are paused (base moved).
 # It is NOT the draft-only safety guard (guard-outbound.sh) and never replaces it. It fails OPEN:
@@ -182,10 +182,11 @@ while IFS= read -r line; do
     "drift_files: "*) v="${line#drift_files: }"; fm_df="${v%%[[:space:]]*}" ;;
     "drift_max: "*) v="${line#drift_max: }"; fm_dmax="${v%%[[:space:]]*}" ;;
     "drift_source: "*) v="${line#drift_source: }"; fm_dsrc="${v%%[[:space:]]*}" ;;
-    "predict: "*) v="${line#predict: }"; fm_predict="${v%%[[:space:]]*}" ;;
-    "predict_max: "*) v="${line#predict_max: }"; fm_pmax="${v%%[[:space:]]*}" ;;
-    "user_commits: "*) v="${line#user_commits: }"; fm_ucommits="${v%%[[:space:]]*}" ;;
-    "prior_unknowns: "*) v="${line#prior_unknowns: }"; fm_punk="${v%%[[:space:]]*}" ;;
+    # values may be column-padded (wc -l on macOS pads): trim leading whitespace first
+    "predict: "*) v="${line#predict: }"; v="${v#"${v%%[![:space:]]*}"}"; fm_predict="${v%%[[:space:]]*}" ;;
+    "predict_max: "*) v="${line#predict_max: }"; v="${v#"${v%%[![:space:]]*}"}"; fm_pmax="${v%%[[:space:]]*}" ;;
+    "user_commits: "*) v="${line#user_commits: }"; v="${v#"${v%%[![:space:]]*}"}"; fm_ucommits="${v%%[[:space:]]*}" ;;
+    "prior_unknowns: "*) v="${line#prior_unknowns: }"; v="${v#"${v%%[![:space:]]*}"}"; fm_punk="${v%%[[:space:]]*}" ;;
     "explain_max: "*) v="${line#explain_max: }"; fm_emax="${v%%[[:space:]]*}" ;;
     "explain_interval_min: "*) v="${line#explain_interval_min: }"; fm_eint="${v%%[[:space:]]*}" ;;
     "scope: "*) fm_scope="${line#scope: }" ;;
@@ -193,7 +194,7 @@ while IFS= read -r line; do
 done < "$ledger"
 [ "$fm_plugin" = "agentic-contributor" ] && [ "$fm_mode" = "track" ] || exit 0
 [ "$fm_status" = "active" ] || exit 0
-# Predict off (no key, false, anything else): a prompt costs no subprocess at all.
+# Predict off (no key, false, anything else): a prompt costs no JSON parse and no further subprocess (stdin is read once).
 if [ "$ev" = UserPromptSubmit ]; then
   case "$fm_predict" in true | on | auto) ;; *) exit 0 ;; esac
 fi
@@ -237,16 +238,19 @@ command -v python3 > /dev/null 2>&1 && have_py=1
 [ "$have_jq" -eq 1 ] || [ "$have_py" -eq 1 ] || exit 0
 
 # parse_input: US-separated event, path, permission_mode, session_id, stop_hook_active, agent_id,
-# asking (1/0), cwd, first non-space char of the prompt. Any field containing a control character (newline, CR, US, ...) is printed as
+# asking (1/0), cwd, prompt kind (empty|slash|text; slash = "/name" followed by space or end, so a
+# path like /src/a.c:4 is text), trivial (1 for a short prompt of 24 chars or fewer with no question
+# mark and no diagnosis/planning keyword). Any field containing a control character (newline, CR, US, ...) is printed as
 # empty, so it can neither shift the fields nor forge ledger/state lines. "asking" is 1 when the
 # last assistant message already waits on the user: its last non-blank line (trailing markdown
 # emphasis, quotes and brackets ignored) ends in ? or a full-width question mark, or it ends in an
 # option list whose lead-in line does (the last 40 non-blank lines are examined).
 # last_assistant_message (Stop) and agent_id (PostToolUse in a subagent) need a Claude Code version
 # that sends them; without them the "already asking" and subagent checks simply never fire.
+KW_RE='bug|fail|error|crash|broken|wrong|why|fix|plan|approach|design|implement|refactor|debug|problem|issue|slow|leak|panic|exception'
 parse_input() {
   if [ "$have_jq" -eq 1 ]; then
-    printf '%s' "$input" | jq -r '
+    printf '%s' "$input" | jq -r --arg kw "$KW_RE" '
       def clean: tostring | if test("[\u0000-\u001f\u007f]") then "" else . end;
       def endsq: test("[?\uff1f]$");
       def item: test("^\\s*([0-9]+[.)]|[-*\u2022+]|\\(?[A-Za-z][.)])\\s+");
@@ -263,14 +267,18 @@ parse_input() {
       | [(.hook_event_name // ""), ($ti.file_path // $ti.notebook_path // ""), (.permission_mode // ""),
          (.session_id // ""), ((.stop_hook_active // false) | tostring), (.agent_id // ""),
          (.last_assistant_message | asking | if . then "1" else "0" end), (.cwd // ""),
-         ((.prompt // "") | tostring | sub("^[[:space:]]+"; "") | .[0:1])]
+         (((.prompt // "") | tostring | sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "")) as $p
+          | (if $p == "" then "empty" elif ($p | test("^/[A-Za-z0-9_:-]+(\\s|$)")) then "slash" else "text" end),
+            (if ($p | length) <= 24 and ($p | test("[?\uff1f]") | not) and ($p | test($kw; "i") | not) then "1" else "0" end))]
       | map(clean) | join("\u001f")' 2> /dev/null
   else
     printf '%s' "$input" | python3 -c '
 import sys, json, re
 d = json.load(sys.stdin)
 ti = d.get("tool_input") or {}
-pr = str(d.get("prompt") or "").lstrip()
+pr = str(d.get("prompt") or "").strip()
+pk = "empty" if not pr else ("slash" if re.match(r"/[A-Za-z0-9_:-]+(\s|$)", pr) else "text")
+pt = "1" if len(pr) <= 24 and not re.search("[?\uff1f]", pr) and not re.search(sys.argv[1], pr, re.I) else "0"
 def clean(v):
     v = str(v or "")
     return "" if re.search("[\x00-\x1f\x7f]", v) else v
@@ -286,17 +294,18 @@ def asking(m):
     return "1" if j is not None and j < len(ls) - 1 and endsq(ls[j]) else "0"
 print("\x1f".join(clean(v) for v in [d.get("hook_event_name"), ti.get("file_path") or ti.get("notebook_path"),
   d.get("permission_mode"), d.get("session_id"),
-  "true" if d.get("stop_hook_active") else "false", d.get("agent_id"), asking(d.get("last_assistant_message")), d.get("cwd"), pr[:1]]))
-' 2> /dev/null
+  "true" if d.get("stop_hook_active") else "false", d.get("agent_id"), asking(d.get("last_assistant_message")), d.get("cwd"), pk, pt]))
+' "$KW_RE" 2> /dev/null
   fi
 }
 
 parsed="$(parse_input)" || exit 0
 [ -n "$parsed" ] || exit 0
-IFS=$'\037' read -r p_ev path perm_mode sid sha_active agent_id asking cwd p_first <<< "$parsed"
-case "$path$cwd$p_first" in *[[:cntrl:]]*) exit 0 ;; esac # belt and braces: never log a control char
+IFS=$'\037' read -r p_ev path perm_mode sid sha_active agent_id asking cwd p_kind p_trivial <<< "$parsed"
+case "$path$cwd" in *[[:cntrl:]]*) exit 0 ;; esac # belt and braces: never log a control char
 [ "$p_ev" = "$ev" ] || exit 0
-[ "$perm_mode" = "plan" ] && exit 0
+# plan mode: no checkpoint/drift/explain questions, but a planning prompt is exactly when to predict
+[ "$perm_mode" = "plan" ] && [ "$ev" != UserPromptSubmit ] && exit 0
 [ "$ev" = Stop ] && [ "$sha_active" = true ] && exit 0
 [ "$ev" = PostToolUse ] && [ -z "$path" ] && exit 0 # missing, or rejected for a control character
 re_sid='^[A-Za-z0-9._-]+$'
@@ -759,7 +768,7 @@ record_pause() {
 # compact_state: keep <ledger>.state bounded. Above STATE_MAX lines, the oldest lines are folded
 # into a short prefix that preserves everything the readers use: the last m and s values, every
 # distinct edited path (for the session-wide untracked-file count), the last b reset with the
-# distinct paths edited after it, and one d (an edit count since the last d may be undercounted,
+# distinct paths edited after it, every distinct p (predict note already sent to a session), and one d (an edit count since the last d may be undercounted,
 # which at most postpones one throttled drift check). The newest STATE_KEEP lines stay verbatim.
 # Skipped when the ledger lock is busy; an e line appended while it runs may be lost (harmless).
 STATE_MAX=400
@@ -783,6 +792,7 @@ END {
   }
   if (m != "") print "m\t" m
   if (s != "") print "s\t" s
+  for (i = 1; i <= cut; i++) if (k[i] == "p" && v[i] != "" && !(v[i] in ps)) { ps[v[i]] = 1; print "p\t" v[i] }
   for (i = nb + 1; i <= cut; i++) if (k[i] == "e" && v[i] != "") after[v[i]] = 1
   for (i = 1; i < nb; i++) if (k[i] == "e" && v[i] != "" && !(v[i] in after) && !(v[i] in pre)) { pre[v[i]] = 1; print "e\t" v[i] }
   if (nb) print "b\tcompacted"
@@ -1028,16 +1038,25 @@ stop_event() {
 }
 
 predict_text() { # $1 = used count, $2 = auto reason label (empty when explicit)
-  local nl=$'\n'
-  printf '%s' "[agentic-contributor · tracked session] Predict mode is on${2:+ (auto: $2)} ($1/$predict_max used). Only if this prompt asks you to diagnose a problem (a bug, failure, or unexpected behaviour) or to propose a plan or approach for a code change, and you have not already asked for a prediction about this same problem in this conversation:${nl}1. Before investigating deeply or revealing your diagnosis or plan, ask the user with AskUserQuestion (header \"Predict\"): ONE question. For a diagnosis: \"Where do you think the problem is?\" For a plan: \"Which files or parts do you expect need to change?\" Options: A) No idea — go ahead | B) Skip predictions for this session. Ask them to type their guess under Other. Do not hint.${nl}2. Do the work. When you reveal your diagnosis or plan, add a short \"Your prediction vs. what I found\" section: where the prediction matched and where it differed, each with file:line. Never score or judge it.${nl}3. Read $ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### predict:$(($1 + 1)) · <UTC now>${nl}<!-- track:entry status=<answered|skipped> source=predict asked=yes at=<UTC now> id=predict:$(($1 + 1)) -->${nl}- phase: <diagnosis|plan>${nl}- prediction: <the user's typed words verbatim | no idea>${nl}- outcome: <one line: matched / partly / differed, with file:line>${nl}- answered_by: user${nl}   Typed guess: status=answered, prediction = their words verbatim. A: status=answered, prediction: exactly \`no idea\`. B: status=skipped, prediction: none, and also set \`predict: false\` in the ledger frontmatter (the user opted out for the rest of this session).${nl}4. If AskUserQuestion is unavailable (non-interactive run or subagent): do not ask and do not record anything.${nl}Otherwise ignore this note. The ledger is private: never copy it into any sendable text."
+  local nl=$'\n' k=$(($1 + 1)) plan=""
+  [ "$perm_mode" = plan ] && plan="${nl}You are in plan mode: write the predict entry as soon as plan mode ends, before any other edit."
+  printf '%s' "[agentic-contributor · tracked session] Predict mode is on${2:+ (auto: $2)} ($1/$predict_max used). Only if this prompt asks you to diagnose a problem (a bug, failure, or unexpected behaviour) or to propose a plan or approach for a code change, and you have not already asked for a prediction about this same problem in this conversation:${nl}1. Before investigating deeply or revealing your diagnosis or plan, ask the user with AskUserQuestion (header \"Predict\"): ONE question. For a diagnosis: \"Where do you think the problem is?\" For a plan: \"Which files or parts do you expect need to change?\" Options: A) No idea — go ahead | B) Skip predictions for this session. Ask them to type their guess under Other. Do not hint.${nl}2. Right after the answer, before investigating, read $ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### predict:$k · <UTC now>${nl}<!-- track:entry status=<answered|skipped> source=predict asked=yes at=<UTC now> id=predict:$k -->${nl}- phase: <diagnosis|plan>${nl}- prediction: <the user's typed words verbatim | no idea>${nl}- outcome: pending${nl}- answered_by: user${nl}   Typed guess: status=answered, prediction = their words verbatim. A: status=answered, prediction: exactly \`no idea\`. B: status=skipped, prediction: none, and also set \`predict: false\` in the ledger frontmatter (the user opted out for the rest of this session).${nl}3. Do the work. When you reveal your diagnosis or plan, add a short \"Your prediction vs. what I found\" section: where the prediction matched and where it differed, each with file:line. Never score or judge it. Then append, the same way (replace \`<!-- track:end -->\` with the block followed by \`<!-- track:end -->\`), and never edit the earlier entry:${nl}### predict:$k outcome${nl}<!-- track:outcome at=<UTC now> id=predict:$k -->${nl}- outcome: <one line: matched / partly / differed, with file:line>${nl}4. If AskUserQuestion is unavailable (non-interactive run or subagent): do not ask and do not record anything.${plan}${nl}Otherwise ignore this note. The ledger is private: never copy it into any sendable text."
+}
+
+# Short repeat of the note, sent after the full one has gone out once in this session.
+predict_text_short() { # $1 = used count, $2 = auto reason label
+  local nl=$'\n' k=$(($1 + 1)) plan=""
+  [ "$perm_mode" = plan ] && plan=" You are in plan mode: record it as soon as plan mode ends, before any other edit."
+  printf '%s' "[agentic-contributor · tracked session] Predict mode is on${2:+ (auto: $2)} ($1/$predict_max used). Only if this prompt asks you to diagnose a problem or propose a plan for a code change and you have not asked yet: first ask ONE AskUserQuestion (header \"Predict\"; \"Where do you think the problem is?\" or \"Which files or parts do you expect need to change?\"; A) No idea — go ahead | B) Skip predictions for this session; guess under Other), no hints. Record predict:$k right after the answer, reveal with \"Your prediction vs. what I found\" (format: ${BASH_SOURCE[0]%/hooks/scripts/*}/skills/pr-preparation/references/decision-ledger.md section 15).${plan}${nl}The ledger is private: never copy it into any sendable text."
 }
 
 # ── UserPromptSubmit ─────────────────────────────────────────────────────────
 # predict: auto rules (decision-ledger.md section 15). Facts: user_commits and prior_unknowns from the
 # frontmatter, explain/predict entries and the last predict-auto marker from one awk pass. No git.
 # Sets a_state (on|off), a_reason (a fixed label), a_last (state of the last marker; none = off).
-# A prediction counts as "no idea" when, lowercased and stripped of leading spaces/punctuation, it
-# starts with the words "no idea" (so "No idea — go ahead", "No idea." and "no idea" all count).
+# A prediction counts as "no idea" only when, lowercased and stripped of surrounding spaces, quotes and
+# punctuation, it is exactly "no idea" or "no idea — go ahead" (option A's label, any dash or comma);
+# "No idea, maybe lexer.c" is a guess and does not count.
 auto_eval() {
   local out k v uc pu a_expl a_noidea
   a_expl=""; a_noidea=0; a_last=off
@@ -1060,8 +1079,8 @@ cur ~ /^explain:/ && /^- chosen: (skip|not-requested)[ \t]*$/ {
   next
 }
 cur ~ /^predict:/ && /^- prediction: / {
-  v = tolower($0); sub(/^- prediction: */, "", v); sub(/^[^a-z0-9]+/, "", v)
-  np++; pred[np] = (v ~ /^no idea([^a-z0-9]|$)/) ? 1 : 0
+  v = tolower($0); sub(/^- prediction: */, "", v); sub(/^[^a-z0-9]+/, "", v); sub(/[^a-z0-9]+$/, "", v)
+  np++; pred[np] = (v == "no idea" || v ~ /^no idea *(—|–|-|,|\.)? *go ahead$/) ? 1 : 0
 }
 END {
   print "X\t" expl; print "N\t" (np >= 2 && pred[np] && pred[np - 1] ? 1 : 0); print "S\t" (last == "" ? "off" : last)
@@ -1104,7 +1123,8 @@ prompt_submit() {
   local mode reason=""
   case "$fm_predict" in true | on) mode=on ;; auto) mode=auto ;; *) exit 0 ;; esac
   [ "$budget" -gt 0 ] || exit 0
-  [ -n "$p_first" ] && [ "$p_first" != "/" ] || exit 0
+  [ "$p_kind" = text ] || exit 0
+  [ "$p_trivial" = 1 ] && exit 0
   now_s=0
   ledger_state || exit 0
   [ "$predict_n" -lt "$predict_max" ] || exit 0
@@ -1114,7 +1134,19 @@ prompt_submit() {
     [ "$a_state" = on ] || exit 0
     reason="$a_reason"
   fi
-  emit_json prompt "$(predict_text "$predict_n" "$reason")"
+  # The full note goes out once per session (a `p<TAB><sid>` state line); later prompts get the short one.
+  local full=1 line=""
+  if [ "$sid" != "-" ] && [ -f "$state" ]; then
+    while IFS= read -r line; do
+      [ "$line" = "p"$'\t'"$sid" ] && { full=0; break; }
+    done < "$state"
+  fi
+  if [ "$full" -eq 1 ]; then
+    [ "$sid" != "-" ] && printf 'p\t%s\n' "$sid" >> "$state" 2> /dev/null
+    emit_json prompt "$(predict_text "$predict_n" "$reason")"
+  else
+    emit_json prompt "$(predict_text_short "$predict_n" "$reason")"
+  fi
 }
 
 now_utc=""; now_s=0
