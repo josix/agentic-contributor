@@ -93,7 +93,7 @@ into a send block.
    out-of-scope edits), the budget, that a checkpoint is a choose-question with a Skip option, that
    scope-drift alerts (more than `drift_lines` lines or `drift_files` files, or uncovered
    out-of-scope modules; at most `drift_max`) ask keep / separate PR / drop / skip, that a
-   breakpoint question after a stop asks about one `file:line` (at most `explain_max`,
+   breakpoint question after a turn with code edits asks about one `file:line` (at most `explain_max`,
    `explain_interval_min` minutes apart, skippable), that `budget: 0`, `explain_max: 0`, or
    `drift_max: 0` quiets them,
    `/oss track stop`, that "log this decision" appends a manual entry (best effort in plain chat),

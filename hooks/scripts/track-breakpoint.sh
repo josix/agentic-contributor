@@ -201,13 +201,16 @@ drift_files="$(int_or "$fm_df" 10)"
 drift_max="$(int_or "$fm_dmax" 2)"
 explain_max="$(int_or "$fm_emax" 4)"
 explain_int="$(int_or "$fm_eint" 20)"
-# drift_source is ledger text: only a fixed label derived from it is ever shown
+# drift_source is ledger text: only a fixed label derived from it is ever shown. It is labelled
+# per limit: a limit left at its default value says "default" even when the other one was set.
 case "${fm_dsrc:-default}" in
   default) drift_src_label="default" ;;
   user) drift_src_label="set by the user" ;;
   contributing:*) drift_src_label="from the project's CONTRIBUTING file" ;;
   *) drift_src_label="from the ledger" ;;
 esac
+dl_label="$drift_src_label"; [ "$drift_lines" = 400 ] && dl_label="default"
+df_label="$drift_src_label"; [ "$drift_files" = 10 ] && df_label="default"
 base=""
 re_sha7='^[0-9a-f]{7,64}$'
 [[ $fm_base =~ $re_sha7 ]] && base="$fm_base"
@@ -644,8 +647,8 @@ drift_text() { # $1 = post|stop, $2 = alert number, $3 = drift id number
   crossed="${d_new_c//,/, }"
   [ -n "$crossed" ] || crossed="none"
   t="[agentic-contributor · tracked session] Scope drift alert $2/$drift_max: the change has grown since the session base ${base:0:7}."
-  [ "$1" = stop ] && t="${t%.} Handle it before ending your turn:"
-  t="$t${nl}Size: $d_lines changed lines (limit $drift_lines, $drift_src_label), $d_files files (limit $drift_files). Crossed: $crossed."
+  [ "$1" = stop ] && t="$t Handle it before ending your turn:"
+  t="$t${nl}Size: $d_lines changed lines (limit $drift_lines, $dl_label), $d_files files (limit $drift_files, $df_label). Crossed: $crossed."
   mt="$(mod_text)"
   [ -n "$mt" ] && t="$t${nl}Out-of-scope modules with changes no checkpoint covered: $mt"
   [ -n "$d_top" ] && t="$t${nl}Largest files: $d_top"
@@ -820,7 +823,12 @@ post_tool_use() {
   exit 0
 }
 
-# pick_target: sets t_rel t_line t_size from the files edited since the last breakpoint
+# Smallest change worth an explain-back question: a hunk (max of old/new line counts) or an
+# untracked text file with fewer lines is never a target.
+EXPLAIN_MIN_LINES=5
+
+# pick_target: sets t_rel t_line t_size from the files edited since the last breakpoint; returns 1
+# when no candidate has a change of at least EXPLAIN_MIN_LINES lines
 pick_target() { # $1 = newline list of edited rels
   local rel cand="" tagged="" cand_tagged="" d p
   local -a ca
@@ -848,11 +856,12 @@ pick_target() { # $1 = newline list of edited rels
   while IFS= read -r p; do
     case "$p" in $'\001'T$'\t'*) tagged="$tagged"$'\001'"U"$'\t'"${p#*$'\t'}"$'\n' ;; esac
   done <<< "$ut_tagged"
-  res="$(printf '%s\n%s\n%s\n' "$cand_tagged" "$d" "$tagged" | TRACK_ROOT="$root" TRACK_TARGETS="$targets" awk "$AWK_DQ"'
+  res="$(printf '%s\n%s\n%s\n' "$cand_tagged" "$d" "$tagged" | TRACK_ROOT="$root" TRACK_TARGETS="$targets" TRACK_MIN="$EXPLAIN_MIN_LINES" awk "$AWK_DQ"'
 function enc(s) { gsub(/%/, "%25", s); gsub(/ /, "%20", s); gsub(/,/, "%2C", s); return s }
 function consider(rel, ln, sz) {
   if (!(rel in iscand)) return
   if (rel ~ sprintf("[%c-%c%c]", 1, 31, 127)) return
+  if (sz < ENVIRON["TRACK_MIN"] + 0) return
   nh++; hr[nh] = rel; hl[nh] = ln; hs[nh] = sz
 }
 /^\001C\t/ { iscand[substr($0, 4)] = 1; next }
@@ -907,19 +916,22 @@ explain_text() { # uses k t_rel t_line t_size
   printf '%s' "[agentic-contributor · tracked session] Breakpoint question $1/$explain_max (explain-back). Before ending your turn:${nl}Target: $t_rel:$t_line. This is the largest change since the session base ($t_size lines) that no checkpoint or earlier question covered.${nl}1. Read $t_rel around line $t_line and pick the one specific change there (a function, condition, value, or call).${nl}2. Ask the user with AskUserQuestion (header \"Explain\"): ONE question, \"In one sentence, why does <that specific change>? Type your answer under Other, or pick an option.\" Do not hint at the answer. Options:${nl}   A) Skip — not sure (recorded as an Unknown)${nl}   B) I didn't ask for this change${nl}3. Read $rel_ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### explain:$1 · <UTC now>${nl}<!-- track:entry status=<answered|skipped> source=breakpoint asked=<yes|no> at=<UTC now> id=explain:$1 -->${nl}- trigger: explain — $t_rel:$t_line${nl}- files: $t_rel${nl}- question: <the question exactly as asked>${nl}- chosen: <typed|not-requested|skip>${nl}- reason: <the user's typed words verbatim | not requested by the user | TODO(you)>${nl}- answered_by: user${nl}   Typed answer: status=answered, chosen: typed, reason = their words verbatim. B: status=answered, chosen: not-requested, reason: not requested by the user. A: status=skipped, chosen: skip, reason: TODO(you).${nl}4. If AskUserQuestion is unavailable (non-interactive run or subagent): do not ask. Write \`<!-- track:entry status=skipped source=breakpoint asked=no reason=non-interactive at=<UTC now> id=explain:$1 -->\` with chosen: none, reason: non-interactive, answered_by: agent.${nl}5. Do not grade or correct the answer and make no code edits now. End your turn with one short line.${nl}Write \"answered_by: user\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
 }
 
-read_edits() { # sets q_mark, s_mark, n_lines, edited from the edit log (a b line resets the list)
+# read_edits: sets q_mark, s_mark, n_lines, edited from the edit log (a b line resets the list) and
+# turn_edits, the number of edits since the last m line (every Stop writes one, so it marks the
+# previous stop)
+read_edits() {
   local st line rest
   st="$(awk -F'\t' '
 $1 == "b" { n = 0; split("", seen) }
-$1 == "e" && $2 != "" && !($2 in seen) { seen[$2] = 1; list[++n] = $2 }
-$1 == "m" && $2 ~ /^[0-9]+$/ { qm = $2 + 0 }
+$1 == "e" && $2 != "" { te++; if (!($2 in seen)) { seen[$2] = 1; list[++n] = $2 } }
+$1 == "m" && $2 ~ /^[0-9]+$/ { qm = $2 + 0; te = 0 }
 $1 == "s" && $2 ~ /^[0-9]+$/ { sm = $2 + 0 }
-END { print "M\t" qm + 0; print "S\t" sm + 0; print "N\t" NR + 0; for (i = 1; i <= n; i++) print "R\t" list[i] }' "$state" 2> /dev/null)" || return 1
-  q_mark=0; s_mark=0; n_lines=0; edited=""
+END { print "M\t" qm + 0; print "S\t" sm + 0; print "N\t" NR + 0; print "E\t" te + 0; for (i = 1; i <= n; i++) print "R\t" list[i] }' "$state" 2> /dev/null)" || return 1
+  q_mark=0; s_mark=0; n_lines=0; turn_edits=0; edited=""
   while IFS=$'\t' read -r line rest; do
-    case "$line" in M) q_mark="$rest" ;; S) s_mark="$rest" ;; N) n_lines="$rest" ;; R) edited="$edited$rest"$'\n' ;; esac
+    case "$line" in M) q_mark="$rest" ;; S) s_mark="$rest" ;; N) n_lines="$rest" ;; E) turn_edits="$rest" ;; R) edited="$edited$rest"$'\n' ;; esac
   done <<< "$st"
-  case "$q_mark$s_mark$n_lines" in '' | *[!0-9]*) return 1 ;; esac
+  case "$q_mark$s_mark$n_lines$turn_edits" in '' | *[!0-9]*) return 1 ;; esac
   return 0
 }
 
@@ -932,13 +944,13 @@ finish() {
 }
 
 stop_event() {
-  local edited edited0 bp0 q_mark s_mark n_lines q_now k had_state why
+  local edited edited0 bp0 q_mark s_mark n_lines turn_edits q_now k had_state why
   sys_note=""
   read -r now_utc now_s <<< "$(date -u '+%Y-%m-%dT%H:%M:%SZ %s' 2> /dev/null)"
   [ -n "$now_utc" ] || exit 0
   ledger_state || exit 0
   [ -n "$base" ] && base_check
-  q_mark=0; s_mark=0; n_lines=0; edited=""
+  q_mark=0; s_mark=0; n_lines=0; turn_edits=0; edited=""
   had_state=0
   if [ -f "$state" ]; then
     had_state=1
@@ -981,6 +993,9 @@ stop_event() {
   [ "$base_rc" = 0 ] && [ "$paused" -eq 0 ] || finish # base moved or unknown: explain-back paused
   [ "$had_state" -eq 1 ] || finish                     # no edit logged this session
   [ -n "$edited" ] || finish
+  # no edit since the previous stop (a chat-only turn): edits deferred earlier wait for the next
+  # turn that edits again, so a question never interrupts a turn that changed nothing
+  [ "$turn_edits" -gt 0 ] || finish
   [ "$q_now" -gt "$q_mark" ] && finish # a question already interrupted since the last stop
   [ "$asking" = 1 ] && finish          # the agent is already waiting on the user
   [ "$bp_n" -ge "$explain_max" ] && finish

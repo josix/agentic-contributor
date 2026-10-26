@@ -77,17 +77,20 @@ at the end of a turn the alert holds the stop once (deferred while the agent's l
 
 Each threshold and each module alerts once. If your project's CONTRIBUTING file states an explicit
 size limit, `/oss track` start uses that number (recorded as `drift_source`); vague wording is never
-turned into a number. The check is throttled (new file or every 5th edit), so it adds little work.
+turned into a number. The alert labels each limit with its source; a limit still at its default
+value is labelled `default`. The check is throttled (new file or every 5th edit), so it adds little work.
 
 ## Breakpoint questions (explain-back)
 
 When the agent stops after code edits, the hook may hold the stop **once** and ask you one question
 about a specific `file:line`: the largest change since the base that no checkpoint or earlier
-question covered. You answer in your own words (the free-text "Other" option), skip, or say you did
+question covered, and at least 5 lines long (smaller changes are never asked about). You answer in your own words (the free-text "Other" option), skip, or say you did
 not ask for the change. Your answer is recorded verbatim as `explain:<k>`; it is never graded. The
 debrief and the PR scaffold use it as your own Why, and skipped ones become Unknowns.
 
-It asks only when all hold: edits since the last breakpoint, fewer than `explain_max` (4) asked,
+It asks only when all hold: the agent edited code in this turn (since its previous stop; a
+chat-only turn is never interrupted, and edits from a turn whose question was deferred wait for the
+next turn that edits again), edits since the last breakpoint, fewer than `explain_max` (4) asked,
 at least `explain_interval_min` (20) minutes since the last one, no checkpoint or drift question
 since the previous stop, and the agent is not already waiting on you.
 

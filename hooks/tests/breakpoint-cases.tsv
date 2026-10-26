@@ -97,3 +97,7 @@ silent	asked-this-turn	Post	src/app.js	-
 silent	asked-this-turn	Stop	-	-
 drift-ctx	asked-prev-turn	Post	src/app.js	1
 silent	explain0-pending	Stop	-	m advanced
+# ── explain-back only after a turn that edited, and only for a change of at least 5 lines ──
+silent	chat-turn	Stop	-	edits kept
+consume	tiny-hunk	Stop	-	-
+consume	tiny-untracked	Stop	-	-

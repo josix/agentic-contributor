@@ -376,7 +376,8 @@ b<TAB><id|none>  Stop: breakpoint consumed (explain:<k> asked, none = no target,
 s<TAB><n>        Stop: number of asked=no drift markers already summarised to the user
 ```
 
-"Edits since the last breakpoint" = `e` lines after the last `b` line. Paths under `.oss-drafts/`
+"Edits since the last breakpoint" = `e` lines after the last `b` line. "Edits this turn" = `e`
+lines after the last `m` line (every Stop writes one). Paths under `.oss-drafts/`
 are never logged, so ledger writes never re-arm a breakpoint. The last `m` and `s` values win.
 
 **Compaction.** Above 400 lines the hook (under the ledger lock; skipped if busy) folds all but the
@@ -438,16 +439,18 @@ the "edits since the last `d`" throttle can be undercounted, which at most postp
 At Stop, when code edits happened since the last breakpoint, the hook blocks once and asks Claude
 to put ONE skippable question about a specific `file:line` to the user and record the verbatim
 answer. All of these must hold: session active; not plan mode; `stop_hook_active` false;
-`budget>0` and `explain_max>0`; at least one edit since the last `b`; no checkpoint or drift
+`budget>0` and `explain_max>0`; at least one edit since the last `b`; at least one edit since the
+previous stop (an `e` line after the last `m`, so a chat-only turn is never interrupted); no checkpoint or drift
 question since the previous stop (the `m` watermark); the last assistant message is not already asking
 (its last non-blank line, ignoring trailing markdown emphasis, quotes and brackets, ends in `?` or
 full-width `？`, or it ends in a list of options whose lead-in line does); bp_n < `explain_max`; now - bp_last >= `explain_interval_min` x 60; the non-interactive latch
 is not set for this `session_id`; a target exists. When a rate limit or deferral applies the edits
-are kept, so a later stop can still ask.
+are kept, so a later stop that also follows edits can still ask.
 
 - **Target**: the largest hunk (max of old/new line count, from `git diff -U0`) among files edited
   since the last breakpoint, excluding dependency files, covered files (an over-budget log does not cover), and `.oss-drafts/`;
-  untracked created files count as one hunk at line 1. Files no earlier question targeted are
+  untracked created files count as one hunk at line 1. A hunk (or untracked file) smaller than
+  `EXPLAIN_MIN_LINES` (5 lines, a constant in the hook) is never a target. Files no earlier question targeted are
   preferred. With no target the hook appends `b<TAB>none` and stays silent.
 - **Loop safety**: (1) `stop_hook_active:true` exits before any work; (2) the ledger marker and
   `b<TAB>explain:<k>` are written before the block is emitted; (3) the ledger count and interval
@@ -460,11 +463,11 @@ are kept, so a later stop can still ask.
 
 ## 14. Drift and explain templates (addressed to Claude)
 
-Drift (PostToolUse context; at Stop the first sentence ends "...before ending your turn:"):
+Drift (PostToolUse context; at Stop the first line continues "... <short sha>. Handle it before ending your turn:"):
 
 ```
 [agentic-contributor · tracked session] Scope drift alert <a>/<drift_max>: the change has grown since the session base <short sha>.
-Size: <lines> changed lines (limit <L>, <source>), <files> files (limit <F>). Crossed: <lines, files | none>.
+Size: <lines> changed lines (limit <L>, <source>), <files> files (limit <F>, <source>). Crossed: <lines, files | none>.
 Out-of-scope modules with changes no checkpoint covered: <m> (<files>); ...   (line omitted if none)
 Largest files: <rel> (<n>), ... (top 5)
 Drift id: drift:<k>
@@ -481,8 +484,9 @@ Drift logged only: no message to Claude. At Stop, a `systemMessage` to the user:
 `agentic-contributor: <n> scope-drift item(s) logged without asking (drift question cap spent or
 budget 0); they are in the ledger and the debrief.`
 
-`<source>` is a fixed label (`default`, `set by the user`, `from the project's CONTRIBUTING file`,
-`from the ledger`), never the ledger's `drift_source` text.
+`<source>` is a fixed label per limit (`default`, `set by the user`, `from the project's
+CONTRIBUTING file`, `from the ledger`), never the ledger's `drift_source` text. A limit equal to its
+default (400 lines, 10 files) is labelled `default`; the other takes the label from `drift_source`.
 
 Explain (Stop block reason):
 
