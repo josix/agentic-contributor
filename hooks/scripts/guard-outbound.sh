@@ -55,14 +55,22 @@ deny() {
 }
 
 # ── Check MCP tools (default-deny allowlist) ─────────────────────────────────
-# The plugin's GitHub MCP namespace is DEFAULT-DENY: only read tools pass.
+# Every GitHub MCP server is DEFAULT-DENY: only read tools pass. That covers
+# this plugin's own server and any other one whose server name contains
+# "github" in any case (mcp__github__*, mcp__claude_ai_GitHub__*, ...), so a
+# separately installed GitHub server is not a way around the guard.
 # Read tools are recognised by name (the suffix after the last '__'):
 #   get_* | list_* | search_*, plus the two named read tools issue_read and
 #   pull_request_read (e.g. get_me, list_issues, search_code). A generic *_read
 #   suffix is NOT allowed (mark_all_notifications_read mutates). Everything else -- issue_write, push_files,
 #   merge_pull_request, fork_repository, create_*, update_*, delete_*, *_write,
 #   add_*, assign_*, request_*, and any tool added upstream later -- is denied.
-if [[ "$tool_name" == mcp__plugin_agentic-contributor_github__* ]]; then
+mcp_server=""
+if [[ "$tool_name" == mcp__*__* ]]; then
+  mcp_server="${tool_name#mcp__}"
+  mcp_server="$(printf '%s' "${mcp_server%__*}" | tr '[:upper:]' '[:lower:]')"
+fi
+if [[ "$mcp_server" == *github* ]]; then
   suffix="${tool_name##*__}"
   case "$suffix" in
     *[!a-z0-9_]*|'') deny "$tool_name" ;;

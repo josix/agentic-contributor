@@ -10,7 +10,8 @@ The `agentic-contributor` plugin registers one hook type: a `PreToolUse` hook th
     The hook is registered by the plugin, not by `/oss`, so it checks every `Bash` call in every
     Claude Code session while `agentic-contributor` is enabled, including work that has nothing to
     do with `/oss`. In those sessions `git push`, `gh pr create`, and the other commands below are
-    denied too. To push or open a PR from Claude Code, run the command yourself in a terminal, or
+    denied too, and so are write tools on any GitHub MCP server (for example
+    `mcp__github__create_pull_request`). To push or open a PR from Claude Code, run the command yourself in a terminal, or
     disable the plugin via `/plugin` and restart the session (hooks are registered at session
     start); re-enable it the same way.
 
@@ -22,7 +23,7 @@ The `agentic-contributor` plugin registers one hook type: a `PreToolUse` hook th
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|mcp__plugin_agentic-contributor_github__.*",
+        "matcher": "Bash|mcp__.*[Gg][Ii][Tt][Hh][Uu][Bb].*__.*",
         "hooks": [
           {
             "type": "command",
@@ -36,7 +37,7 @@ The `agentic-contributor` plugin registers one hook type: a `PreToolUse` hook th
 }
 ```
 
-**Matcher:** `Bash|mcp__plugin_agentic-contributor_github__.*` — matches all Bash tool calls and all GitHub MCP tool calls namespaced to this plugin.
+**Matcher:** `Bash|mcp__.*[Gg][Ii][Tt][Hh][Uu][Bb].*__.*` — matches all Bash tool calls and every GitHub MCP tool call: this plugin's own server and any other MCP server with "github" in its name (for example `mcp__github__*`), so a separately installed GitHub server cannot be used to post.
 
 **Timeout:** 30 seconds. Typical commands finish in well under 1 second (bash string matching plus a few `awk` passes, no network calls). A command that contains none of the trigger words `gh`, `git`, `curl`, or `wget` (checked case-insensitively after deleting quotes, backslashes, and newlines, so `g\it` or `"g"it` still count) is allowed immediately. Segments without a trigger word are skipped one by one, so a 400-line script that runs `git` on every line still finishes in a few seconds. The guard fails closed on very large input rather than running into the timeout (which would allow the command): a command of more than 64 KiB, one with more than 2000 shell separators (`;`, `|`, `&`, parentheses, backticks, newlines, counted before parsing), or one with more than 500 segments that contain a trigger word as a whole word (`height` or `github` do not count), is denied with "command too large to analyse safely; split it into smaller commands (or write a script with the Write tool and run it)". Any analysis still running after 10 seconds is denied the same way, because a timeout would allow the command, so the guard never relies on it. The 30-second timeout leaves headroom for slow machines.
 
@@ -72,7 +73,7 @@ Known gaps are recorded as `known-bypass` rows in `hooks/tests/guard-cases.tsv`.
 
 ### MCP Tools — default DENY, read allowlist
 
-The plugin's GitHub MCP namespace is **default-deny**. The script takes the tool-name suffix after the last `__` and allows it only when it names a read tool:
+Every GitHub MCP server is **default-deny**: this plugin's own and any other server whose name contains `github` in any case. The script takes the tool-name suffix after the last `__` and allows it only when it names a read tool:
 
 ```
 get_*  |  list_*  |  search_*  |  issue_read  |  pull_request_read

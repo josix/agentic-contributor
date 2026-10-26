@@ -10,7 +10,7 @@ This is not just a convention in the command instructions. It is enforced at the
 
 ## How the Guardrail Works
 
-`hooks/hooks.json` registers a `PreToolUse` hook that matches `Bash|mcp__plugin_agentic-contributor_github__.*` and calls `hooks/scripts/guard-outbound.sh` before the tool executes.
+`hooks/hooks.json` registers a `PreToolUse` hook that matches `Bash|mcp__.*[Gg][Ii][Tt][Hh][Uu][Bb].*__.*` (Bash plus every GitHub MCP server, not only this plugin's) and calls `hooks/scripts/guard-outbound.sh` before the tool executes.
 
 The script:
 1. Reads the tool-use JSON from stdin.
@@ -30,7 +30,7 @@ The denial message states:
 |---|---|
 | Read tools: suffix (after the last `__`) matching `get_*`, `list_*`, `search_*`, or one of the two named read tools `issue_read` and `pull_request_read`, e.g. `get_me`, `get_file_contents`, `list_issues`, `search_code` | ALLOW |
 | A read-prefixed suffix that also contains `write`, `create`, `delete`, `submit`, or `fork` | DENY |
-| **Every other** `mcp__plugin_agentic-contributor_github__*` tool (default-deny), e.g. `issue_write`, `pull_request_review_write`, `add_issue_comment`, `add_comment_to_pending_review`, `mark_all_notifications_read`, `create_pull_request`, `create_branch`, `create_or_update_file`, `delete_file`, `push_files`, `merge_pull_request`, `update_pull_request`, `fork_repository`, `sub_issue_write`, `assign_copilot_to_issue`, `request_copilot_review`, and any tool added upstream later | DENY |
+| **Every other** tool on a GitHub MCP server (`mcp__plugin_agentic-contributor_github__*`, `mcp__github__*`, or any server with `github` in its name; default-deny), e.g. `issue_write`, `pull_request_review_write`, `add_issue_comment`, `add_comment_to_pending_review`, `mark_all_notifications_read`, `create_pull_request`, `create_branch`, `create_or_update_file`, `delete_file`, `push_files`, `merge_pull_request`, `update_pull_request`, `fork_repository`, `sub_issue_write`, `assign_copilot_to_issue`, `request_copilot_review`, and any tool added upstream later | DENY |
 
 ### Bash Commands
 
@@ -78,7 +78,7 @@ constraint:
 
 - The Write tool writes to the local filesystem only.
 - Local file writes cannot reach GitHub, post comments, push branches, or trigger any outbound action.
-- The guardrail hook does not intercept Write tool calls (it matches only `Bash` and `mcp__plugin_agentic-contributor_github__*` tools).
+- The guardrail hook does not intercept Write tool calls (it matches only `Bash` and GitHub MCP tools).
 
 The `.oss-drafts/` directory is automatically excluded from version control via `.git/info/exclude`
 on the first write (non-invasive — does not dirty the user's tracked `.gitignore`).

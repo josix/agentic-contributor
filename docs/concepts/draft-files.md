@@ -80,8 +80,8 @@ body_format: 2
 | `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, or `debrief` |
 | `generated_at` | ISO-8601 UTC timestamp |
 | `status` | Always `draft` — change to `sent` once the execution plugin posts it |
-| `body_format` | Draft tier, v0.4.0+: `2` means only the `oss:send` block is sendable (zero send blocks = nothing sendable). Absent or `1` means legacy (whole body sendable) |
-| `sendable` | Only the private `prepare-pr` debrief file: `false` means never send, regardless of `body_format` |
+| `body_format` | v0.4.0+, every file (report-tier files too): `2` means only the `oss:send` block is sendable (zero send blocks = nothing sendable). Absent or `1` means legacy (whole body sendable) |
+| `sendable` | Private files only, the report-tier files (status, find, norms, setup) and the `prepare-pr` debrief: `false` means never send, regardless of `body_format` |
 | `mode` | `review-reply`: `brief` (default) or `lint`. `prepare-pr`: `debrief`, `draft` (default), or `lint` |
 | `base`, `head`, `diff_stats` | v0.7.0+, `prepare-pr` only: the refs diffed and `{files, insertions, deletions}` |
 | `policy` | v0.5.0+, `find`, `norms`, and draft-tier scenarios: the project's detected AI-policy and contribution-limit block (see below) |
@@ -134,7 +134,7 @@ Draft-tier files (`body_format: 2`) split sendable text from private notes:
 - Files with several independent messages (one reply per review comment) use one marker pair per message.
 - Files with no `body_format`, or `1`, are legacy: the whole body is sendable.
 - `body_format: 2` with no send block means nothing is sendable; `sendable: false` means never send.
-- Report-tier files have no send block.
+- Report-tier files set `body_format: 2` and `sendable: false` and have no send block, so nothing in them can be sent.
 
 This is a handoff contract with the execution plugin; see [Two-Plugin System](two-plugin-system.md).
 
@@ -179,7 +179,7 @@ Writing to `.oss-drafts/` uses the Write tool. The `/oss` command only uses the 
 write to paths under `.oss-drafts/` in the user's working directory — never to any other path.
 
 The `PreToolUse` guardrail hook does **not** block Write tool calls — it matches only `Bash` and
-`mcp__plugin_agentic-contributor_github__*` tool calls. Therefore:
+GitHub MCP tool calls. Therefore:
 
 - Local draft file writes cannot reach GitHub.
 - They cannot post comments, push branches, create issues or PRs, or trigger any outbound action.

@@ -3,7 +3,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|mcp__plugin_agentic-contributor_github__.*",
+        "matcher": "Bash|mcp__.*[Gg][Ii][Tt][Hh][Uu][Bb].*__.*",
         "hooks": [
           {
             "type": "command",

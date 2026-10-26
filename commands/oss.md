@@ -58,9 +58,10 @@ repo: <owner/repo>
 item: <issueN|prN|status|find|norms|setup|issue-bug|issue-feature|pr-new|debrief>
 generated_at: <ISO-8601 UTC>
 status: draft
-body_format: 2            # draft-tier scenarios (clarify, claim, engage, review-reply, report, prepare-pr). Omit it for
-                          # report-tier files (status, find, norms, setup; not the `report` scenario), which are never sent.
-sendable: false           # only the private debrief file: never send, regardless of body_format
+body_format: 2            # every file. Draft-tier scenarios (clarify, claim, engage, review-reply, report, prepare-pr)
+                          # put postable text in send blocks; report-tier files (status, find, norms, setup) have none.
+sendable: false           # private files only: report-tier files (status, find, norms, setup; not the `report`
+                          # scenario) and the prepare-pr debrief. Never send, regardless of body_format
 mode: <brief|lint|debrief|draft>  # review-reply: brief|lint; prepare-pr: debrief|draft|lint
 policy: {...}             # find + scenarios 5-10 (and norms): the policy block, see Step 3; includes fetched_at
 routed_from: <scenario>   # only when a PR-intent request was rerouted to report (issue-first)
@@ -89,7 +90,8 @@ Only text between the markers is sendable; everything else is for the user only:
 - A file with no `body_format` (or `1`) is legacy: the whole body is sendable. `body_format: 2` with no send block means nothing is sendable; `sendable: false` means never send.
 - Files with several independent messages (e.g. one reply per review comment) use one marker pair
   per message, in order.
-- Report-tier files (status, find, norms, setup) have no send block.
+- Report-tier files (status, find, norms, setup) set `body_format: 2` and `sendable: false` and have
+  no send block, so nothing in them can be sent.
 
 **Gitignore:** Before writing the first draft file in a run, ensure `.oss-drafts/` is excluded from version control in the user's project:
 
