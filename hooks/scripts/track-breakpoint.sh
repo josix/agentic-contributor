@@ -219,38 +219,61 @@ command -v python3 > /dev/null 2>&1 && have_py=1
 [ "$have_jq" -eq 1 ] || [ "$have_py" -eq 1 ] || exit 0
 
 # parse_input: US-separated event, path, permission_mode, session_id, stop_hook_active, agent_id,
-# last char of last_assistant_message, cwd. Any field containing a control character (newline, CR,
-# US, ...) is printed as empty, so it can neither shift the fields nor forge ledger/state lines.
+# asking (1/0), cwd. Any field containing a control character (newline, CR, US, ...) is printed as
+# empty, so it can neither shift the fields nor forge ledger/state lines. "asking" is 1 when the
+# last assistant message already waits on the user: its last non-blank line (trailing markdown
+# emphasis, quotes and brackets ignored) ends in ? or a full-width question mark, or it ends in an
+# option list whose lead-in line does (the last 40 non-blank lines are examined).
 # last_assistant_message (Stop) and agent_id (PostToolUse in a subagent) need a Claude Code version
 # that sends them; without them the "already asking" and subagent checks simply never fire.
 parse_input() {
   if [ "$have_jq" -eq 1 ]; then
     printf '%s' "$input" | jq -r '
       def clean: tostring | if test("[\u0000-\u001f\u007f]") then "" else . end;
+      def endsq: test("[?\uff1f]$");
+      def item: test("^\\s*([0-9]+[.)]|[-*\u2022+]|\\(?[A-Za-z][.)])\\s+");
+      def asking:
+        ((. // "") | tostring | split("\n") | .[-40:]
+         | map(select(test("[^\\s]")) | sub("[\\s*_\\\\`~\"\u0027\u2019\u201d\u00bb)\\]]+$"; ""))) as $L
+        | ($L | length) as $n
+        | if $n == 0 then false
+          elif ($L[-1] | endsq) then true
+          else ([range(0; $n)] | map(select(($L[.] | item) | not)) | last) as $j
+            | if $j == null or $j == ($n - 1) then false else ($L[$j] | endsq) end
+          end;
       (.tool_input // {}) as $ti
       | [(.hook_event_name // ""), ($ti.file_path // $ti.notebook_path // ""), (.permission_mode // ""),
          (.session_id // ""), ((.stop_hook_active // false) | tostring), (.agent_id // ""),
-         ((.last_assistant_message // "") | tostring | sub("[[:space:]]+$"; "") | .[-1:]), (.cwd // "")]
+         (.last_assistant_message | asking | if . then "1" else "0" end), (.cwd // "")]
       | map(clean) | join("\u001f")' 2> /dev/null
   else
     printf '%s' "$input" | python3 -c '
 import sys, json, re
 d = json.load(sys.stdin)
 ti = d.get("tool_input") or {}
-m = str(d.get("last_assistant_message") or "").rstrip()
 def clean(v):
     v = str(v or "")
     return "" if re.search("[\x00-\x1f\x7f]", v) else v
+def asking(m):
+    ls = [re.sub("[\\s*_\\\\`~\"\x27\u2019\u201d\u00bb)\\]]+$", "", l) for l in str(m or "").split("\n")[-40:] if l.strip()]
+    if not ls:
+        return "0"
+    endsq = lambda l: l[-1:] in ("?", "\uff1f")
+    if endsq(ls[-1]):
+        return "1"
+    item = lambda l: re.search("^\\s*([0-9]+[.)]|[-*\u2022+]|\\(?[A-Za-z][.)])\\s+", l)
+    j = max([i for i, l in enumerate(ls) if not item(l)], default=None)
+    return "1" if j is not None and j < len(ls) - 1 and endsq(ls[j]) else "0"
 print("\x1f".join(clean(v) for v in [d.get("hook_event_name"), ti.get("file_path") or ti.get("notebook_path"),
   d.get("permission_mode"), d.get("session_id"),
-  "true" if d.get("stop_hook_active") else "false", d.get("agent_id"), m[-1:], d.get("cwd")]))
+  "true" if d.get("stop_hook_active") else "false", d.get("agent_id"), asking(d.get("last_assistant_message")), d.get("cwd")]))
 ' 2> /dev/null
   fi
 }
 
 parsed="$(parse_input)" || exit 0
 [ -n "$parsed" ] || exit 0
-IFS=$'\037' read -r p_ev path perm_mode sid sha_active agent_id last_char cwd <<< "$parsed"
+IFS=$'\037' read -r p_ev path perm_mode sid sha_active agent_id asking cwd <<< "$parsed"
 case "$path$cwd" in *[[:cntrl:]]*) exit 0 ;; esac # belt and braces: never log a control char
 [ "$p_ev" = "$ev" ] || exit 0
 [ "$perm_mode" = "plan" ] && exit 0
@@ -451,69 +474,100 @@ END {
   return 0
 }
 
+# untracked_scan: $@ = edited paths. Sets ut_tagged: one "\001T<TAB>rel" (text) or "\001B<TAB>rel"
+# (binary or empty) line per untracked, non-ignored file among them. Text detection is ONE grep
+# fork for all files. Names come NUL-separated from git, so they are never unquoted.
+untracked_scan() {
+  local p tx nl=$'\n'
+  local -a ua
+  ut_tagged=""
+  ua=()
+  while IFS= read -r -d '' p; do
+    case "$p" in *[[:cntrl:]]*) continue ;; esac
+    ua[${#ua[@]}]="$p"
+  done < <(gitq ls-files -z --others --exclude-standard -- "$@" 2> /dev/null)
+  [ "${#ua[@]}" -gt 0 ] || return 0
+  tx="$(cd "$root" 2> /dev/null && grep -lI -e '' -- "${ua[@]}" 2> /dev/null)"
+  for p in "${ua[@]}"; do
+    case "$nl$tx$nl" in
+      *"$nl$p$nl"*) ut_tagged="$ut_tagged"$'\001'"T"$'\t'"$p$nl" ;;
+      *) ut_tagged="$ut_tagged"$'\001'"B"$'\t'"$p$nl" ;;
+    esac
+  done
+}
+
 # drift_eval: sets d_lines d_files d_top d_new_c d_new_m d_mod_detail from git + ledger state.
 # Needs ledger_state to have run (alerted_*, covered). Returns 1 when git cannot answer (fail open).
+# Scope/module paths are literal (no rename detection); the size totals and "Largest files" use
+# rename detection, so a pure rename counts as 0 lines. Untracked binary files count as 0 lines.
 drift_eval() {
-  local ns paths ut p k v n
+  local ns nm paths p k v n
   local -a pa
   ns="$(gitq diff --no-ext-diff --no-textconv --no-renames --numstat "$base" -- 2> /dev/null)" || return 1
+  nm="$(gitq diff --no-ext-diff --no-textconv -M --numstat "$base" -- 2> /dev/null)" || return 1
   paths="$(awk -F'\t' '$1 == "e" && $2 != "" && !s[$2]++ { print $2 }' "$state" 2> /dev/null)"
-  ut=""
+  ut_tagged=""
   if [ -n "$paths" ]; then
     pa=()
     while IFS= read -r p; do pa[${#pa[@]}]="$p"; done <<< "$paths"
-    ut="$(gitq ls-files --others --exclude-standard -- "${pa[@]}" 2> /dev/null)"
+    untracked_scan "${pa[@]}"
   fi
   d_lines=0; d_files=0; d_top=""; d_new_c=""; d_new_m=""; d_mod_detail=""
   local mlist="" res
-  res="$(printf '%s\n%s\n' "$ns" "$ut" | TRACK_ROOT="$root" awk "$AWK_DQ"'
+  res="$(printf '%s\n\001M\n%s\n%s' "$ns" "$nm" "$ut_tagged" | TRACK_ROOT="$root" awk "$AWK_DQ"'
 BEGIN {
-  FS = "\t"
+  FS = "\t"; mode = 0
   nl = split("yarn.lock package-lock.json pnpm-lock.yaml npm-shrinkwrap.json bun.lockb Cargo.lock go.sum poetry.lock uv.lock Gemfile.lock Pipfile.lock composer.lock mix.lock Package.resolved", lk, " ")
   for (i = 1; i <= nl; i++) islock[lk[i]] = 1
   cc = sprintf("[%c-%c%c]", 1, 31, 127)
+  TT = sprintf("%cT", 1); BB = sprintf("%cB", 1); MM = sprintf("%cM", 1)
 }
-function add(p, c,   a, m, b) {
-  gsub(cc, "?", p) # a control character in a file name never reaches the output or the ledger
-  m = split(p, a, "/"); b = a[m]
-  if (b in islock) c = 0
-  files++; lines += c; np++; pn[np] = p; pc[np] = c
+function base(p,   a, m) { m = split(p, a, "/"); return a[m] }
+function padd(p,   b) { gsub(cc, "?", p); b = base(p); np++; pn[np] = p; pl[np] = (b in islock) ? 1 : 0 }
+function tadd(p, c,   b) { gsub(cc, "?", p); b = base(p); if (b in islock) c = 0; files++; lines += c; nt++; tn[nt] = p; tc[nt] = c }
+# the new path of a rename entry: "old => new" or "pre{old => new}suf"
+function newpath(s,   i, j, k) {
+  k = index(s, " => "); if (!k) return s
+  i = index(s, "{"); j = index(s, "}")
+  if (i > 0 && j > k && i < k) { s = substr(s, 1, i - 1) substr(s, k + 4, j - k - 4) substr(s, j + 1); gsub("//", "/", s); return s }
+  return substr(s, k + 4)
+}
+$0 == MM { mode = 1; next }
+$1 == TT || $1 == BB {
+  p = $2
+  if (p ~ /^\.oss-drafts\//) next
+  c = 0
+  if ($1 == TT) {
+    f = ENVIRON["TRACK_ROOT"] "/" p
+    while (c < 20000 && (getline row < f) > 0) c++
+    close(f)
+  }
+  padd(p); tadd(p, c); next
 }
 NF == 3 && ($1 ~ /^[0-9]+$/ || $1 == "-") {
-  $3 = dq($3)
-  if ($3 ~ /^\.oss-drafts\//) next
-  add($3, ($1 == "-") ? 0 : $1 + $2); next
-}
-NF == 1 && $1 != "" {
-  $1 = dq($1)
-  if ($1 ~ /^\.oss-drafts\//) next
-  f = ENVIRON["TRACK_ROOT"] "/" $1; c = 0
-  while ((getline row < f) > 0) c++
-  close(f); add($1, c)
+  p = dq($3)
+  if (mode == 0) { if (p !~ /^\.oss-drafts\//) padd(p) }
+  else { p = newpath(p); if (p !~ /^\.oss-drafts\//) tadd(p, ($1 == "-") ? 0 : $1 + $2) }
 }
 END {
   print "S\t" lines + 0 "\t" files + 0
-  for (i = 1; i <= np; i++) print "P\t" pn[i]
+  for (i = 1; i <= np; i++) print "P\t" pn[i] "\t" pl[i]
   for (k = 1; k <= 5; k++) {
     best = 0; bi = 0
-    for (i = 1; i <= np; i++) if (!used[i] && pc[i] > best) { best = pc[i]; bi = i }
+    for (i = 1; i <= nt; i++) if (!used[i] && tc[i] > best) { best = tc[i]; bi = i }
     if (!bi) break
-    used[bi] = 1; print "T\t" pn[bi] "\t" best
+    used[bi] = 1; print "T\t" tn[bi] "\t" best
   }
 }' 2> /dev/null)" || return 1
-  local cnt=0 dir mod seg2 mf
+  local cnt=0 dir mod seg2 m_e
   while IFS=$'\t' read -r k v n; do
     case "$k" in
       S) d_lines="$v"; d_files="$n" ;;
       T) d_top="${d_top:+$d_top, }$v ($n)" ;;
       P)
         [ -n "$fm_scope" ] || continue
+        [ "$n" = 1 ] && continue # generated lockfiles are noise; a real manifest still counts as a module
         cnt=$((cnt + 1)); [ "$cnt" -gt 2000 ] && continue
-        glob_match "$v" "$fm_scope" && continue
-        case "$covered" in *$'\n'"$v"$'\n'*) continue ;; esac
-        # generated lockfiles are noise; a real manifest (package.json, ...) still counts as a module
-        mf="$(manifest_for "${v##*/}")"
-        [ -n "$mf" ] && [ "$mf" != "${v##*/}" ] && continue
         dir=""
         case "$v" in */*) dir="${v%/*}" ;; esac
         if [ -z "$dir" ]; then
@@ -524,7 +578,11 @@ END {
             *) mod="$dir" ;;
           esac
         fi
-        mlist="$mlist$(enc "$mod")"$'\t'"$v"$'\n'
+        m_e="${mod//%/%25}"; m_e="${m_e// /%20}"; m_e="${m_e//,/%2C}"
+        case "$alerted_m" in *",$m_e,"*) continue ;; esac # no forks and no glob work for known modules
+        glob_match "$v" "$fm_scope" && continue
+        case "$covered" in *$'\n'"$v"$'\n'*) continue ;; esac
+        mlist="$mlist$m_e"$'\t'"$v"$'\n'
         ;;
     esac
   done <<< "$res"
@@ -569,12 +627,15 @@ dec() { # decode the three enc() escapes
   printf '%s' "$s"
 }
 
-mod_text() { # "m (files); m2 (files)" from d_mod_detail
-  local out="" k v
+mod_text() { # "m (files); m2 (files)" from d_mod_detail; at most 10 modules shown (the marker keeps all)
+  local out="" k v n=0
   while IFS=$'\t' read -r k v; do
     [ -n "$k" ] || continue
+    n=$((n + 1))
+    [ "$n" -gt 10 ] && continue
     out="${out:+$out; }$(dec "$k") ($v)"
   done <<< "$d_mod_detail"
+  [ "$n" -gt 10 ] && out="$out; … (+$((n - 10)) more)"
   printf '%s' "$out"
 }
 
@@ -627,13 +688,14 @@ drift_enabled() {
 
 # base_check: 0 = the session base is still the base of HEAD; 1 = it moved (a rebase, reset or
 # merge since tracking started, so a diff against it would count upstream changes as drift);
-# 2 = git cannot answer (fail open). Result cached for this run.
+# 2 = git cannot answer (fail open); 3 = the base commit no longer exists in a working repository
+# (garbage-collected, or a shallow clone). Result cached for this run.
 base_rc=""
 base_check() {
   local m
   if [ -z "$base_rc" ]; then
     if ! gitq cat-file -e "$base^{commit}" 2> /dev/null; then
-      base_rc=2
+      if gitq rev-parse --git-dir > /dev/null 2>&1; then base_rc=3; else base_rc=2; fi
     elif ! gitq merge-base --is-ancestor "$base" HEAD 2> /dev/null; then
       base_rc=1
     elif ! m="$(gitq rev-list --merges -n 1 "$base..HEAD" 2> /dev/null)"; then
@@ -650,15 +712,21 @@ base_check() {
 PAUSE_MSG="agentic-contributor: base moved — drift paused; restart tracking (/oss track stop + start) to re-baseline."
 PAUSE_CTX="[agentic-contributor · tracked session] The session base commit is no longer the base of HEAD (a rebase, reset, or merge since tracking started), so scope-drift alerts and explain-back questions are paused for this session. Nothing was blocked. Tell the user once: to re-baseline, run /oss track stop, then /oss track start."
 
-# record_pause: write the one-time drift-paused marker. Returns 1 if it was already written.
+MISSING_MSG="agentic-contributor: base commit not found (garbage-collected or shallow clone) — drift and explain-back paused; restart tracking to re-baseline."
+MISSING_CTX="[agentic-contributor · tracked session] The session base commit no longer exists in this repository (garbage-collected, or a shallow clone), so scope-drift alerts and explain-back questions are paused for this session. Nothing was blocked. Tell the user once: to re-baseline, run /oss track stop, then /oss track start."
+
+# record_pause: write the one-time drift-paused marker. $1 = base-moved|base-missing.
+# Returns 1 if it was already written.
 record_pause() {
   take_lock
   read -r now_utc now_s <<< "$(date -u '+%Y-%m-%dT%H:%M:%SZ %s' 2> /dev/null)"
   [ -n "$now_utc" ] || exit 0
   ledger_state || exit 0
   if [ "$paused" -eq 1 ]; then release_lock; return 1; fi
-  printf '%s\n%s\n' "<!-- track:drift-paused at=$now_utc reason=base-moved -->" \
-    "- drift and explain-back paused: the base commit moved (rebase, reset, or merge); restart tracking to re-baseline" \
+  local why="the base commit moved (rebase, reset, or merge)"
+  [ "$1" = base-missing ] && why="the base commit is missing (garbage-collected or shallow clone)"
+  printf '%s\n%s\n' "<!-- track:drift-paused at=$now_utc reason=$1 -->" \
+    "- drift and explain-back paused: $why; restart tracking to re-baseline" \
     >> "$ledger" 2> /dev/null || exit 0
   release_lock
   return 0
@@ -706,7 +774,7 @@ END {
 
 # ── PostToolUse ──────────────────────────────────────────────────────────────
 post_tool_use() {
-  local abs="$path" rel st seen since_d nlines
+  local abs="$path" rel st seen since_d nlines qm
   [ -n "$abs" ] || exit 0
   if [ "${abs#/}" = "$abs" ]; then
     [ -n "$cwd" ] || exit 0
@@ -719,9 +787,9 @@ post_tool_use() {
   case "$rel" in *[[:cntrl:]]*) exit 0 ;; esac
   printf 'e\t%s\n' "$rel" >> "$state" 2> /dev/null || exit 0
   drift_enabled || exit 0
-  st="$(awk -F'\t' -v r="$rel" '$1 == "e" { if ($2 == r) seen++; since++ } $1 == "d" { since = 0 } END { print seen + 0, since + 0, NR + 0 }' "$state" 2> /dev/null)" || exit 0
-  read -r seen since_d nlines <<< "$st"
-  case "$seen$since_d$nlines" in '' | *[!0-9]*) exit 0 ;; esac
+  st="$(awk -F'\t' -v r="$rel" '$1 == "e" { if ($2 == r) seen++; since++ } $1 == "d" { since = 0 } $1 == "m" && $2 ~ /^[0-9]+$/ { qm = $2 + 0 } END { print seen + 0, since + 0, NR + 0, qm + 0 }' "$state" 2> /dev/null)" || exit 0
+  read -r seen since_d nlines qm <<< "$st"
+  case "$seen$since_d$nlines$qm" in '' | *[!0-9]*) exit 0 ;; esac
   compact_state "$nlines"
   # throttle: git only for a path new to the session or every 5th edit
   if [ "$seen" -gt 1 ] && [ "$since_d" -lt 5 ]; then exit 0; fi
@@ -729,12 +797,18 @@ post_tool_use() {
   printf 'd\n' >> "$state" 2> /dev/null || exit 0
   now_s=0
   ledger_state || exit 0
+  # spacing: a question already interrupted this turn, so a new drift question waits for a later turn
+  if [ "$budget" -gt 0 ] && [ "$drift_asked" -lt "$drift_max" ] && [ $((pend_n + drift_asked)) -gt "$qm" ]; then exit 0; fi
   base_check
   case "$base_rc" in
     1)
       [ "$paused" -eq 1 ] && exit 0
-      record_pause || exit 0
+      record_pause base-moved || exit 0
       emit_json post "$PAUSE_CTX" "$PAUSE_MSG" ;;
+    3)
+      [ "$paused" -eq 1 ] && exit 0
+      record_pause base-missing || exit 0
+      emit_json post "$MISSING_CTX" "$MISSING_MSG" ;;
     2) exit 0 ;;
   esac
   [ "$paused" -eq 1 ] && exit 0 # base is back, but the session stays paused until a restart
@@ -748,7 +822,7 @@ post_tool_use() {
 
 # pick_target: sets t_rel t_line t_size from the files edited since the last breakpoint
 pick_target() { # $1 = newline list of edited rels
-  local rel cand="" ut="" tagged="" d p
+  local rel cand="" tagged="" d p
   local -a ca
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
@@ -763,12 +837,11 @@ pick_target() { # $1 = newline list of edited rels
   while IFS= read -r rel; do [ -n "$rel" ] && ca[${#ca[@]}]="$rel"; done <<< "$cand"
   [ "${#ca[@]}" -gt 0 ] || return 1
   d="$(gitq diff --no-ext-diff --no-textconv --no-renames --no-color -U0 --src-prefix=a/ --dst-prefix=b/ "$base" -- "${ca[@]}" 2> /dev/null)" || return 1
-  ut="$(gitq ls-files --others --exclude-standard -- "${ca[@]}" 2> /dev/null)"
-  if [ -n "$ut" ]; then
-    while IFS= read -r p; do
-      [ -n "$p" ] && tagged="$tagged"$'\001'"U"$'\t'"$p"$'\n'
-    done <<< "$ut"
-  fi
+  untracked_scan "${ca[@]}"
+  # binary and empty untracked files (tagged B) are never targets
+  while IFS= read -r p; do
+    case "$p" in $'\001'T$'\t'*) tagged="$tagged"$'\001'"U"$'\t'"${p#*$'\t'}"$'\n' ;; esac
+  done <<< "$ut_tagged"
   res="$(printf '%s\n%s\n' "$d" "$tagged" | TRACK_ROOT="$root" TRACK_TARGETS="$targets" awk "$AWK_DQ"'
 function enc(s) { gsub(/%/, "%25", s); gsub(/ /, "%20", s); gsub(/,/, "%2C", s); return s }
 function consider(rel, ln, sz) {
@@ -776,8 +849,8 @@ function consider(rel, ln, sz) {
   nh++; hr[nh] = rel; hl[nh] = ln; hs[nh] = sz
 }
 /^\001U\t/ {
-  p = dq(substr($0, 4)); f = ENVIRON["TRACK_ROOT"] "/" p; c = 0
-  while ((getline row < f) > 0) c++
+  p = substr($0, 4); f = ENVIRON["TRACK_ROOT"] "/" p; c = 0
+  while (c < 20000 && (getline row < f) > 0) c++
   close(f); if (c > 0) consider(p, 1, c); next
 }
 # body lines of a hunk are consumed by count, so added text like "++ x" is never read as a header
@@ -851,16 +924,30 @@ finish() {
 }
 
 stop_event() {
-  local edited q_mark s_mark n_lines q_now k had_state
+  local edited q_mark s_mark n_lines q_now k had_state why
   sys_note=""
   read -r now_utc now_s <<< "$(date -u '+%Y-%m-%dT%H:%M:%SZ %s' 2> /dev/null)"
   [ -n "$now_utc" ] || exit 0
   ledger_state || exit 0
   [ -n "$base" ] && base_check
+  q_mark=0; s_mark=0; n_lines=0; edited=""
+  had_state=0
+  if [ -f "$state" ]; then
+    had_state=1
+    read_edits || finish
+    compact_state "$n_lines"
+  fi
+  q_now=$((pend_n + drift_asked))
 
-  # (a) drift, once per newly crossed threshold or module; paused once the base moved
-  if [ "$base_rc" = 1 ] && [ "$paused" -eq 0 ] && drift_enabled; then
-    record_pause && sys_note="$PAUSE_MSG"
+  # (a) drift, once per newly crossed threshold or module; paused once the base moved or vanished.
+  # Skipped when a question already interrupted since the last stop (spacing).
+  if [ "$had_state" -eq 1 ] && [ "$q_now" -gt "$q_mark" ]; then
+    :
+  elif { [ "$base_rc" = 1 ] || [ "$base_rc" = 3 ]; } && [ "$paused" -eq 0 ] && drift_enabled; then
+    if [ "$base_rc" = 1 ]; then why=base-moved; else why=base-missing; fi
+    if record_pause "$why"; then
+      if [ "$base_rc" = 1 ]; then sys_note="$PAUSE_MSG"; else sys_note="$MISSING_MSG"; fi
+    fi
     ledger_state || exit 0
   elif [ "$base_rc" = 0 ] && [ "$paused" -eq 0 ] && drift_enabled && drift_eval && [ -n "$d_new_c$d_new_m" ]; then
     if record_drift && [ "$rd_asked" = yes ]; then
@@ -869,15 +956,14 @@ stop_event() {
     ledger_state || exit 0
   fi
 
-  # (b) explain-back
-  q_mark=0; s_mark=0; n_lines=0; edited=""
-  had_state=0
-  if [ -f "$state" ]; then
-    had_state=1
-    read_edits || finish
-    compact_state "$n_lines"
+  # (b) explain-back. The question watermark advances on every stop that has a state file, even
+  # when explain-back itself is off, so Post's spacing check stays current.
+  q_now=$((pend_n + drift_asked))
+  if [ "$had_state" -eq 1 ]; then
+    printf 'm\t%s\n' "$q_now" >> "$state" 2> /dev/null || finish
   fi
-  # drift recorded without asking (cap spent or quiet mode) is summarised here, once per new item
+  # drift recorded without asking (cap spent or quiet mode) is summarised here, once per new item;
+  # it is a user-facing systemMessage the agent does not see
   if [ "$drift_logged" -gt "$s_mark" ]; then
     printf 's\t%s\n' "$drift_logged" >> "$state" 2> /dev/null &&
       sys_note="${sys_note:+$sys_note }agentic-contributor: $((drift_logged - s_mark)) scope-drift item(s) logged without asking (drift question cap spent or budget 0); they are in the ledger and the debrief."
@@ -885,11 +971,9 @@ stop_event() {
   [ "$budget" -gt 0 ] && [ "$explain_max" -gt 0 ] && [ -n "$base" ] || finish
   [ "$base_rc" = 0 ] && [ "$paused" -eq 0 ] || finish # base moved or unknown: explain-back paused
   [ "$had_state" -eq 1 ] || finish                     # no edit logged this session
-  q_now=$((pend_n + drift_asked))
-  printf 'm\t%s\n' "$q_now" >> "$state" 2> /dev/null || finish
   [ -n "$edited" ] || finish
   [ "$q_now" -gt "$q_mark" ] && finish # a question already interrupted since the last stop
-  [ "$last_char" = "?" ] && finish     # the agent is already waiting on the user
+  [ "$asking" = 1 ] && finish          # the agent is already waiting on the user
   [ "$bp_n" -ge "$explain_max" ] && finish
   if [ "$explain_int" -gt 0 ] && [ $((now_s - bp_last)) -lt $((explain_int * 60)) ]; then finish; fi
   [ "$latch" -eq 1 ] && finish

@@ -164,7 +164,7 @@ A second, separate `PreToolUse` hook (`hooks/scripts/track-checkpoint.sh`) is ad
 | dependency, test-weakening, `api_paths`, or out-of-scope edit (budget left) | deny with a "choose" instruction; one retry is denied again, the third attempt gets context only (loop guard); the answer is recorded in the private ledger |
 | budget spent | no permission decision (normal prompts apply); logged as an Unknown |
 | Edit that appends one entry at `<!-- track:end -->` of the active ledger | allow (any other ledger edit gets the normal prompt) |
-| change grows past the drift limits, or out-of-scope modules no checkpoint covered (drift cap left) | `PostToolUse` context (never a block) asking keep / separate PR / drop / skip; at most 2 per session |
+| change grows past the drift limits, or out-of-scope modules no checkpoint covered (drift cap left) | `PostToolUse`: context, never a block; at `Stop`: may hold the stop once (block). Asks keep / separate PR / drop / skip; at most 2 per session |
 | agent stops after edits (breakpoint) | one rate-limited, skippable question about a `file:line`, held once at `Stop`; at most 4 per session, 20 minutes apart; `budget: 0` is quiet mode |
 
 It is not a safety boundary. See [Tracked Sessions & Checkpoints](docs/concepts/tracked-sessions.md).
