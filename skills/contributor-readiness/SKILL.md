@@ -25,7 +25,8 @@ the normal fetch). This skill turns the result into the output below.
 Use the first that applies:
 
 1. Explicit in the request (`as @login`).
-2. `contributor.github_login` in `config/targets.yaml` (local-only).
+2. `contributor.github_login` in `${CLAUDE_PLUGIN_ROOT}/config/targets.yaml` (local-only; the plugin's own
+   `config/` directory, not the user's working directory — skip this step if the file is absent).
 3. The authenticated identity: MCP `get_me`, falling back to `gh api user --jq .login`.
 
 Always print the login used, and record it in the draft frontmatter as `readiness_login`, so a wrong
@@ -45,7 +46,7 @@ All reads are GETs, for the contributor's own login only. Spend about 5 calls (s
 | `author_association` | from the items above (`CONTRIBUTOR`, `COLLABORATOR`, `MEMBER`, `FIRST_TIME_CONTRIBUTOR`, `NONE`) | same |
 | Account age and activity elsewhere | `get_me` (own login) | `gh api users/<login> --jq '{created_at,public_repos}'`; `gh api 'search/issues?q=author:<login>+type:pr+is:merged&per_page=1' --jq .total_count` |
 | Vouch status | `get_file_contents` on `policy.vouch_file`, look for the login (vouched / denounced / absent) | `gh api repos/o/r/contents/<vouch_file>` |
-| Uses the project | self-reported in the find intake, or `contributor.uses` in `targets.yaml` | none |
+| Uses the project | self-reported in the find intake, or `contributor.uses` in `${CLAUDE_PLUGIN_ROOT}/config/targets.yaml` | none |
 
 `open_pr_cap`, `vouch_required`, and `vouch_file` come from the `policy` block (Step 3 policy
 preflight). When they are `unknown`, say so; do not assume "no cap" or "no vouch". A missing signal

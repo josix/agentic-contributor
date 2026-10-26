@@ -425,6 +425,11 @@ print(json.dumps(r))
 trk_relpath "$abs"
 rel="$trk_rel"
 [ -n "$rel" ] || exit 0
+# Writes into the git dir (the session pointer, notice markers) are plugin bookkeeping, not project
+# changes: no checkpoint, no paused notice.
+case "$rel" in .git | .git/*) exit 0 ;; esac
+trk_norm "$trk_gitdir"; gd_np="$trk_np"; trk_norm "$abs"
+if trk_under "$trk_np" "$gd_np"; then exit 0; fi
 
 # Auto-allow: an append-shaped Edit (app=1) of exactly the active ledger, with a clean raw path
 # (no "..", "." or empty segment). Any other ledger edit gets no decision and goes through

@@ -5,7 +5,7 @@ allowed-tools:
   - Bash
   - Read
   - Write
-  - Edit
+  - Edit(.oss-drafts/**)
   - Grep
   - Glob
   - WebFetch
@@ -185,7 +185,7 @@ review-reply, report, prepare-pr, and optionally setup), dispatch the mapped sub
 **Readiness (claim, find, and prepare-pr, not in track mode).** Unless the request says "skip readiness", also dispatch
 `oss-researcher` with scenario key `readiness` in parallel with the normal fetch. Resolve the login
 as the `contributor-readiness` skill says (request, then `contributor.github_login` in
-`config/targets.yaml`, then the authenticated account) and pass it with `owner/repo` and the
+`${CLAUDE_PLUGIN_ROOT}/config/targets.yaml` (the plugin's config, not the working directory), then the authenticated account) and pass it with `owner/repo` and the
 policy block's `vouch_file`. It reads only the user's own public data. It is advisory: if it fails
 or no login resolves, continue and say so in one line.
 
@@ -263,7 +263,7 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
 Before writing any file: ensure the exclude file from `git rev-parse --git-path info/exclude` excludes `.oss-drafts/` as
 described in the convention block above.
 
-Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path, except the track-session pointer `<gitdir>/agentic-contributor/track-active` (track start only). Edit is allowed only on the active track ledger.
+Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path, except the track-session pointer `<gitdir>/agentic-contributor/track-active` (track start, resume, and the stop fallback that writes an empty pointer). Edit is allowed only on the active track ledger.
 
 ### Claim → Engage Branch
 
@@ -357,8 +357,9 @@ The `guard-outbound.sh` PreToolUse hook is always active. It DENIES:
   or `-f`/`-F`/`--field`/`--raw-field` flags (except an explicit `-X GET` or a read-only `gh api graphql` query
   with no `mutation` and no `=@file`).
 - `curl`/`wget` with mutation flags (curl `-X POST`, `-d` without `-G`, `-F`, etc.; wget `--method POST`, `--post-data`, `--post-file`).
-- **Every** `mcp__plugin_agentic-contributor_github__` tool that is not on the read allowlist. The
-  MCP namespace is default-deny: only tools named `get_*`, `list_*`, `search_*`, plus the named read tools `issue_read` and
+- **Every** tool from a GitHub MCP server (this plugin's `mcp__plugin_agentic-contributor_github__`
+  or any other MCP server whose name contains `github`) that is not on the read allowlist. These
+  namespaces are default-deny: only tools named `get_*`, `list_*`, `search_*`, plus the named read tools `issue_read` and
   `pull_request_read` (e.g. `get_file_contents`, `list_issues`, `search_code`) are
   allowed, and even those are denied if the name contains `write`, `create`, `delete`, `submit`,
   or `fork`. `mark_all_notifications_read`, `issue_write`, `add_issue_comment`, `push_files`, `merge_pull_request`,
