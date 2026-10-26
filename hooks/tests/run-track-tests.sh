@@ -44,6 +44,8 @@ write_ledger() { # $1 file  $2 status  $3 scope  $4 api  $5 budget
 ---
 plugin: agentic-contributor
 scenario: prepare-pr
+body_format: 2
+sendable: false
 mode: track
 repo: local
 item: task
@@ -137,8 +139,9 @@ setup() { # $1 profile -> sets d root ledger pointer env_extra
     abs-ptr) printf '%s\n' "$evil" > "$pointer" ;;
     abs-in-root-ptr) printf '%s\n' "$ledger" > "$pointer" ;;
     symlink-ptr) mv "$pointer" "$d/ptr"; ln -s "$d/ptr" "$pointer" ;;
-    decided-dep) entry decided yes dependency:package.json ;;
-    skipped-dep) entry skipped yes dependency:package.json ;;
+    decided-dep) pend dependency:package.json; entry decided yes dependency:package.json ;;
+    skipped-dep) pend dependency:package.json; entry skipped yes dependency:package.json ;;
+    decided-nopend) entry decided yes dependency:package.json ;; # a pre-written entry settles nothing
     spent)
       pend dependency:Cargo.toml; pend test:tests/test_foo.py; pend scope:docs/x.md
       entry decided yes dependency:Cargo.toml; entry decided yes test:tests/test_foo.py
@@ -157,20 +160,33 @@ setup() { # $1 profile -> sets d root ledger pointer env_extra
       pend dependency:package.json
       awk -v e="<!-- track:entry status=not-applicable source=checkpoint asked=no at=$T id=dependency:package.json -->" \
         '/^<!-- track:end -->$/ { print e } { print }' "$ledger" > "$ledger.new" && mv "$ledger.new" "$ledger" ;;
-    na-dep-later) # a real dependency change after the not-applicable one is still checkpointed
-      pend dependency:package.json
-      awk -v e="<!-- track:entry status=not-applicable source=checkpoint asked=no at=$T id=dependency:package.json -->" \
-        '/^<!-- track:end -->$/ { print e } { print }' "$ledger" > "$ledger.new" && mv "$ledger.new" "$ledger"
-      printf '<!-- track:pending at=2026-10-24T01:00:00Z id=dependency:package.json -->\n' >> "$ledger" ;;
-    na-future) # a future at= sorts as oldest, so it cannot acknowledge anything
+    na-dep-later) # retry answered by not-applicable: two pendings, one n/a entry -> acknowledged
+      pend dependency:package.json; pend dependency:package.json
+      entry not-applicable no dependency:package.json ;;
+    na-future) # at= values are never compared (counts only), so a future at= still acknowledges
       pend dependency:package.json
       printf '<!-- track:entry status=not-applicable source=checkpoint asked=no at=2099-01-01T00:00:00Z id=dependency:package.json -->\n' >> "$ledger" ;;
+    na-same-second) # a second round in the same second as the first consumed marker still works
+      pend dependency:package.json; entry not-applicable no dependency:package.json
+      printf '<!-- track:consumed at=%s id=dependency:package.json -->\n' "$T" >> "$ledger"
+      pend dependency:package.json; entry not-applicable no dependency:package.json ;;
+    na-prewritten) entry not-applicable no dependency:package.json ;; # n/a with no pending acknowledges nothing
+    na-cap) # three acknowledged rounds: the fourth is logged, not asked
+      for _ in 1 2 3; do
+        pend dependency:package.json; entry not-applicable no dependency:package.json
+        printf '<!-- track:consumed at=%s id=dependency:package.json -->\n' "$T" >> "$ledger"
+      done ;;
     na-frac-consumed) # fractional seconds are normalised, so the consumed marker still counts
       pend dependency:package.json
       printf '<!-- track:entry status=not-applicable source=checkpoint asked=no at=2026-10-24T00:00:00.500Z id=dependency:package.json -->\n' >> "$ledger"
       printf '<!-- track:consumed at=%s id=dependency:package.json -->\n' "$T" >> "$ledger" ;;
     stale-lock) mkdir "$ledger.lock"; touch -t 202001010000 "$ledger.lock" ;;
     busy-lock) mkdir "$ledger.lock" ;;
+    dead-pid-lock) # holder crashed seconds ago: its pid is dead, so the lock is broken at once
+      mkdir "$ledger.lock"
+      sh -c 'exit 0' & dp=$!; wait "$dp"
+      printf '%s\n' "$dp" > "$ledger.lock/pid" ;;
+    live-pid-lock) mkdir "$ledger.lock"; printf '%s\n' "$$" > "$ledger.lock/pid" ;;
     pending1) pend dependency:package.json ;;
     pending2) pend dependency:package.json; pend dependency:package.json ;;
     disabled) env_extra="OSS_TRACK_DISABLE=1" ;;
@@ -235,25 +251,30 @@ while IFS="$tab" read -r expect profile tool ptoken a1 a2 want || [ -n "${expect
     json="$(build_json "$tool" "$path" "$a1" "$a2")"
   fi
   before="$(lsize "$ledger")"
+  cons_before="$(grep -c '^<!-- track:consumed at=' "$ledger" 2> /dev/null)"
+  t0="$(date +%s)"
   evil_before="$(cat "$evil")"
   run_hook "$json"
   after="$(lsize "$ledger")"
+  elapsed=$(($(date +%s) - t0))
   good=1
   [ "$rc" -eq 0 ] || { bad "$label rc=$rc"; good=0; }
   [ "$(cat "$evil")" = "$evil_before" ] || { bad "$label wrote outside .oss-drafts ledger"; good=0; }
   case "$out" in *"SYSTEM NOTE"*) bad "$label echoed ledger text into the output"; good=0 ;; esac
-  if [ "$good" -eq 1 ] && [ "$profile" != busy-lock ] && [ -d "$ledger.lock" ]; then bad "$label left the ledger lock behind"; good=0; fi
+  if [ "$good" -eq 1 ] && [ "$profile" != busy-lock ] && [ "$profile" != live-pid-lock ] && [ -d "$ledger.lock" ]; then bad "$label left the ledger lock behind"; good=0; fi
   if [ "$good" -eq 1 ]; then
     case "$expect" in
       silent)
         [ -z "$out" ] && [ "$before" = "$after" ] || { bad "$label expected silent, got: $out"; good=0; } ;;
       silent-consume) # acknowledged not-applicable: no output, one consumed marker appended
-        [ -z "$out" ] && [ "$(grep -c '^<!-- track:consumed at=' "$ledger")" -eq 1 ] \
+        [ -z "$out" ] && [ "$(grep -c '^<!-- track:consumed at=' "$ledger")" -eq $((cons_before + 1)) ] \
           || { bad "$label expected silent-consume, got: $out"; good=0; } ;;
       allow-ledger)
         [ "$(decision_of)" = allow ] && [ "$before" = "$after" ] || { bad "$label expected allow-ledger, got: $out"; good=0; } ;;
       deny | deny-retry)
-        if [ "$(decision_of)" != deny ] || ! printf '%s' "$out" | jq -e --arg w "Checkpoint id: $want" \
+        if [ "$profile" = dead-pid-lock ] && [ "$elapsed" -gt 1 ]; then
+          bad "$label dead-holder lock took ${elapsed}s to break (expected under 1s)"; good=0
+        elif [ "$(decision_of)" != deny ] || ! printf '%s' "$out" | jq -e --arg w "Checkpoint id: $want" \
           '.hookSpecificOutput.permissionDecisionReason | contains($w)' > /dev/null 2>&1; then
           bad "$label expected deny for $want, got: $out"; good=0
         elif ! grep -qF -- "<!-- track:pending at=" "$ledger" || ! grep -q -- " id=$want -->\$" "$ledger"; then
@@ -265,7 +286,8 @@ while IFS="$tab" read -r expect profile tool ptoken a1 a2 want || [ -n "${expect
         fi ;;
       allow-logged)
         if [ -n "$(decision_of)" ] || ! printf '%s' "$out" | jq -e '(.hookSpecificOutput.additionalContext | length > 0) and (.systemMessage | length > 0)' > /dev/null 2>&1 \
-          || [ "$(grep -c "status=logged-over-budget source=hook.* id=$want -->\$" "$ledger")" -ne 1 ]; then
+          || [ "$(grep -c "status=logged-over-budget source=hook.* id=$want -->\$" "$ledger")" -ne 1 ] \
+          || { [ "$profile" = na-cap ] && ! grep -q 'reason=na-cap' "$ledger"; }; then
           bad "$label expected allow-logged for $want, got: $out"; good=0
         fi ;;
       allow-fallback)
@@ -319,11 +341,28 @@ if PATH="$nojq_path" command -v python3 > /dev/null 2>&1 && ! PATH="$nojq_path" 
   out="$(printf '%s' "$json" | env CLAUDE_PROJECT_DIR="$root" PATH="$nojq_path" "$runner" "$hook" 2> /dev/null)"
   decision="$(printf '%s' "$out" | python3 -c 'import sys,json; print(json.load(sys.stdin)["hookSpecificOutput"]["permissionDecision"])' 2> /dev/null)"
   [ "$decision" = deny ] && ok || bad "(c) python3 fallback expected deny, got: $out"
-  # ledger edit auto-allow also works on the python path
-  json="$(build_json Edit "$ledger" a b)"
-  out="$(printf '%s' "$json" | env CLAUDE_PROJECT_DIR="$root" PATH="$nojq_path" "$runner" "$hook" 2> /dev/null)"
-  decision="$(printf '%s' "$out" | python3 -c 'import sys,json; print(json.load(sys.stdin)["hookSpecificOutput"]["permissionDecision"])' 2> /dev/null)"
-  [ "$decision" = allow ] && ok || bad "(c) python3 fallback expected allow-ledger, got: $out"
+  # ledger append auto-allow also works on the python path; a non-append edit gets no decision
+  py_decision() { # json on $1 -> decision on stdout (jq-free PATH, fresh fixture state kept by the caller)
+    printf '%s' "$1" | env CLAUDE_PROJECT_DIR="$root" PATH="$nojq_path" "$runner" "$hook" 2> /dev/null \
+      | python3 -c 'import sys,json; t=sys.stdin.read(); print(json.loads(t)["hookSpecificOutput"].get("permissionDecision","") if t.strip() else "silent")' 2> /dev/null
+  }
+  decision="$(py_decision "$(build_json Edit "$ledger" '<!-- track:end -->' $'x\n<!-- track:end -->')")"
+  [ "$decision" = allow ] && ok || bad "(c) python3 fallback expected allow-ledger, got: $decision"
+  decision="$(py_decision "$(build_json Edit "$ledger" a b)")"
+  [ "$decision" = silent ] && ok || bad "(c) python3 fallback expected silent for non-append ledger edit, got: $decision"
+  # test-class counting under python: commented-out assert, plain assert drop, Write over an existing test file
+  setup active
+  decision="$(py_decision "$(build_json Edit "$root/tests/test_foo.py" 'assert a' '# assert a')")"
+  [ "$decision" = deny ] && ok || bad "(c) python3 fallback: commented-out assert expected deny, got: $decision"
+  setup active
+  decision="$(py_decision "$(build_json Edit "$root/tests/test_foo.py" $'assert a\nassert b' pass)")"
+  [ "$decision" = deny ] && ok || bad "(c) python3 fallback: dropped assert expected deny, got: $decision"
+  setup active
+  decision="$(py_decision "$(build_json Write "$root/tests/test_foo.py" $'def test_a():\n    # assert 1\n    # assert 2\n    # assert 3\n    pass' '')")"
+  [ "$decision" = deny ] && ok || bad "(c) python3 fallback: Write over existing test expected deny, got: $decision"
+  setup active
+  decision="$(py_decision "$(build_json Edit "$root/tests/test_foo.py" '# assert a' '')")"
+  [ "$decision" = silent ] && ok || bad "(c) python3 fallback: removing a comment expected silent, got: $decision"
 else
   echo "info: (c) python3 fallback skipped (no jq-free PATH with a working python3)"
 fi
@@ -362,6 +401,31 @@ awk 'BEGIN { printf "{\"cwd\":\"/x\",\"tool_name\":\"Write\",\"tool_input\":{\"f
 secs="$( { time (cd "$root" && cat "$big" | env -u CLAUDE_PROJECT_DIR "$runner" "$hook" > /dev/null 2>&1) ; } 2>&1 )"
 echo "info: no-session 3 MB payload took ${secs} s"
 awk -v s="$secs" 'BEGIN { exit !(s < 1) }' && ok || bad "(f) no-session 3 MB payload took ${secs} s"
+
+# (g) symlinked repository root: logical and physical paths give the same ids and ledger match.
+setup active
+ln -s "$root" "$d/link"
+json="$(build_json Edit "$d/link/package.json" a b)"
+out="$(cd / && printf '%s' "$json" | env CLAUDE_PROJECT_DIR="$root" "$runner" "$hook" 2> /dev/null)"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("Checkpoint id: dependency:package.json")' > /dev/null 2>&1 \
+  && ok || bad "(g) project dir=root, file_path via symlink expected deny, got: $out"
+setup active
+ln -s "$root" "$d/link"
+phys_root="$(cd "$root" && pwd -P)"
+json="$(build_json Edit "$phys_root/package.json" a b)"
+out="$(cd / && printf '%s' "$json" | env CLAUDE_PROJECT_DIR="$d/link" "$runner" "$hook" 2> /dev/null)"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("Checkpoint id: dependency:package.json")' > /dev/null 2>&1 \
+  && ok || bad "(g) project dir=symlink, physical file_path expected deny, got: $out"
+json="$(build_json Edit "$d/link/.oss-drafts/$LEDGER_NAME" '<!-- track:end -->' $'x\n<!-- track:end -->')"
+out="$(cd / && printf '%s' "$json" | env CLAUDE_PROJECT_DIR="$root" "$runner" "$hook" 2> /dev/null)"
+[ "$(decision_of)" = allow ] && ok || bad "(g) append-shaped ledger edit via symlink expected allow, got: $out"
+
+# (h) the deny text tells the agent which asked= value to use, including the non-interactive case.
+setup active
+json="$(build_json Edit "$root/package.json" a b)"
+run_hook "$json"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("status=skipped, asked=no") and contains("does not use budget")' > /dev/null 2>&1 \
+  && ok || bad "(h) deny text should specify asked=no for non-interactive skips, got: $out"
 
 total=$((pass + fail))
 echo "track tests ($runner): $pass/$total passed"

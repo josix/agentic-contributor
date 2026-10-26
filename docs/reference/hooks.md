@@ -150,9 +150,14 @@ Everything not matched by a deny pattern:
 | id already settled, or already logged over budget | silent |
 | budget spent (default 3 questions asked), or `budget: 0` | `additionalContext` plus a short `systemMessage` (no permission decision); a `logged-over-budget` line is appended |
 | second retry without a ledger entry (loop guard) | `deny` again once; the third attempt gets `additionalContext` plus a `systemMessage` (no permission decision) and a `skipped` line |
-| tool `Edit` whose path equals exactly the active ledger path | `allow` (so a checkpoint costs one interruption, not two) |
+| append-shaped `Edit` of the active ledger | `allow` (so a checkpoint costs one interruption, not two) |
+| any other edit of the ledger (frontmatter change, rewrite, Write, MultiEdit) | no decision: Claude Code's normal permission prompt applies |
 
-The ledger auto-allow is deliberately narrow: only `Edit` (never Write, MultiEdit, or NotebookEdit), only the byte-for-byte active ledger path read from the pointer, nothing with a `..` segment, and nothing when the ledger, the pointer, or `.oss-drafts/` is a symlink. Every other path, including other files in `.oss-drafts/`, gets no allow.
+The ledger auto-allow is deliberately narrow: only `Edit` (never Write, MultiEdit, or NotebookEdit) that appends one entry (`old_string` is `<!-- track:end -->`, `new_string` ends with it, no `replace_all`, and the added text holds no sentinel, `track:pending`, `track:consumed` or `source=hook`), only the active ledger path read from the pointer (compared after normalizing `//`, `./`, `..` and logical versus physical roots), a raw `file_path` with no `..`, `.` or empty segment, and nothing when the ledger, the pointer, or `.oss-drafts/` is a symlink. Every other edit, including widening `scope:`, `status: stopped` and other files in `.oss-drafts/`, gets no allow, so it still works but is never silent. A `decided` or `skipped` entry settles an id only when the hook asked about it (a `track:pending` line exists), so a pre-written entry settles nothing.
+
+**Paths and comments.** File paths are normalized before use: `src/../package.json` and `./src/app.js` give the same id as the plain path, and a path outside the repository gets no checkpoint. Comment-only lines (`//`, `#` not followed by `[` or `!`, `* `, and `/* ... */` blocks that start a line) are not counted as assertions or skips, so commenting out an assert counts as removing it.
+
+**Not-applicable acknowledgements** are matched by count, not timestamp: a `status=not-applicable` entry answers one pending line and lets one edit through (a `track:consumed` marker records it). After 3 acknowledged edits for one id the hook logs `logged-over-budget ... reason=na-cap` instead of asking again.
 
 Checkpoint ids are `<class>:<repo-relative path>`; a lock file maps to its manifest (`yarn.lock` is `dependency:package.json`). The hook appends only the class, the edited file's repo-relative path, and timestamps with a single `>>`; it never writes old/new strings or file content into the ledger. A path (or `cwd`) containing a control character such as a newline or carriage return makes the hook fail open without writing, so a file name cannot forge ledger marker lines.
 
@@ -160,7 +165,7 @@ Checkpoint ids are `<class>:<repo-relative path>`; a lock file maps to its manif
 
 **Context-only notices.** The over-budget and loop-guard notices rely on `additionalContext` in a PreToolUse hook without a permission decision, which needs a Claude Code version that supports PreToolUse `additionalContext`. On older versions Claude does not see the note, so the hook also sets a top-level `systemMessage` that the user sees either way.
 
-**Locking.** Reading state, checking the budget, and appending a pending marker happen under a `mkdir` lock (`<ledger>.lock`). A lock older than about 10 seconds is treated as stale: its mtime comes from `stat -c %Y` (GNU) or `stat -f %m` (BSD), validated as a number, and it is renamed to a per-process name before removal so a fresh lock is never deleted. If the lock stays busy for about 2 seconds the hook fails open.
+**Locking.** Reading state, checking the budget, and appending a pending marker happen under a `mkdir` lock (`<ledger>.lock`). The holder writes its pid to `<ledger>.lock/pid`. A lock whose pid is dead is stale and is broken at once; a lock with no pid file is stale after about 5 seconds (its mtime comes from `stat -c %Y` (GNU) or `stat -f %m` (BSD), validated as a number). A stale lock is renamed to a per-process name before removal so a fresh lock is never deleted. If a live holder keeps the lock busy for about 2 seconds the hook fails open.
 
 Harness: `bash hooks/tests/run-track-tests.sh` (bash 3.2 compatible; builds a fixture git repo in a temp dir per case).
 

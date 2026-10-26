@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Tracked sessions** (`/oss track`, a `prepare-pr` mode with `start`, `stop`, `status`, `log`): a private, append-only **decision ledger** `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` plus a pointer `<gitdir>/agentic-contributor/track-active` in the git dir (never the worktree). One active session per project folder; tracked sessions require git.
 - **Decision checkpoints**: a new, separate, advisory `PreToolUse` hook `hooks/scripts/track-checkpoint.sh` for `Edit|Write|MultiEdit|NotebookEdit`. Opt-in per session (no session means no output and no subprocess); fails open; `jq`, then `python3`, else silent allow. Four trigger classes (test weakening, dependency manifests and lock files, opt-in `api_paths`, out-of-scope edits) become "choose, not approve" questions with a Skip option. Budget default 3 questions, a loop guard, `budget: 0` log-only mode, and `OSS_TRACK_DISABLE=1`.
-- The hook auto-allows `Edit` only for the exact active ledger path (no `..`, no symlinks, nothing else) so a checkpoint costs one interruption.
+- The hook auto-allows `Edit` only for an append-shaped edit of the exact active ledger path (no `..`, no symlinks, nothing else) so a checkpoint costs one interruption.
 - Harness `hooks/tests/run-track-tests.sh` with `hooks/tests/track-cases.tsv` (bash 3.2, fixture git repo per case).
 - `oss-researcher` scenario key `track-start`; reference `skills/pr-preparation/references/decision-ledger.md` (canonical ledger format); concept page `docs/concepts/tracked-sessions.md`.
 
@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `.oss-drafts/` exclude step uses `git rev-parse --git-path info/exclude` instead of assuming `.git/info/exclude` (linked worktrees, submodules).
 - The session lookup and lock helpers are delimited `# --- shared: ... (keep identical in track-*.sh) ---` blocks in `track-checkpoint.sh`.
 - Harness: 81 cases (committed in-worktree pointer, `.git` file worktrees with relative and absolute `gitdir:`, injection text in `scope`/`api_paths`, control characters in `file_path`, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload); fixtures put the pointer in the git dir and run the hook from the fixture root.
+- Comment-only lines no longer count as assertions or skips: `assert x` -> `# assert x`, `expect(a)` -> `// expect(a)` and `/* ... */` blocks now trigger the test-weakening checkpoint (Rust `#[test]` is still counted). Same logic on the jq and python3 paths.
+- The ledger auto-allow is append-only as documented: only an `Edit` that inserts one entry at `<!-- track:end -->` is allowed. Frontmatter edits (scope widening, `status: stopped`, `budget`) and rewrites of earlier entries now get Claude Code's normal permission prompt. A `decided`/`skipped` entry settles an id only if the hook asked about it (a pending line exists).
+- File paths are normalized (`//`, `./`, `..`) and compared against both logical and physical (`pwd -P`) repo roots: `src/../package.json` no longer gets a separate id and budget slot, paths outside the repo get no checkpoint, and a symlinked `$CLAUDE_PROJECT_DIR` works with real-path `file_path`s (and the reverse), including the ledger auto-allow.
+- Not-applicable acknowledgements are matched by count (pending / not-applicable / consumed per id) instead of 1-second timestamps, so same-second entries and copied `at=` values work. Capped at 3 acknowledged edits per id, after which the hook logs `reason=na-cap` instead of asking again, so a repeated scripts-only `package.json` edit cannot cause unbounded deny round-trips.
+- A stale ledger lock no longer costs every edit about 2.8 s: the holder writes its pid, a dead holder's lock is broken at once, and a pid-less lock is stale after 5 s (was 10 s).
+- The deny text and `decision-ledger.md` now say which `asked=` value to use: `asked=yes` when the user was asked, `status=skipped, asked=no` (does not use budget) when AskUserQuestion is unavailable.
+- README table matched to the hook: deny with one retry denied again and a context-only third attempt; budget spent gives no permission decision.
+- Harness: 115 checks, including a dead-holder and a live-holder lock, symlinked roots, and the python3 fallback for test-class counting and append detection.
 
 ### Notes
 

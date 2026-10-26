@@ -161,9 +161,9 @@ A second, separate `PreToolUse` hook (`hooks/scripts/track-checkpoint.sh`) is ad
 | Situation | Result |
 |---|---|
 | no tracked session | silent, no subprocess |
-| dependency, test-weakening, `api_paths`, or out-of-scope edit (budget left) | deny once with a "choose" instruction; the answer is recorded in the private ledger |
-| budget spent | allow, logged as an Unknown |
-| Edit of exactly the active ledger file | allow |
+| dependency, test-weakening, `api_paths`, or out-of-scope edit (budget left) | deny with a "choose" instruction; one retry is denied again, the third attempt gets context only (loop guard); the answer is recorded in the private ledger |
+| budget spent | no permission decision (normal prompts apply); logged as an Unknown |
+| Edit that appends one entry at `<!-- track:end -->` of the active ledger | allow (any other ledger edit gets the normal prompt) |
 
 It is not a safety boundary. See [Tracked Sessions & Checkpoints](docs/concepts/tracked-sessions.md).
 

@@ -105,7 +105,7 @@ drafts and prompt for confirmation before acting on them.
 A tracked session (`/oss track`) writes a private ledger with its own frontmatter and an append-only
 list of decisions, plus the one-line pointer `"$(git rev-parse --git-dir)/agentic-contributor/track-active"` (in the
 git dir, never the worktree, so a cloned repository cannot ship an active session; tracked sessions
-require git). It has no send block and is
+require git). Its frontmatter carries `body_format: 2` and `sendable: false`; it has no send block and is
 never PR text. The full format (frontmatter, entries, hook-written lines, trigger classes) lives in
 `skills/pr-preparation/references/decision-ledger.md`; see
 [Tracked Sessions & Checkpoints](tracked-sessions.md) for how it is used.
@@ -199,7 +199,7 @@ write to paths under `.oss-drafts/` in the user's working directory — never to
 The `PreToolUse` guardrail hook does **not** block Write tool calls — it matches only `Bash` and
 `mcp__plugin_agentic-contributor_github__*` tool calls. A separate advisory hook
 (`track-checkpoint.sh`) does match Edit/Write, but only inside a tracked session, and it never acts
-on files in `.oss-drafts/` except to auto-allow an Edit of the active ledger. `/oss` gains `Edit` for
+on files in `.oss-drafts/` except to auto-allow an append-shaped Edit of the active ledger. `/oss` gains `Edit` for
 the ledger only. Therefore:
 
 - Local draft file writes cannot reach GitHub.
