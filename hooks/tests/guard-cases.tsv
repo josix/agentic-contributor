@@ -483,3 +483,7 @@ allow	Bash	cat > s.css <<'EOF'\n.a { height: 1px }\n.b { right: 0 }\nEOF\ngit st
 allow	Bash	ls ~/github/proj && echo right
 deny	Bash	echo height; git push
 deny	Bash	/usr/bin/git push && echo right
+# ── v0.10.0: the user_commits recipe (skills/pr-preparation/SKILL.md) must pass ──
+allow	Bash	git rev-parse --is-shallow-repository
+allow	Bash	git rev-list --count -F --author="<alex@corp.com>" HEAD
+allow	Bash	git rev-list --count -F --author="<$(git config user.email)>" HEAD

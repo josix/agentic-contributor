@@ -416,10 +416,11 @@ while IFS="$tab" read -r expect profile event ptoken want || [ -n "${expect:-}" 
         elif [ "$(jqf '.decision // empty')" != "" ] || ! jqt --arg a "Predict mode is on ($pu used)" --arg n "id=$pn -->" '.hookSpecificOutput.hookEventName == "UserPromptSubmit" and (.hookSpecificOutput.additionalContext | contains($a) and contains($n) and contains("Only if this prompt asks you to diagnose") and contains("never copy it into any sendable text"))' > /dev/null 2>&1; then
           bad "$label expected predict context ($want), got: $out"; good=0; fi ;;
       predict-ctx-short)
-        # repeat note: no new p line, compact (text minus the reference path <= 650 bytes), keeps the gate
+        # repeat note: no new p line, compact (text minus the reference and ledger paths <= 650 bytes),
+        # keeps the gate and names the ledger (the full note may be gone after context compaction)
         pn="${want#* }"
         if [ "$l_before" != "$l_after" ] || [ "$s_before" != "$s_after" ]; then bad "$label hook wrote to ledger/state"; good=0
-        elif ! jqt --arg n "$pn" --arg r "$plugin_root/skills/pr-preparation/references/decision-ledger.md" '.hookSpecificOutput.additionalContext | (length - ($r | length)) <= 650 and contains("section 4") and contains("Predict mode is on") and contains("Only if this prompt asks you to diagnose") and contains("Record " + $n + " right after the answer") and contains($r) and contains("never copy it into any sendable text")' > /dev/null 2>&1; then
+        elif ! jqt --arg n "$pn" --arg r "$plugin_root/skills/pr-preparation/references/decision-ledger.md" --arg l "$ledger" '.hookSpecificOutput.additionalContext | (length - ($r | length) - ($l | length)) <= 650 and contains("section 4") and contains("Predict mode is on") and contains("Only if this prompt asks you to diagnose") and contains("Record " + $n + " right after the answer in " + $l + ",") and contains($r) and contains("never copy it into any sendable text")' > /dev/null 2>&1; then
           bad "$label expected the short predict note, got: $out"; good=0; fi ;;
       auto-ctx)
         # want: "<reason> <markers>"; markers = count of predict-auto markers after the run
@@ -743,29 +744,36 @@ jqt '.hookSpecificOutput.additionalContext | contains("You are in plan mode: wri
 setup predict-on
 run_hook "$(build_prompt 'Why does the build fail?')"
 jqt '.hookSpecificOutput.additionalContext | contains("- outcome: pending") and contains("### predict:1 outcome") and contains("track:outcome at=")' && ok || bad "(r) pending/outcome-block instructions missing: $out"
-if command -v git > /dev/null 2>&1 && grep -q 'is-shallow-repository' "$plugin_root/skills/pr-preparation/SKILL.md"; then
+skill_md="$plugin_root/skills/pr-preparation/SKILL.md"
+if command -v git > /dev/null 2>&1 && grep -q 'is-shallow-repository' "$skill_md" \
+  && grep -qF -- '--author="<$email>"' "$skill_md"; then
   sd="$(mktemp -d)"
+  # Two commits by the user, plus substring-collision authors that a bare --author=<email> or
+  # --author=<name> would count: xalex@corp.com, alex@corp.com.au, and the name "Alexander".
   (
     cd "$sd" && git init -q src && cd src \
-      && git -c user.email=a@b -c user.name=n commit -q --allow-empty -m one \
-      && git -c user.email=a@b -c user.name=n commit -q --allow-empty -m two
+      && git -c user.email=alex@corp.com -c user.name=Alex commit -q --allow-empty -m one \
+      && git -c user.email=xalex@corp.com -c user.name='Alexander Smith' commit -q --allow-empty -m other1 \
+      && git -c user.email=alex@corp.com.au -c user.name='Alex B' commit -q --allow-empty -m other2 \
+      && git -c user.email=s@corp.com -c user.name=Alexander commit -q --allow-empty -m other3 \
+      && git -c user.email=alex@corp.com -c user.name=Alex commit -q --allow-empty -m two
   ) > /dev/null 2>&1
   user_commits_recipe() { # mirrors the recipe in skills/pr-preparation/SKILL.md
-    local e n
+    local email
     [ "$(git rev-parse --is-shallow-repository 2> /dev/null)" = true ] && { echo -1; return; }
-    e="$(git config user.email)"; n="$(git config user.name)"
-    if [ -z "$e" ] && [ -z "$n" ]; then echo -1; return; fi
-    set --; [ -n "$e" ] && set -- "$@" --author="$e"; [ -n "$n" ] && set -- "$@" --author="$n"
-    git rev-list --count -F "$@" HEAD | tr -d ' '
+    email="$(git config user.email)"
+    [ -z "$email" ] && { echo -1; return; }
+    git rev-list --count -F --author="<$email>" HEAD | tr -d ' '
   }
-  full="$(cd "$sd/src" && git -c user.email=a@b -c user.name=n -c core.abbrev=7 rev-list --count HEAD 2> /dev/null)"
   (cd "$sd" && git clone -q --depth 1 "file://$sd/src" shallow > /dev/null 2>&1)
-  sh_out="$(cd "$sd/shallow" 2> /dev/null && git config user.email a@b && git config user.name n && user_commits_recipe)"
-  ok_out="$(cd "$sd/src" && git config user.email a@b && git config user.name n && user_commits_recipe)"
-  { [ "$sh_out" = -1 ] && [ "$ok_out" = "$full" ]; } && ok || bad "(r) user_commits recipe: shallow=[$sh_out] full=[$ok_out] want -1 and $full"
+  sh_out="$(cd "$sd/shallow" 2> /dev/null && git config user.email alex@corp.com && user_commits_recipe)"
+  ok_out="$(cd "$sd/src" && git config user.email alex@corp.com && git config user.name Alex && user_commits_recipe)"
+  ne_out="$(cd "$sd/src" && git config --unset user.email; HOME="$sd" XDG_CONFIG_HOME="$sd" GIT_CONFIG_NOSYSTEM=1 user_commits_recipe)"
+  { [ "$sh_out" = -1 ] && [ "$ok_out" = 2 ] && [ "$ne_out" = -1 ]; } && ok \
+    || bad "(r) user_commits recipe: shallow=[$sh_out] exact=[$ok_out] no-email=[$ne_out] want -1, 2, -1"
   rm -rf "$sd"
 else
-  bad "(r) SKILL.md user_commits recipe lacks the shallow-clone guard"
+  bad "(r) SKILL.md user_commits recipe lacks the shallow-clone guard or the exact <email> match"
 fi
 
 # (n) a Stop that blocks for a drift question advances the m watermark first (and creates the state

@@ -119,7 +119,7 @@ auto-ctx	auto-explain-nr	Prompt	-	explain-not-requested 1
 auto-ctx	auto-prior3	Prompt	-	prior-unknowns 1
 auto-silent	auto-noidea	Prompt	-	0
 auto-silent	auto-noidea-marker	Prompt	-	2 off
-# "no idea" is a prefix match on the recorded prediction (option A label, punctuation, case); a newcomer would otherwise be on
+# "no idea" is an exact match on the recorded prediction after normalizing the option A label, punctuation and case; a newcomer would otherwise be on
 auto-silent	auto-noidea-dash	Prompt	-	2 off
 auto-silent	auto-noidea-dot	Prompt	-	2 off
 auto-silent	auto-noidea-lower	Prompt	-	2 off

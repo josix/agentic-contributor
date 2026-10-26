@@ -169,7 +169,7 @@ Everything not matched by a deny pattern:
 
 | Situation | Result |
 |---|---|
-| no session, stopped session, plan mode (except `UserPromptSubmit` predict), any internal error | silent (no output) |
+| no session, stopped session, plan mode, any internal error | silent (no output) |
 | trigger (test weakening, dependency manifest or lock file, opt-in `api_paths`, outside `scope`), id not yet settled, budget left | `deny` with instructions to ask via AskUserQuestion, append a ledger entry, and retry |
 | id already settled, or already logged over budget | silent |
 | budget spent (default 3 questions asked), or `budget: 0` | `additionalContext` plus a short `systemMessage` (no permission decision); a `logged-over-budget` line is appended |

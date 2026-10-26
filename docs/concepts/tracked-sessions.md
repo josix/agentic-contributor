@@ -140,12 +140,12 @@ and appears in the debrief under "Your predictions"; it never goes into PR text.
 
 New tracked sessions start with `predict: auto`. Fixed rules switch it:
 
-- On when you are new to the repo (fewer than 5 of your commits there), after you skipped or did
+- On when you are new to the repo (fewer than 5 commits there with exactly your `git config user.email`), after you skipped or did
   not request an explain-back answer in this session, or when your previous session ended with 3 or
   more unknowns you left yourself (skips and over-budget items; not non-interactive, drift, or
   predict skips).
 - Off after two "no idea" predictions in a row (sticky for the session). Picking "No idea — go ahead" records `prediction: no idea`; only an exact "no idea" (or "No idea — go ahead") counts, so "No idea, maybe lexer.c" does not.
-- Otherwise off. If your commit count cannot be read, that alone does not turn it on.
+- Otherwise off. If your commit count cannot be read (shallow clone, no `user.email`), that alone does not turn it on.
 
 Every switch is logged in the ledger with its reason (`predict auto: on (newcomer)`), and the
 injected note says `(auto: <reason>)`. Force it with `--predict` / `--predict=on` (always),
