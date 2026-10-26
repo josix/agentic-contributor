@@ -65,7 +65,7 @@ base commit. It raises **one alert** when the change crosses:
 
 - more than `drift_lines` changed lines (default 400), or more than `drift_files` files (default 10).
   Lock files count as files but not as lines; files the agent created count too.
-- a module (first two directory segments) outside `scope` that no checkpoint already covered. This
+- a module (first two directory segments) outside `scope` that no checkpoint already asked about (an over-budget log does not count). This
   mostly catches changes made outside Edit, such as formatters or generators, and Bash edits to
   tracked files; files created by Bash are not counted.
 
@@ -73,7 +73,7 @@ The agent is told to ask you what to do with the part that grew: **keep** it, **
 separate PR**, **drop** it, or **skip** (decide later). Your choice is recorded as `drift:<k>` in
 the ledger; a separate-PR choice adds a follow-up line that the debrief and the PR scaffold list.
 Mid-turn alerts are context for the agent (never a block, so it does not think the edit failed);
-at the end of a turn the alert holds the stop once. The hook never reverts, stashes, or edits code.
+at the end of a turn the alert holds the stop once (deferred while the agent's last message already asks you something). The hook never reverts, stashes, or edits code.
 
 Each threshold and each module alerts once. If your project's CONTRIBUTING file states an explicit
 size limit, `/oss track` start uses that number (recorded as `drift_source`); vague wording is never
@@ -97,7 +97,9 @@ since the previous stop, and the agent is not already waiting on you.
   questions **4** (`explain_max`, at least 20 minutes apart). The worst case is 9 questions in a
   session; a typical session sees 0 to 3. Edit the keys in the ledger frontmatter.
 - Past a cap, events are still logged (`logged-over-budget`, or `asked=no` for drift) but you are
-  not asked, and the agent mentions it at the end.
+  not asked. A checkpoint past its budget is noted to the agent, which mentions it when it finishes;
+  drift logged without asking is summarised to you in a one-line notice at the end of the turn (the
+  agent does not see it); both appear in the debrief.
 - `budget: 0` is **quiet mode** for the whole session: no checkpoint, drift, or breakpoint question
   is asked (drift is still logged). Recommended for headless or CI runs.
 - `drift_max: 0` logs drift only; `explain_max: 0` turns breakpoint questions off;

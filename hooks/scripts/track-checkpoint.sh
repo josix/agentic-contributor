@@ -214,7 +214,7 @@ command -v python3 > /dev/null 2>&1 && have_py=1
 
 # parse_input: prints US-separated tool, path, permission_mode, cwd and app (1 only for an
 # append-shaped Edit: old_string is the ledger sentinel, new_string is old_string plus a prefix that
-# holds no sentinel, pending/consumed marker or source=hook). Assertion counts are NOT computed here:
+# holds no sentinel, pending/consumed/drift/breakpoint marker or source=hook). Assertion counts are NOT computed here:
 # they are only needed for test paths (count_input / count_file below).
 # A path or cwd containing a control character (newline, CR, US, ...) is printed as empty,
 # so it can neither shift the fields nor forge ledger marker lines: the hook then fails open.
@@ -226,7 +226,7 @@ parse_input() {
         ($ti.old_string // "") as $o | ($ti.new_string // "") as $n
         | (($ti.replace_all // false) != true) and ($o == endmark or $o == endmark + "\n") and ($n | endswith($o))
         and (($n[0:(($n | length) - ($o | length))]) as $pre
-          | ($pre | contains(endmark) or contains("<!-- track:pending ") or contains("<!-- track:consumed ") or contains(" source=hook")) | not);
+          | ($pre | contains(endmark) or contains("<!-- track:pending ") or contains("<!-- track:consumed ") or contains("<!-- track:drift") or contains("<!-- track:breakpoint") or contains(" source=hook")) | not);
       . as $d | ($d.tool_input // {}) as $ti | ($d.tool_name // "") as $t
       | (if $t == "Edit" and appendshaped($ti) then 1 else 0 end) as $app
       | def clean: if test("[\u0000-\u001f\u007f]") then "" else . end;
@@ -247,7 +247,7 @@ if t == "Edit" and ti.get("replace_all") is not True:
     o = ti.get("old_string") or ""; n = ti.get("new_string") or ""
     if o in (END, END + "\n") and n.endswith(o):
         pre = n[:len(n) - len(o)]
-        if not any(x in pre for x in (END, "<!-- track:pending ", "<!-- track:consumed ", " source=hook")): app = 1
+        if not any(x in pre for x in (END, "<!-- track:pending ", "<!-- track:consumed ", "<!-- track:drift", "<!-- track:breakpoint", " source=hook")): app = 1
 p = clean(ti.get("file_path") or ti.get("notebook_path"))
 print("\x1f".join([t, p, str(d.get("permission_mode") or ""), clean(d.get("cwd")), str(app)]))
 ' 2> /dev/null

@@ -190,9 +190,10 @@ setup() { # $1 profile -> sets d root ledger pointer state evil env_extra perm
       awk 'NR == 10 { print "++ counter;"; next } NR >= 60 && NR <= 89 { print "changed " NR; next } { print }' "$root/src/app.js" > "$root/src/app.js.tmp" && mv "$root/src/app.js.tmp" "$root/src/app.js"
       st_add 'e\tsrc/app.js\n' ;;
     lock-only) gen_lines lock 2000 >> "$root/yarn.lock" ;;
-    scoped-docs | scoped-docs-covered)
+    scoped-docs | scoped-docs-covered | scoped-docs-overbudget)
       printf 'changed\n' > "$root/docs/x.md"
-      [ "$p" = scoped-docs-covered ] && printf '<!-- track:entry status=decided source=checkpoint asked=yes at=%s id=scope:docs/x.md -->\n' "$T" >> "$ledger" ;;
+      [ "$p" = scoped-docs-covered ] && printf '<!-- track:entry status=decided source=checkpoint asked=yes at=%s id=scope:docs/x.md -->\n' "$T" >> "$ledger"
+      [ "$p" = scoped-docs-overbudget ] && printf '<!-- track:entry status=logged-over-budget source=hook asked=no at=%s id=scope:docs/x.md -->\n' "$T" >> "$ledger" ;;
     scope-empty-docs) printf 'changed\n' > "$root/docs/x.md" ;;
     edits-big) big_lines; st_add 'e\tsrc/app.js\n' ;;
     after-b) hunk_app; st_add 'b\texplain:1\n' ;;
@@ -575,6 +576,35 @@ t1="$(date +%s)"
 echo "info: 2000-path Stop drift took $((t1 - t0)) s"
 if [ $((t1 - t0)) -lt 12 ] && [ "$(jqf '.decision // empty')" = block ] && jqt '.reason | contains("Drift id: drift:1")'; then ok
 else bad "(m) 2000-path Stop: $((t1 - t0)) s, out=$(printf '%s' "$out" | cut -c1-200)"; fi
+
+# (n) a Stop that blocks for a drift question advances the m watermark first (and creates the state
+#     file if needed); a Stop whose last message already asks defers the drift instead of dropping it.
+setup edits-big
+run_hook "$(build_stop s1 false)"
+if [ "$(jqf '.decision // empty')" = block ] && jqt '.reason | contains("Drift id: drift:1")' && grep -q "^m${tab}1\$" "$state"; then ok
+else bad "(n) Stop drift block with state file: out=$out state=$(cat "$state" 2> /dev/null)"; fi
+setup big-lines
+run_hook "$(build_stop s1 false)"
+if [ "$(jqf '.decision // empty')" = block ] && jqt '.reason | contains("Drift id: drift:1")' && grep -q "^m${tab}1\$" "$state" 2> /dev/null; then ok
+else bad "(n) Stop drift block without state file: out=$out state=$(cat "$state" 2> /dev/null)"; fi
+setup edits-big
+run_hook "$(build_stop s1 false 'Should I continue?')"
+if [ -z "$out" ] && ! grep -q '^<!-- track:drift ' "$ledger"; then
+  run_hook "$(build_stop s1 false)"
+  if [ "$(jqf '.decision // empty')" = block ] && jqt '.reason | contains("Drift id: drift:1")'; then ok
+  else bad "(n) deferred drift missing on the next plain Stop: out=$out"; fi
+else bad "(n) asking Stop must neither block nor record drift: out=$out"; fi
+
+# (o) no git runs inside the ledger lock: a git shim records any call made while the lock dir exists.
+gs="$(mktemp -d)"
+tmps="$tmps $gs"
+real_git="$(command -v git)"
+printf '#!/bin/sh\n[ -d "$LOCKCHK" ] && echo locked >> "$FLAG"\nexec "%s" "$@"\n' "$real_git" > "$gs/git"
+chmod +x "$gs/git"
+setup hunk
+out="$(cd "$root" && printf '%s' "$(build_stop s1 false)" | env -u CLAUDE_PROJECT_DIR PATH="$gs:$PATH" LOCKCHK="$ledger.lock" FLAG="$d/flag" "$runner" "$hook" 2> /dev/null)"
+if jqt '.reason | contains("Target: src/app.js")' && [ ! -e "$d/flag" ]; then ok
+else bad "(o) git ran under the ledger lock or no explain block: flag=$(cat "$d/flag" 2> /dev/null) out=$out"; fi
 
 total=$((pass + fail))
 echo "breakpoint tests ($runner): $pass/$total passed"

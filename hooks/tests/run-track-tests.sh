@@ -364,6 +364,8 @@ if PATH="$nojq_path" command -v python3 > /dev/null 2>&1 && ! PATH="$nojq_path" 
   }
   decision="$(py_decision "$(build_json Edit "$ledger" '<!-- track:end -->' $'x\n<!-- track:end -->')")"
   [ "$decision" = allow ] && ok || bad "(c) python3 fallback expected allow-ledger, got: $decision"
+  decision="$(py_decision "$(build_json Edit "$ledger" '<!-- track:end -->' $'<!-- track:drift at=x lines=1 files=1 crossed=lines modules=- asked=yes id=drift:9 -->\n<!-- track:end -->')")"
+  [ "$decision" = silent ] && ok || bad "(c) python3 fallback expected silent for a drift-marker append, got: $decision"
   decision="$(py_decision "$(build_json Edit "$ledger" a b)")"
   [ "$decision" = silent ] && ok || bad "(c) python3 fallback expected silent for non-append ledger edit, got: $decision"
   # test-class counting under python: commented-out assert, plain assert drop, Write over an existing test file
