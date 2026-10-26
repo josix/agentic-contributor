@@ -263,7 +263,8 @@ matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
   `status=not-applicable` entries for the id (never below 0).
 - **acknowledged(id)**: min(pending lines, not-applicable entries) > count of `track:consumed` markers.
 - **asked** = |distinct ids over pending lines| − |distinct ids with a `track:entry … asked=no`
-  line that also have a pending line|.
+  line that also have a pending line|, counted per budget pool (section 7): for a `scope:` id only
+  `scope:` ids count, for any other id only non-`scope:` ids count.
 - **drift_n** = count of `^<!-- track:drift ` lines; **drift_asked** = those containing ` asked=yes `.
   Next drift id = `drift:<drift_n+1>`. **alerted** = union of the `crossed=` and `modules=` items
   over all `track:drift` lines (asked or logged), so a threshold or module alerts once.
@@ -273,14 +274,16 @@ matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
 - **latch(sid)**: a breakpoint line with `sid=<sid>` whose id also has a `track:entry` line with
   `source=breakpoint` containing ` reason=non-interactive ` and the suffix ` id=<id> -->`.
 - **covered(rel)**: a `track:entry` or `track:pending` line whose final id is
-  `<test|dependency|api|scope>:<rel>`, except `status=logged-over-budget` entries (not asked).
+  `<test|dependency|api|scope>:<rel>`, optionally followed by a `#<change>` suffix (section 6),
+  except `status=logged-over-budget` entries (not asked).
 - **predict_n** = count of `track:entry` lines whose final id is `predict:<n>`. Next id =
   `predict:<predict_n+1>`.
 - **questions(q)** = (count of `track:pending` lines) + drift_asked + predict_n, used for the explain
   watermark, so a prediction question and an explain-back are never asked in the same turn.
   Drift and explain never write `track:pending`, so the checkpoint `asked` arithmetic is unchanged.
 - The hook never writes old/new strings or file content into the ledger. It writes only the class,
-  the edited file's repo-relative path, counts, and timestamps; a path or cwd containing a control
+  the edited file's repo-relative path, a checksum of the changed lines (the id suffix, section 6),
+  counts, and timestamps; a path or cwd containing a control
   character (newline, carriage return, ...) makes it fail open without writing, so a path cannot
   forge a marker line.
 - The hook never echoes ledger text (`scope`, `api_paths`, or any other frontmatter value) into
@@ -290,14 +293,26 @@ matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
 ## 6. Trigger classes
 
 One class per edit, first match in priority order **test → dependency → api → scope**. Checkpoint
-id is `<class>:<repo-relative path>`.
+id is `<class>:<repo-relative path>`; test and dependency ids add `#<change>`.
 
 | Class | Fires when | Id |
 |---|---|---|
-| test | Edit/MultiEdit/Write on an existing test file lowers the assertion count or raises the skip count. A new test file never triggers. | `test:<rel>` |
-| dependency | the edit touches a dependency manifest or lock file | `dependency:<manifest rel>` |
+| test | Edit/MultiEdit/Write on an existing test file lowers the assertion count or raises the skip count. A new test file never triggers. | `test:<rel>#<change>` |
+| dependency | the edit touches a dependency manifest or lock file | `dependency:<manifest rel>#<change>` |
 | api | the path matches `api_paths` (opt-in, default `[]`) | `api:<rel>` |
 | scope | `scope` is non-empty and the path matches none of it | `scope:<rel>` |
+
+`<change>` names the change, not the file: 8 lowercase hex digits, the POSIX `cksum` (CRC-32) of
+the edit's changed-line set. The set holds `+<line>` for each line only in the new text and
+`-<line>` for each line only in the old text (per Edit/MultiEdit edit `old_string` vs `new_string`;
+for Write, the file on disk vs `content`), each trimmed of spaces, tabs and CR, blank lines dropped,
+de-duplicated, sorted by code point, joined with newlines plus a final newline. Context lines on
+both sides cancel out. So the same edit retried after a decision keeps its id and passes silently,
+while adding a second dependency to an already-decided manifest (`left-pad`, later `axios`) or a
+second, different weakening of the same test file gets a new id and a new checkpoint. When the
+payload or the file a Write replaces is over 512 KiB, or the checksum cannot be computed, the id is
+the bare `<class>:<path>`. jq and python3 produce the same set, so the id does not depend on the
+backend. Only the checksum reaches the ledger, never the lines.
 
 Lock files map to their sibling manifest id: `yarn.lock`, `package-lock.json`, `pnpm-lock.yaml`,
 `npm-shrinkwrap.json`, `bun.lockb` → `package.json`; `Cargo.lock` → `Cargo.toml`; `go.sum` →
@@ -333,18 +348,23 @@ behaves like `*`). A trailing `/` means prefix. Comparison is against the repo-r
 ## 7. Budget and loop rules
 
 - Budget default 3, counting questions actually asked (distinct ids with a pending line, minus
-  `asked=no` exemptions). Past the budget the hook adds context only (no permission decision, so normal prompts still apply), appends a
+  `asked=no` exemptions). There are **two pools of that size**: scope checkpoints, and everything
+  else (test, dependency, api). A scope checkpoint never uses the budget of the higher-priority
+  classes, so out-of-scope edits early in a session cannot leave a later test weakening or new
+  dependency unasked; the worst case is `2 × budget` questions. Past a pool's budget the hook adds context only (no permission decision, so normal prompts still apply), appends a
   `logged-over-budget` entry once per id, and tells Claude to mention it at the end. It appears as
   an Unknown in the debrief.
 - Each deny appends a `track:pending` line. A retry of the same id with one pending line and no
   settled entry is denied once more (second pending line). The third attempt gets no deny: the
   hook (no permission decision, normal prompts still apply) appends `status=skipped source=hook`
   and says so in `additionalContext` (plus a short `systemMessage` for the user). No deny loops.
-- A settled id is never asked again. An over-logged id is silent.
-- Separate caps (v0.9.0): checkpoints keep `budget` (3); drift has `drift_max` (2); breakpoint
-  questions have `explain_max` (4), at least `explain_interval_min` (20) minutes apart; predictions
-  have `predict_max` (4). Worst case 3+2+4+4 = 13 questions per session; typical 0 to 3. `budget: 0` is
-  quiet mode for all four.
+- A settled id is never asked again. An over-logged id is silent. Test and dependency ids name the
+  change (section 6), so this covers retries of the same edit, not later, different changes to the
+  same file.
+- Separate caps (v0.9.0): checkpoints keep `budget` (3) per pool, with scope checkpoints in their
+  own pool; drift has `drift_max` (2); breakpoint questions have `explain_max` (4), at least
+  `explain_interval_min` (20) minutes apart; predictions have `predict_max` (4). Worst case
+  3+3+2+4+4 = 16 questions per session; typical 0 to 3. `budget: 0` is quiet mode for all of them.
 - Silent with no session (no git-dir pointer, or not a git repository), `status: stopped`, `OSS_TRACK_DISABLE=1`, `permission_mode: plan` (except the predict note, section 15), an
   invalid pointer, or any internal error (the hook is advisory and fails open).
 
@@ -367,7 +387,7 @@ path get no allow.
 ## 9. Deny reason template (addressed to Claude)
 
 ```
-[agentic-contributor · tracked session] Decision checkpoint <k>/<budget> before this <tool_name> on <rel>.
+[agentic-contributor · tracked session] <Decision|Scope> checkpoint <k>/<budget> before this <tool_name> on <rel>.
 Trigger: <trigger sentence: fixed text plus <rel>; never a ledger value>
 Checkpoint id: <id>
 <retry line, only on the second prompt: "No ledger entry with id=<id> was found after the previous prompt. Write it exactly as below before retrying.">
@@ -425,7 +445,8 @@ b<TAB><id|none>  Stop: breakpoint consumed (explain:<k> asked, none = no target,
 s<TAB><n>        Stop: number of asked=no drift markers already summarised to the user
 ```
 
-"Edits since the last breakpoint" = `e` lines after the last `b` line. Paths under `.oss-drafts/`
+"Edits since the last breakpoint" = `e` lines after the last `b` line. "Edits this turn" = `e`
+lines after the last `m` line (every Stop writes one). Paths under `.oss-drafts/`
 are never logged, so ledger writes never re-arm a breakpoint. The last `m` and `s` values win.
 
 **Compaction.** Above 400 lines the hook (under the ledger lock; skipped if busy) folds all but the
@@ -487,16 +508,18 @@ the "edits since the last `d`" throttle can be undercounted, which at most postp
 At Stop, when code edits happened since the last breakpoint, the hook blocks once and asks Claude
 to put ONE skippable question about a specific `file:line` to the user and record the verbatim
 answer. All of these must hold: session active; not plan mode; `stop_hook_active` false;
-`budget>0` and `explain_max>0`; at least one edit since the last `b`; no checkpoint or drift
+`budget>0` and `explain_max>0`; at least one edit since the last `b`; at least one edit since the
+previous stop (an `e` line after the last `m`, so a chat-only turn is never interrupted); no checkpoint or drift
 question since the previous stop (the `m` watermark); the last assistant message is not already asking
 (its last non-blank line, ignoring trailing markdown emphasis, quotes and brackets, ends in `?` or
 full-width `？`, or it ends in a list of options whose lead-in line does); bp_n < `explain_max`; now - bp_last >= `explain_interval_min` x 60; the non-interactive latch
 is not set for this `session_id`; a target exists. When a rate limit or deferral applies the edits
-are kept, so a later stop can still ask.
+are kept, so a later stop that also follows edits can still ask.
 
 - **Target**: the largest hunk (max of old/new line count, from `git diff -U0`) among files edited
   since the last breakpoint, excluding dependency files, covered files (an over-budget log does not cover), and `.oss-drafts/`;
-  untracked created files count as one hunk at line 1. Files no earlier question targeted are
+  untracked created files count as one hunk at line 1. A hunk (or untracked file) smaller than
+  `EXPLAIN_MIN_LINES` (5 lines, a constant in the hook) is never a target. Files no earlier question targeted are
   preferred. With no target the hook appends `b<TAB>none` and stays silent.
 - **Loop safety**: (1) `stop_hook_active:true` exits before any work; (2) the ledger marker and
   `b<TAB>explain:<k>` are written before the block is emitted; (3) the ledger count and interval
@@ -509,11 +532,11 @@ are kept, so a later stop can still ask.
 
 ## 14. Drift and explain templates (addressed to Claude)
 
-Drift (PostToolUse context; at Stop the first sentence ends "...before ending your turn:"):
+Drift (PostToolUse context; at Stop the first line continues "... <short sha>. Handle it before ending your turn:"):
 
 ```
 [agentic-contributor · tracked session] Scope drift alert <a>/<drift_max>: the change has grown since the session base <short sha>.
-Size: <lines> changed lines (limit <L>, <source>), <files> files (limit <F>). Crossed: <lines, files | none>.
+Size: <lines> changed lines (limit <L>, <source>), <files> files (limit <F>, <source>). Crossed: <lines, files | none>.
 Out-of-scope modules with changes no checkpoint covered: <m> (<files>); ...   (line omitted if none)
 Largest files: <rel> (<n>), ... (top 5)
 Drift id: drift:<k>
@@ -530,8 +553,9 @@ Drift logged only: no message to Claude. At Stop, a `systemMessage` to the user:
 `agentic-contributor: <n> scope-drift item(s) logged without asking (drift question cap spent or
 budget 0); they are in the ledger and the debrief.`
 
-`<source>` is a fixed label (`default`, `set by the user`, `from the project's CONTRIBUTING file`,
-`from the ledger`), never the ledger's `drift_source` text.
+`<source>` is a fixed label per limit (`default`, `set by the user`, `from the project's
+CONTRIBUTING file`, `from the ledger`), never the ledger's `drift_source` text. A limit equal to its
+default (400 lines, 10 files) is labelled `default`; the other takes the label from `drift_source`.
 
 Explain (Stop block reason):
 

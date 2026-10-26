@@ -31,8 +31,8 @@ Read tools used by `oss-researcher`:
 
 | MCP tool | Purpose |
 |---|---|
-| `list_issues` / `search_issues` | Issue queries |
-| `get_pull_request` / `list_pull_requests` | PR data |
+| `list_issues` / `search_issues` / `issue_read` | Issue queries and single-issue reads |
+| `pull_request_read` (`method`: `get`, `get_diff`, `get_files`, `get_review_comments`, `get_reviews`, `get_comments`, `get_status`) / `list_pull_requests` / `search_pull_requests` | PR data, diff, files, reviews, comments, CI status |
 | `get_file_contents` | CONTRIBUTING, CODE_OF_CONDUCT, etc. |
 | `list_releases` | Release and tag history |
 | `search_repositories` | Repository metadata |

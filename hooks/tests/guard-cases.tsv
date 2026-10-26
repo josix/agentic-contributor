@@ -487,3 +487,26 @@ deny	Bash	/usr/bin/git push && echo right
 allow	Bash	git rev-parse --is-shallow-repository
 allow	Bash	git rev-list --count -F --author="<alex@corp.com>" HEAD
 allow	Bash	git rev-list --count -F --author="<$(git config user.email)>" HEAD
+
+# ── review-fix: gh agent-task (Copilot coding-agent task opens a PR) ──
+deny	Bash	gh agent-task create "fix the flaky test"
+deny	Bash	gh agent-task create -F task.md
+deny	Bash	gh -R o/r agent-task create "x"
+deny	Bash	gh agent-tasks create "x"
+deny	Bash	gh agent create "x"
+deny	Bash	gh agents create "x"
+deny	Bash	gh agent-task cancel 123
+allow	Bash	gh agent-task list
+allow	Bash	gh agent-task view 123
+allow	Bash	gh agent-task view 123 --log
+allow	Bash	gh agent-tasks list
+allow	Bash	gh agent-task --help
+allow	Bash	gh agent-task create --help
+
+# ── review-fix: local read-only git used by change-debrief / pr-preparation ──
+allow	Bash	git status --porcelain
+allow	Bash	git diff HEAD
+allow	Bash	git diff --stat HEAD
+allow	Bash	git ls-files --others --exclude-standard
+allow	Bash	git diff --stat main...HEAD && git status --porcelain && git ls-files --others --exclude-standard
+allow	Bash	git diff --stat $(git merge-base HEAD main)

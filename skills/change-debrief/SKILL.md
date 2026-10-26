@@ -18,8 +18,10 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
 
 - The plugin never edits or reverts code, never runs tests, never pushes, never opens a PR, and
   never posts anything.
-- Local git reads only: `git diff <base>...HEAD`, `git diff <base>` (working tree), `git status --porcelain`, `git diff --stat`, `git log`, `git merge-base`,
+- Local git reads only: `git diff <base>...HEAD`, `git diff HEAD`, `git diff <base>` (working tree), `git diff --stat`,
+  `git status --porcelain`, `git ls-files --others --exclude-standard`, `git log`, `git merge-base`,
   `git remote -v`, `git rev-parse --abbrev-ref HEAD`, `git rev-parse --git-dir`, `git merge-base --is-ancestor`.
+  Nothing else.
 - The output is a **private notes file** and is never formatted or offered as paste-ready PR text.
   It has no `oss:send` block. Do not add one.
 - Explaining the change is the user's job; this skill gives them the material and asks questions.
@@ -28,6 +30,12 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
 
 1. **Default inputs:** the diff against the base, the commit messages on the branch, and the issue or
    task text (the linked issue if given, otherwise what the user said).
+   **Uncommitted work counts.** Right after a coding-agent session the edits are often not
+   committed. Run `git status --porcelain`; when it shows changes, the change under review is
+   committed (`git diff <base>...HEAD`) plus uncommitted (`git diff HEAD`, staged and unstaged)
+   plus untracked files (`git ls-files --others --exclude-standard`; read them as new files).
+   Analyse all three and state in the Inputs line which were included, so the user knows the
+   debrief covers work they have not committed yet.
 2. **Agent transcript: opt-in only.** Read a session transcript only when the user points to one
    (for example a Claude Code session JSONL path). Never search for one. When no transcript is
    used, state that the "why" is weaker without it.
@@ -45,13 +53,14 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
 
 ## Procedure
 
-1. **Scope.** Run `git diff --stat <base>...HEAD`. For an uncommitted session, also include staged and
-   unstaged changes (`git diff --stat <base>`, which compares the working tree to the base) and untracked
-   files (`git status --porcelain`, lines starting `??`; read them directly). The diff under debrief is
+1. **Scope.** Run `git diff --stat <base>...HEAD`. When `git status --porcelain` is non-empty (for
+   example an uncommitted tracked session), use `git diff --stat <base>` instead (working tree
+   against the base: committed plus staged plus unstaged in one count) and add the untracked files
+   (`git ls-files --others --exclude-standard`; read them directly). The diff under debrief is
    committed plus working-tree plus untracked changes, including new files in the tracked session;
-   never report a ledger-referenced file as absent from the final diff until all three are checked. For large diffs (over roughly 400 lines or 10
-   files) summarise the top-level groups first, say that you sampled the top files, and drill down
-   on request.
+   never report a ledger-referenced file as absent from the final diff until all three are checked.
+   For large diffs (over roughly 400 lines or 10 files) summarise the top-level groups first, say
+   that you sampled the top files, and drill down on request.
 2. **Group by purpose**, not by file. Each group has a one-line label and `file:line` citations.
    Put formatting-only, rename-only, lockfile and generated hunks in their own groups.
 3. **Trace the why** for each group to a source and show it: issue/task text, a commit message
@@ -98,7 +107,7 @@ Lead with: "Private notes. Not PR text. Do not paste."
 
 ```markdown
 # Change debrief (private)
-Inputs: diff <base>...<head>, <N> commits, issue text <#N|none>, ledger <path|none>, transcript <path|not used (why is weaker)>
+Inputs: diff <base>...<head>, <N> commits, uncommitted <none|N files (incl. M untracked)>, issue text <#N|none>, ledger <path|none>, transcript <path|not used (why is weaker)>
 
 ## What changed (by purpose)
 ### 1. <purpose> (<file:line>, <file:line>)

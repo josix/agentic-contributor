@@ -54,8 +54,12 @@ session. One class per edit, first match wins: test, dependency, api, scope.
 The edit is paused and the agent is told to ask you one question with 2 to 3 options, each with a
 one-line trade-off, a recommendation first, and a final **Skip, decide later**. You choose; you are
 not asked to approve or deny. The agent records the choice and your words in the ledger and retries.
-A skipped checkpoint becomes an **Unknown** in the debrief. Once an id is settled it is never asked
-again.
+A skipped checkpoint becomes an **Unknown** in the debrief. Once a checkpoint id is settled it is
+never asked again. Ids are `<class>:<path>`, and test and dependency ids end in `#<change>`, a
+checksum of the lines the edit adds and removes (for example `dependency:package.json#073e0383`).
+So retrying the same edit after you chose passes silently, but adding a second dependency to the
+same `package.json`, or weakening the same test file in a different way, is a new decision and gets
+its own checkpoint.
 
 ## Scope-drift alerts
 
@@ -77,25 +81,30 @@ at the end of a turn the alert holds the stop once (deferred while the agent's l
 
 Each threshold and each module alerts once. If your project's CONTRIBUTING file states an explicit
 size limit, `/oss track` start uses that number (recorded as `drift_source`); vague wording is never
-turned into a number. The check is throttled (new file or every 5th edit), so it adds little work.
+turned into a number. The alert labels each limit with its source; a limit still at its default
+value is labelled `default`. The check is throttled (new file or every 5th edit), so it adds little work.
 
 ## Breakpoint questions (explain-back)
 
 When the agent stops after code edits, the hook may hold the stop **once** and ask you one question
 about a specific `file:line`: the largest change since the base that no checkpoint or earlier
-question covered. You answer in your own words (the free-text "Other" option), skip, or say you did
+question covered, and at least 5 lines long (smaller changes are never asked about). You answer in your own words (the free-text "Other" option), skip, or say you did
 not ask for the change. Your answer is recorded verbatim as `explain:<k>`; it is never graded. The
 debrief and the PR scaffold use it as your own Why, and skipped ones become Unknowns.
 
-It asks only when all hold: edits since the last breakpoint, fewer than `explain_max` (4) asked,
+It asks only when all hold: the agent edited code in this turn (since its previous stop; a
+chat-only turn is never interrupted, and edits from a turn whose question was deferred wait for the
+next turn that edits again), edits since the last breakpoint, fewer than `explain_max` (4) asked,
 at least `explain_interval_min` (20) minutes since the last one, no checkpoint or drift question
 since the previous stop, and the agent is not already waiting on you.
 
 ## Fatigue budget
 
 - Three separate pools: checkpoints **3** (`budget N`), drift alerts **2** (`drift_max`), breakpoint
-  questions **4** (`explain_max`, at least 20 minutes apart). The worst case is 13 questions in a
-  session (3+2+4, plus up to 4 predictions); a typical session sees 0 to 3. Edit the keys in the ledger frontmatter.
+  questions **4** (`explain_max`, at least 20 minutes apart). Scope checkpoints have their own
+  checkpoint budget of the same size, so out-of-scope edits never use up the questions for test
+  weakening, dependencies, and API paths. The worst case is 16 questions in a session (3 + 3 + 2 + 4,
+  plus up to 4 predictions); a typical session sees 0 to 3. Edit the keys in the ledger frontmatter.
 - Past a cap, events are still logged (`logged-over-budget`, or `asked=no` for drift) but you are
   not asked. A checkpoint past its budget is noted to the agent, which mentions it when it finishes;
   drift logged without asking is summarised to you in a one-line notice at the end of the turn (the
@@ -110,7 +119,7 @@ since the previous stop, and the agent is not already waiting on you.
 ## Scope and api_paths
 
 `scope` comes from what you give at start, else paths mentioned in the issue that exist in the
-repo, else empty. Globs use shell matching where `*` crosses `/` (so `**` equals `*`); a trailing
+repo (each as its directory, `dir/**`; a file at the repo root stays exact), else empty. Globs use shell matching where `*` crosses `/` (so `**` equals `*`); a trailing
 `/` means prefix. At a scope checkpoint one option is "proceed and add `<dir>/**` to scope", which
 edits `scope:` in the ledger frontmatter. `api_paths` uses the same syntax and is opt-in.
 
@@ -123,10 +132,11 @@ A private markdown file `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md`. Full
 ## Privacy
 
 The ledger is private notes. It is never a send block and never PR text. The hook writes only the
-class, path, counts, and timestamps. It never records prompts, transcripts, keystrokes, or file
-contents. The session state file `<ledger>.state` holds only repo-relative paths of edited files and
-a few counters; `/oss track stop` deletes it, and deleting it cannot lift a cap (the caps live in the
-ledger). The ledger is agent-written, so a checkpoint answer is the agent's report of what you
+class, path, a checksum of the changed lines (never the lines), counts, and timestamps. It never
+records prompts, transcripts, keystrokes, or file contents. The session state file `<ledger>.state`
+holds only repo-relative paths of edited files and a few counters; `/oss track stop` deletes it, and
+deleting it cannot lift a cap (the caps live in the ledger). The ledger is agent-written, so a
+checkpoint answer is the agent's report of what you
 chose; the debrief marks it as evidence, not proof.
 
 ## Predict mode (auto by default)

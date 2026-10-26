@@ -1,5 +1,5 @@
 ---
-description: "Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, learn norms, set up env, track decisions (draft-only)"
+description: "Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, prepare a PR or debrief a local change, learn norms, set up env, track decisions (draft-only)"
 argument-hint: '[what you want to do, e.g. "find a good first issue in apache/airflow"]'
 allowed-tools:
   - Bash
@@ -39,6 +39,8 @@ You are the single entry point for all OSS contribution tasks in this plugin.
 All scenario outputs are saved to `.oss-drafts/` in the user's current working directory.
 
 **Directory:** `.oss-drafts/` (relative to the user's cwd when `/oss` is invoked)
+
+**Exception, tracked sessions:** the track-mode decision ledger always lives in the repository root's `.oss-drafts/` (`<git toplevel>/.oss-drafts/`, from `git rev-parse --show-toplevel`), whatever the cwd, because the checkpoint hook only accepts a ledger there (`skills/pr-preparation/references/decision-ledger.md` section 1).
 
 **Naming:** `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`
 
@@ -150,8 +152,10 @@ dispatch, and also before final routing for PR-intent requests.
 3. **Record** the resolved block in the frontmatter `policy:` of every draft written in this run.
    Cached blocks keep their original `fetched_at`.
 4. Findings are **advisory**: never block or delay a draft because of a policy finding. If the
-   preflight fails or finds nothing, set fields to `unknown`/`none-found` and continue. Absence is
-   never reported as "no policy".
+   preflight finds nothing, set fields to `unknown`/`none-found` and continue. If the preflight
+   **fails** (fetches error or time out), set `ai_policy` and `disclosure` to `unknown` (not
+   `none-found`), tell the user the policy could not be checked, and continue. Absence is never
+   reported as "no policy".
 
 ---
 
@@ -165,7 +169,8 @@ review-reply, report, prepare-pr, and optionally setup), dispatch the mapped sub
 - **status, find, norms, clarify, engage, review-reply, report** → dispatch `oss-researcher`.
 - **prepare-pr** → dispatch `oss-researcher` (PR template, duplicate open PRs, linked issue body) in
   parallel with the `readiness` read; the orchestrator itself runs the local git reads (`git diff`,
-  `git diff --stat`, `git log`, `git merge-base`, `git remote -v`). Debrief mode needs no GitHub
+  `git diff --stat`, `git status --porcelain`, `git ls-files --others --exclude-standard`,
+  `git log`, `git merge-base`, `git remote -v`), including uncommitted and untracked work. Debrief mode needs no GitHub
   fetch beyond the linked issue text. Local git is read-only: never commit, push, or run tests. `mode: track` start dispatches
   `oss-researcher` with key `track-start` only when an issue is given.
 - **claim** → dispatch `oss-claim-analyst` **and** `oss-researcher` (key `readiness`) in parallel;
@@ -220,7 +225,8 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
   `TODO(you): reply in your own words`. Never write the reply. Lint mode: read the user's send
   blocks, add a Lint section to Private notes, and rewrite the same file without touching the send
   blocks. Set `mode: brief|lint`. Policy use: activates AP9 in lint mode when the frontmatter
-  `policy` has `coauthor_trailer_forbidden: true` or `ai_policy` other than `none-found`; AP9
+  `policy` has `coauthor_trailer_forbidden: true` or `ai_policy` other than `none-found` (so
+  `unknown` keeps it active, with a note that the policy could not be checked); AP9
   evaluates the actual trailer rule and disclosure mechanism, not just the presence of a policy.
 - **report** → load `issue-drafting`; run its Pre-flight (duplicate search + template fetch +
   convention extraction), then Procedure 2 (bug) or Procedure 3 (feature) based on the user's

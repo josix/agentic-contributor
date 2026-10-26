@@ -77,7 +77,7 @@ The draft includes a suggested title (following the repo's convention), suggeste
 
 ### Scenario 10 — prepare-pr
 
-`pr-preparation` (with `change-debrief` as its entry mode) helps you understand and own a local change and send a PR maintainers prioritise. Local git reads only (`git diff`, `git log`, `git merge-base`, `git remote -v`); the plugin never pushes, opens a PR, edits code, or runs tests.
+`pr-preparation` (with `change-debrief` as its entry mode) helps you understand and own a local change and send a PR maintainers prioritise. Local git reads only (`git diff`, `git status`, `git ls-files`, `git log`, `git merge-base`, `git remote -v`), and uncommitted and untracked work counts as part of the change; the plugin never pushes, opens a PR, edits code, or runs tests.
 
 - **Track (`mode: track`)**: `start` / `stop` / `status` / `log` a session; a private decision ledger plus an advisory hook that turns dependency, test-weakening, opt-in API, and out-of-scope edits into budgeted "choose" questions, plus scope-drift alerts and rate-limited explain-back questions at breakpoints. No policy preflight, no PR text. See [Tracked Sessions & Checkpoints](../concepts/tracked-sessions.md).
 - **Debrief (`mode: debrief`)**: changes grouped by purpose with `file:line`, each traced to an issue, commit, or an opt-in agent transcript; untraceable changes flagged "unexplained, possibly out of scope"; implicit agent decisions; impact and test coverage; evidenced vs inferred (a tracked-session ledger counts as `evidenced: ledger`); 2-3 explain-back questions; an Unknowns list that includes skipped and over-budget ledger decisions. Saved as a private `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md`, never PR text.

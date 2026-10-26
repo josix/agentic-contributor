@@ -30,7 +30,8 @@ contributor get there; the contributor writes the reasoning.
 3. The plugin **never pushes, never opens a PR, never edits code, and never runs tests**. Opening
    the PR is owned by the execution plugin. NEVER call any tool that posts, creates, or pushes.
    Track mode writes only `.oss-drafts/` files; the track hooks (checkpoint, drift, breakpoint) never edit, revert, or stash code.
-4. Local git is read-only: `git diff`, `git diff --stat`, `git log`, `git merge-base`,
+4. Local git is read-only: `git diff`, `git diff --stat`, `git status --porcelain`,
+   `git ls-files --others --exclude-standard`, `git log`, `git merge-base`,
    `git remote -v`, `git rev-parse HEAD`, `git rev-parse --abbrev-ref HEAD`,
    `git rev-parse --show-toplevel`, `git rev-parse --git-dir`, `git rev-parse --git-path info/exclude`, and
    `git merge-base --is-ancestor`, and in track mode `git diff --numstat <base_commit>` and
@@ -76,7 +77,9 @@ into a send block.
    linked worktrees where `.git` is a file).
 5. With an issue URL, dispatch `oss-researcher` with key `track-start` (title, body, repo paths
    mentioned). Scope: the user's globs (`scope_source: user`), else mentioned paths that exist in
-   the repo (a file is an exact path, a directory becomes `dir/**`; `scope_source: issue`), else
+   the repo, as directories: a directory becomes `dir/**`, a file becomes its directory's `dir/**`
+   (a file at the repo root stays an exact path), so neighbouring files the fix needs are in scope
+   (`scope_source: issue`), else
    `[]` (`none`, which turns the out-of-scope checkpoint off). Suggest adding matching test dirs.
    Budget: the user's `budget N`, else 3.
    Drift and explain settings: write `drift_lines: 400`, `drift_files: 10`, `drift_source: default`,
@@ -105,7 +108,7 @@ into a send block.
    out-of-scope edits), the budget, that a checkpoint is a choose-question with a Skip option, that
    scope-drift alerts (more than `drift_lines` lines or `drift_files` files, or uncovered
    out-of-scope modules; at most `drift_max`) ask keep / separate PR / drop / skip, that a
-   breakpoint question after a stop asks about one `file:line` (at most `explain_max`,
+   breakpoint question after a turn with code edits asks about one `file:line` (at most `explain_max`,
    `explain_interval_min` minutes apart, skippable), that `budget: 0`, `explain_max: 0`, or
    `drift_max: 0` quiets them, that predict mode (`auto` by default: on for a newcomer to the repo, after a skipped
    explain-back, or after a session with many Unknowns, off after two "no idea" answers; force it
@@ -123,9 +126,11 @@ skipped, over-budget, and hook-skipped items; also the drift follow-ups (choice 
 drift and explain items, and the count of explain answers. Offer the debrief in one line.
 
 **Status:** task, age, base, branch (warn on mismatch with the current branch), scope, budget used
-(asked / budget), drift (asked / `drift_max`, plus logged), breakpoint questions (asked /
-`explain_max`, time of the last), the current `git diff --numstat <base_commit>` size against the
-limits, `predict: on/off/auto` (for auto: the current state and reason, for example `auto (on: newcomer)`, plus the recorded switches) and `<used>/<predict_max>`, and a table of entries. No auto-close of abandoned sessions; show the age.
+(asked / budget, shown separately for scope checkpoints and for the other classes), drift (asked /
+`drift_max`, plus logged), breakpoint questions (asked / `explain_max`, time of the last), the
+current `git diff --numstat <base_commit>` size against the limits, `predict: on/off/auto` (for
+auto: the current state and reason, for example `auto (on: newcomer)`, plus the recorded switches)
+and `<used>/<predict_max>`, and a table of entries. No auto-close of abandoned sessions; show the age.
 
 **Predict on|off|auto:** `/oss track predict on|off|auto` edits `predict:` in the active ledger
 frontmatter (`on` = `true`, `off` = `false`; a frontmatter Edit, so Claude Code shows its normal permission prompt; only appends at
@@ -160,12 +165,17 @@ Never write `decided_by: user` or `answered_by: user` unless the user answered.
 5. **Duplicate open PRs.** `oss-researcher` searches open PRs for the same issue number or the same
    changed files; list the top 3 to 5 with links.
 6. **Local context.** `git remote -v` must match `owner/repo`; if it does not, or the base branch is
-   ambiguous, ask the one allowed clarifying question about the base. Record `base`, `head`, and
-   `diff_stats` (files, insertions, deletions) in frontmatter.
+   ambiguous, ask the one allowed clarifying question about the base. Run `git status --porcelain`:
+   uncommitted (`git diff HEAD`) and untracked (`git ls-files --others --exclude-standard`) work
+   is part of the change. Record `base`, `head`, and `diff_stats` (files, insertions, deletions,
+   counting committed + uncommitted + untracked) in frontmatter, and say in Private notes when
+   uncommitted or untracked files were included, since they must be committed before the PR.
 
 ## Procedure 2: Size and Shape Check
 
-From `git diff --stat <base>...HEAD`:
+From `git diff --stat <base>...HEAD`, or, when Procedure 1 found uncommitted work,
+`git diff --stat <base>` (working tree against the base, so committed and uncommitted changes are
+counted once) plus the untracked files:
 
 - Flag more than **400 changed lines or more than 10 files**, unless CONTRIBUTING states other
   thresholds (use those and cite them). With a track ledger, use its `drift_lines` / `drift_files`
@@ -220,7 +230,8 @@ The plugin fills only factual parts (linked issue, test file names, disclosure m
 - `policy.coauthor_trailer_forbidden: true`: run `git log --format=%B <base>..HEAD` and flag
   `Co-authored-by:` lines with AI names and "Generated with" footers in Private notes, with the
   commit hash. **Advise only**: never rewrite commits.
-- `disclosure: recommended` or unknown: mention it in Private notes; do not insert disclosure text.
+- `disclosure: recommended`, `none-found`, or `unknown`: mention it in Private notes (for `unknown`,
+  say the policy could not be checked); do not insert disclosure text.
 
 ## Procedure 6: Lint (mode: lint)
 

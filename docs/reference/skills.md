@@ -172,7 +172,7 @@ Missing evidence is always marked with `TODO:` placeholders; required fields are
 **Trigger phrases:** "prepare a PR", "get my PR ready", "draft a PR description", "open a PR for", "submit a fix for", "I have a patch", "send a PR", "track this task", "start tracking", "stop tracking", "track status", "log this decision".
 
 **What it provides:**
-- A DRAFT-ONLY contract: the plugin never pushes, opens a PR, edits code, or runs tests; local git reads only (`git diff`, `git log`, `git merge-base`, `git remote -v`).
+- A DRAFT-ONLY contract: the plugin never pushes, opens a PR, edits code, or runs tests; local git reads only (`git diff`, `git status`, `git ls-files`, `git log`, `git merge-base`, `git remote -v`); uncommitted and untracked work is included.
 - Pre-flight: policy block, readiness, issue-first check, PR template fetch, duplicate open-PR search, remote/base check.
 - Size and shape check: more than 400 changed lines or 10 files (unless CONTRIBUTING says otherwise), mixed concerns, lockfile noise, split advice.
 - A problem-first description scaffold in an `oss:send` block: Why this approach, What changed, and Unknowns & assumptions are `TODO(you)`; "How it's tested" names tests, never commands that passed.

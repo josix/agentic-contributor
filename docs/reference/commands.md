@@ -8,7 +8,7 @@ The single entry point for all OSS contribution tasks in this plugin.
 
 | Field | Value |
 |---|---|
-| `description` | `Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, learn norms, set up env, track decisions (draft-only)` |
+| `description` | `Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, prepare a PR or debrief a local change, learn norms, set up env, track decisions (draft-only)` |
 | `argument-hint` | `[what you want to do, e.g. "find a good first issue in apache/airflow"]` |
 | `allowed-tools` | `Bash`, `Read`, `Write`, `Edit` (active track ledger only), `Grep`, `Glob`, `WebFetch`, `Task`, `mcp__plugin_agentic-contributor_github__*` |
 

@@ -46,6 +46,7 @@ silent	latch	Stop	-	-
 explain-block	latch	StopS2	-	src/app.js:40
 explain-block	two-files	Stop	-	src/b.js:10
 explain-block	two-files-covered	Stop	-	src/a.js:20
+explain-block	two-files-covered-hash	Stop	-	src/a.js:20
 explain-block	two-files-targeted	Stop	-	src/a.js:20
 consume	only-lock	Stop	-	-
 explain-block	untracked	Stop	-	src/new.js:1
@@ -153,3 +154,7 @@ silent	asked-this-turn	Post	src/app.js	-
 silent	asked-this-turn	Stop	-	-
 drift-ctx	asked-prev-turn	Post	src/app.js	1
 silent	explain0-pending	Stop	-	m advanced
+# ── explain-back only after a turn that edited, and only for a change of at least 5 lines ──
+silent	chat-turn	Stop	-	edits kept
+consume	tiny-hunk	Stop	-	-
+consume	tiny-untracked	Stop	-	-
