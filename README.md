@@ -140,6 +140,11 @@ Both agents are read-only. The `PreToolUse` guardrail hook enforces this at the 
 
 The `PreToolUse` guardrail hook (`hooks/hooks.json` + `hooks/scripts/guard-outbound.sh`) runs before every `Bash` call and every GitHub MCP tool call. It enforces draft-only behavior.
 
+> **Note:** The hook is active in **every** Claude Code session while the plugin is enabled, not
+> only during `/oss`. `git push`, `gh pr create`, and the other actions below are denied in
+> unrelated work too. Run them yourself in a terminal, or disable the plugin via `/plugin` and
+> restart the session; re-enable it the same way when you want the `/oss` workflow back.
+
 | Action | Decision |
 |---|---|
 | `git push` (any form) | DENY |

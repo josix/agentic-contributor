@@ -297,6 +297,66 @@ print(a, s)
   fi
 }
 
+# changed_lines: prints the sorted, de-duplicated set of changed lines of an Edit/MultiEdit/Write
+# payload: "+line" for a line only in the new text, "-line" for a line only in the old text, each
+# trimmed of blanks/tabs/CR, blank lines dropped. Context lines present on both sides cancel out,
+# so the set names the change itself. $1: existing file a Write replaces ("" = none). Both
+# backends print byte-identical output (the id suffix below must not depend on the backend).
+changed_lines() {
+  if [ "$have_jq" -eq 1 ]; then
+    { printf '%s\n' "$input"; if [ -n "$1" ]; then jq -Rs . < "$1"; else printf '""'; fi; } | jq -nr '
+      def lns: split("\n") | map(sub("^[ \t\r]+"; "") | sub("[ \t\r]+$"; "")) | map(select(length > 0));
+      def toset: reduce .[] as $x ({}; .[$x] = true);
+      def chg($o; $n): ($o | lns) as $a | ($n | lns) as $b | ($a | toset) as $sa | ($b | toset) as $sb
+        | [$b[] | select($sa[.] | not) | "+" + .] + [$a[] | select($sb[.] | not) | "-" + .];
+      input as $d | input as $old | ($d.tool_input // {}) as $ti | ($d.tool_name // "") as $t
+      | (if $t == "Edit" then [$ti] elif $t == "MultiEdit" then ($ti.edits // []) else [] end) as $es
+      | (if $t == "Write" then chg($old; $ti.content // "")
+         else [$es[] | chg(.old_string // ""; .new_string // "")] | add // [] end)
+      | unique | join("\n")' 2> /dev/null
+  else
+    printf '%s' "$input" | python3 -c '
+import sys, json
+d = json.load(sys.stdin)
+ti = d.get("tool_input") or {}
+t = d.get("tool_name") or ""
+def lns(s): return [x for x in (l.strip(" \t\r") for l in (s or "").split("\n")) if x]
+def chg(o, n):
+    a = lns(o); b = lns(n); sa = set(a); sb = set(b)
+    return ["+" + x for x in b if x not in sa] + ["-" + x for x in a if x not in sb]
+if t == "Write":
+    old = open(sys.argv[1], errors="replace", newline="").read() if sys.argv[1] else ""
+    r = chg(old, ti.get("content") or "")
+else:
+    es = [ti] if t == "Edit" else ((ti.get("edits") or []) if t == "MultiEdit" else [])
+    r = [x for e in es for x in chg(e.get("old_string") or "", e.get("new_string") or "")]
+print("\n".join(sorted(set(r))))
+' "$1" 2> /dev/null
+  fi
+}
+
+# change_id: prints "#<8 hex>", the CRC (cksum) of changed_lines, used as the id suffix of the test
+# and dependency classes: a retry of the same edit keeps its id (and a settled decision), a different
+# change to the same file (another dependency, another weakening) gets a new id. Prints nothing
+# (the id falls back to the bare path) when the payload or the replaced file is over the size cap
+# or anything fails. Only a checksum reaches the ledger, never the lines themselves.
+change_id() {
+  local f="" sz t s
+  [ "${#input}" -le "$TRACK_MAX_COUNT_CHARS" ] || return 0
+  if [ "$tool_name" = "Write" ] && [ -f "$abs" ]; then
+    sz="$(wc -c < "$abs" 2> /dev/null)" || return 0
+    sz="${sz//[[:space:]]/}"
+    case "$sz" in '' | *[!0-9]*) return 0 ;; esac
+    [ "$sz" -le "$TRACK_MAX_COUNT_CHARS" ] || return 0
+    f="$abs"
+  fi
+  t="$(changed_lines "$f")" || return 0
+  s="$(printf '%s\n' "$t" | cksum 2> /dev/null)" || return 0
+  s="${s%%[[:space:]]*}"
+  case "$s" in '' | *[!0-9]*) return 0 ;; esac
+  printf '#%08x' "$s"
+}
+
 parsed="$(parse_input)" || exit 0
 [ -n "$parsed" ] || exit 0
 IFS=$'\037' read -r tool_name path perm_mode cwd app <<< "$parsed"
@@ -428,6 +488,7 @@ if is_test_path "$rel" && { [ "$tool_name" = "Edit" ] || [ "$tool_name" = "Multi
     case "${old_a:-x}${new_a:-x}${old_s:-x}${new_s:-x}$app" in '' | *[!0-9]*) exit 0 ;; esac
     if [ "$new_a" -lt "$old_a" ] || [ "$new_s" -gt "$old_s" ]; then
       class="test"
+      key="$rel$(change_id)"
       trig="the edit lowers assertions in a test file (asserts $old_a->$new_a, skips $old_s->$new_s)."
     fi
   fi
@@ -436,8 +497,8 @@ if [ -z "$class" ]; then
   m="$(manifest_for "$base")"
   if [ -n "$m" ]; then
     class=dependency
-    key="$dir$m"
-    trig="the edit touches dependency manifest $key (a lock file counts as its manifest)."
+    key="$dir$m$(change_id)"
+    trig="the edit touches dependency manifest $dir$m (a lock file counts as its manifest)."
   fi
 fi
 if [ -z "$class" ] && [ -n "$fm_api" ] && glob_match "$rel" "$fm_api"; then
@@ -522,8 +583,14 @@ function lastid(l,   q) {
 }
 END {
   t = ENVIRON["TRACK_ID"]; asked = 0
+  # Two budget pools of the same size: scope ids and all other ids. Only ids in the same pool as
+  # the current one count, so out-of-scope edits cannot use up the budget for test/dependency/api.
+  ts = (substr(t, 1, 6) == "scope:")
   # outstanding pendings = pendings not yet answered by a not-applicable entry
-  for (i in P) { q = P[i] - ((i in N) ? N[i] : 0); pend[i] = (q > 0) ? q : 0; if (pend[i] > 0 && !(i in exempt)) asked++ }
+  for (i in P) {
+    q = P[i] - ((i in N) ? N[i] : 0); pend[i] = (q > 0) ? q : 0
+    if (pend[i] > 0 && !(i in exempt) && (substr(i, 1, 6) == "scope:") == ts) asked++
+  }
   p = (t in P) ? P[t] : 0; nn = (t in N) ? N[t] : 0; c = (t in C) ? C[t] : 0
   m = (p < nn) ? p : nn
   # an unconsumed acknowledgement: more answered pendings than edits already let through
@@ -546,12 +613,15 @@ if [ "$ack" -eq 1 ]; then
   exit 0
 fi
 
+pool=Decision # scope checkpoints have their own budget pool (see the awk above)
+[ "$class" = scope ] && pool=Scope
+
 # budget 0 is quiet mode: never ask or retry, even with a pending marker
 if [ "$fm_budget" -eq 0 ] || { [ "$pend_n" -eq 0 ] && [ "$asked" -ge "$fm_budget" ]; }; then
   append "<!-- track:entry status=logged-over-budget source=hook asked=no at=$now id=$id -->" \
     "- logged-over-budget: $class — $rel ($now), not asked; budget $fm_budget spent"
-  emit "" "" "[agentic-contributor · tracked session] Checkpoint budget $fm_budget/$fm_budget is spent. Logged $id ($class, $rel) to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish." \
-    "agentic-contributor: checkpoint budget spent; $id logged to $rel_ledger without asking."
+  emit "" "" "[agentic-contributor · tracked session] $pool checkpoint budget $fm_budget/$fm_budget is spent. Logged $id ($class, $rel) to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish." \
+    "agentic-contributor: $pool checkpoint budget spent; $id logged to $rel_ledger without asking."
 fi
 
 # Cap: three acknowledged not-applicable edits for one id is enough. Log it instead of asking
@@ -598,7 +668,7 @@ if [ "$class" = dependency ]; then
   depnote=" If this edit changes no dependency (only scripts, version, or metadata), do not ask: record the entry with status=not-applicable (not decided, so later real dependency changes still get a checkpoint), chosen: not-a-dependency-change, decided_by: agent, asked=no, and give the reason in your own words."
 fi
 nl=$'\n'
-reason="[agentic-contributor · tracked session] Decision checkpoint $k/$fm_budget before this $tool_name on $rel.${nl}Trigger: $trig${nl}Checkpoint id: $id"
+reason="[agentic-contributor · tracked session] $pool checkpoint $k/$fm_budget before this $tool_name on $rel.${nl}Trigger: $trig${nl}Checkpoint id: $id"
 [ -n "$retry" ] && reason="$reason${nl}$retry"
 reason="$reason${nl}${nl}Do this, then retry the same edit unchanged:${nl}1. Ask the user with AskUserQuestion: ONE question, \"$question\", with 2-3 options (suggested: $opts). Each option gets a one-line trade-off. Put your recommendation first and mark it \"(Recommended)\". The last option is \"Skip — decide later\". Ask them to choose, not to approve or deny.$depnote${nl}2. Read $rel_ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### $id · <UTC now>${nl}<!-- track:entry status=<decided|skipped> source=checkpoint asked=yes at=<UTC now> id=$id -->${nl}- trigger: $class — $rel${nl}- files: $rel${nl}- options: A) … | B) … | C) Skip — decide later${nl}- chosen: <letter|Skip>${nl}- decided_by: <user-on-recommendation if they picked your recommendation | user otherwise>${nl}- reason: <the user's own words, verbatim, or TODO(you) if they gave none>${nl}   Use status=skipped (reason: TODO(you)) if they pick Skip; you did ask, so keep asked=yes.${nl}3. If AskUserQuestion is unavailable (non-interactive run or subagent): write the entry with status=skipped, asked=no (in the marker line), chosen: none, decided_by: agent, reason: non-interactive (does not use budget).${nl}4. If the user's choice means not making this edit, do not retry. Follow their choice.${nl}Write \"decided_by: user…\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
 emit deny "$reason" ""

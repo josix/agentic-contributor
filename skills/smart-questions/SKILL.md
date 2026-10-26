@@ -139,7 +139,8 @@ with understanding and translation.
    thread, and commits (read-only) first. If a fetch is not possible, mark the affected rules
    **unevaluated** in the Lint section rather than passing them, and never report an overall
    pass while any rule is unevaluated. AP9 is active only when the draft frontmatter `policy`
-   has `coauthor_trailer_forbidden: true` or `ai_policy` not `none-found`; otherwise it is
+   has `coauthor_trailer_forbidden: true` or `ai_policy` not `none-found` (including `unknown`,
+   when the policy could not be checked; say so in the Lint section); otherwise it is
    unevaluated, not passed.
 3. Report findings in a **Lint** section inside Private notes: for each finding give the rule ID,
    severity (`fix-before-sending` or `consider`), the **quoted span** of the user's text, and a

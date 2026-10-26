@@ -440,7 +440,11 @@ function tok(l, name,   q, r) {
   q = index(l, " " name "="); if (!q) return ""
   r = substr(l, q + length(name) + 2); sub(/ .*/, "", r); return r
 }
-function mark_cov(i) { if (i ~ /^(test|dependency|api|scope):/) cov[substr(i, index(i, ":") + 1)] = 1 }
+function mark_cov(i,  r) { # test/dependency ids may end in #<8 hex change checksum>
+  if (i !~ /^(test|dependency|api|scope):/) return
+  r = substr(i, index(i, ":") + 1); sub(/#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/, "", r)
+  cov[r] = 1
+}
 /^<!-- track:pending / { pend++; mark_cov(lastid($0)) }
 /^<!-- track:entry / {
   i = lastid($0); if (!index($0, " status=logged-over-budget ")) mark_cov(i)

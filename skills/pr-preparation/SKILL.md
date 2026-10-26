@@ -30,7 +30,8 @@ contributor get there; the contributor writes the reasoning.
 3. The plugin **never pushes, never opens a PR, never edits code, and never runs tests**. Opening
    the PR is owned by the execution plugin. NEVER call any tool that posts, creates, or pushes.
    Track mode writes only `.oss-drafts/` files; the track hooks (checkpoint, drift, breakpoint) never edit, revert, or stash code.
-4. Local git is read-only: `git diff`, `git diff --stat`, `git log`, `git merge-base`,
+4. Local git is read-only: `git diff`, `git diff --stat`, `git status --porcelain`,
+   `git ls-files --others --exclude-standard`, `git log`, `git merge-base`,
    `git remote -v`, `git rev-parse HEAD`, `git rev-parse --abbrev-ref HEAD`,
    `git rev-parse --show-toplevel`, `git rev-parse --git-dir`, `git rev-parse --git-path info/exclude`, and
    `git merge-base --is-ancestor`, and in track mode `git diff --numstat <base_commit>` and
@@ -76,7 +77,9 @@ into a send block.
    linked worktrees where `.git` is a file).
 5. With an issue URL, dispatch `oss-researcher` with key `track-start` (title, body, repo paths
    mentioned). Scope: the user's globs (`scope_source: user`), else mentioned paths that exist in
-   the repo (a file is an exact path, a directory becomes `dir/**`; `scope_source: issue`), else
+   the repo, as directories: a directory becomes `dir/**`, a file becomes its directory's `dir/**`
+   (a file at the repo root stays an exact path), so neighbouring files the fix needs are in scope
+   (`scope_source: issue`), else
    `[]` (`none`, which turns the out-of-scope checkpoint off). Suggest adding matching test dirs.
    Budget: the user's `budget N`, else 3.
    Drift and explain settings: write `drift_lines: 400`, `drift_files: 10`, `drift_source: default`,
@@ -108,9 +111,10 @@ skipped, over-budget, and hook-skipped items; also the drift follow-ups (choice 
 drift and explain items, and the count of explain answers. Offer the debrief in one line.
 
 **Status:** task, age, base, branch (warn on mismatch with the current branch), scope, budget used
-(asked / budget), drift (asked / `drift_max`, plus logged), breakpoint questions (asked /
-`explain_max`, time of the last), the current `git diff --numstat <base_commit>` size against the
-limits, and a table of entries. No auto-close of abandoned sessions; show the age.
+(asked / budget, shown separately for scope checkpoints and for the other classes), drift (asked /
+`drift_max`, plus logged), breakpoint questions (asked / `explain_max`, time of the last), the
+current `git diff --numstat <base_commit>` size against the limits, and a table of entries. No
+auto-close of abandoned sessions; show the age.
 
 **Log:** append a manual entry with Edit per `decision-ledger.md` section 4 (`id=manual:<UTC>`).
 
@@ -139,12 +143,17 @@ Never write `decided_by: user` or `answered_by: user` unless the user answered.
 5. **Duplicate open PRs.** `oss-researcher` searches open PRs for the same issue number or the same
    changed files; list the top 3 to 5 with links.
 6. **Local context.** `git remote -v` must match `owner/repo`; if it does not, or the base branch is
-   ambiguous, ask the one allowed clarifying question about the base. Record `base`, `head`, and
-   `diff_stats` (files, insertions, deletions) in frontmatter.
+   ambiguous, ask the one allowed clarifying question about the base. Run `git status --porcelain`:
+   uncommitted (`git diff HEAD`) and untracked (`git ls-files --others --exclude-standard`) work
+   is part of the change. Record `base`, `head`, and `diff_stats` (files, insertions, deletions,
+   counting committed + uncommitted + untracked) in frontmatter, and say in Private notes when
+   uncommitted or untracked files were included, since they must be committed before the PR.
 
 ## Procedure 2: Size and Shape Check
 
-From `git diff --stat <base>...HEAD`:
+From `git diff --stat <base>...HEAD`, or, when Procedure 1 found uncommitted work,
+`git diff --stat <base>` (working tree against the base, so committed and uncommitted changes are
+counted once) plus the untracked files:
 
 - Flag more than **400 changed lines or more than 10 files**, unless CONTRIBUTING states other
   thresholds (use those and cite them). With a track ledger, use its `drift_lines` / `drift_files`
@@ -198,7 +207,8 @@ The plugin fills only factual parts (linked issue, test file names, disclosure m
 - `policy.coauthor_trailer_forbidden: true`: run `git log --format=%B <base>..HEAD` and flag
   `Co-authored-by:` lines with AI names and "Generated with" footers in Private notes, with the
   commit hash. **Advise only**: never rewrite commits.
-- `disclosure: recommended` or unknown: mention it in Private notes; do not insert disclosure text.
+- `disclosure: recommended`, `none-found`, or `unknown`: mention it in Private notes (for `unknown`,
+  say the policy could not be checked); do not insert disclosure text.
 
 ## Procedure 6: Lint (mode: lint)
 

@@ -6,6 +6,14 @@ The draft-only `PreToolUse` guardrail (registration, matcher, full deny/allow ma
 
 The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostToolUse` and a `Stop` hook. The first `PreToolUse` hook is the draft-only guardrail, which runs before every `Bash` call and every GitHub MCP tool call and denies outbound and mutating actions before they execute. The second is an advisory decision-checkpoint hook for Edit/Write. The `PostToolUse` and `Stop` hooks are one advisory script (`track-breakpoint.sh`) for scope-drift alerts and breakpoint questions. The advisory hooks are active only inside an `/oss track` session.
 
+!!! warning "The guard applies to every session where the plugin is enabled"
+    The hook is registered by the plugin, not by `/oss`, so it checks every `Bash` call in every
+    Claude Code session while `agentic-contributor` is enabled, including work that has nothing to
+    do with `/oss`. In those sessions `git push`, `gh pr create`, and the other commands below are
+    denied too. To push or open a PR from Claude Code, run the command yourself in a terminal, or
+    disable the plugin via `/plugin` and restart the session (hooks are registered at session
+    start); re-enable it the same way.
+
 ## Registration (`hooks/hooks.json`)
 
 ```json
@@ -114,7 +122,7 @@ There is no generic `*_read` rule: `mark_all_notifications_read` mutates, so onl
 | `gh release create/edit/delete/delete-asset/upload` | `gh release create v1.0` |
 | `gh repo create/fork/delete/edit/sync/rename/archive/unarchive`, `gh repo deploy-key add/delete`, `gh repo autolink create/delete` | `gh repo fork apache/airflow` |
 | `gh gist create/edit/delete/rename` | `gh gist create file.txt` |
-| `gh label create/edit/delete/clone`, `gh workflow run/enable/disable`, `gh run rerun/cancel/delete`, `gh secret set/delete`, `gh variable set/delete`, `gh alias set/delete/import`, `gh codespace create/delete/edit/stop/rebuild` | `gh workflow run ci.yml` |
+| `gh label create/edit/delete/clone`, `gh workflow run/enable/disable`, `gh run rerun/cancel/delete`, `gh secret set/delete`, `gh variable set/delete`, `gh alias set/delete/import`, `gh codespace create/delete/edit/stop/rebuild`, `gh agent-task` (aliases `agent-tasks`, `agent`, `agents`) with any subcommand other than `list`/`view` (`create` starts a Copilot coding-agent task that opens a PR) | `gh workflow run ci.yml`, `gh agent-task create "…"` |
 | `gh project create/edit/delete/close/copy/link/unlink/mark-template/item-add/item-create/item-edit/item-delete/item-archive/field-create/field-delete`, `gh ssh-key add/delete`, `gh gpg-key add/delete`, `gh cache delete` | `gh project item-add 1 --url …` |
 | any `gh` form above or `gh api` with `-R`/`--repo`, a wrapper prefix, or a path-qualified binary | `gh -R owner/repo pr create`, `./gh pr create` |
 | `gh api` with `-X POST/PUT/PATCH/DELETE` (also `-XPOST`, `-X=POST`, any case) | `gh api repos/… -X POST -f …` |
@@ -165,7 +173,7 @@ Everything not matched by a deny pattern:
 | no session, stopped session, plan mode, any internal error | silent (no output) |
 | trigger (test weakening, dependency manifest or lock file, opt-in `api_paths`, outside `scope`), id not yet settled, budget left | `deny` with instructions to ask via AskUserQuestion, append a ledger entry, and retry |
 | id already settled, or already logged over budget | silent |
-| budget spent (default 3 questions asked), or `budget: 0` | `additionalContext` plus a short `systemMessage` (no permission decision); a `logged-over-budget` line is appended |
+| budget spent (default 3 questions asked; scope checkpoints have a separate budget of the same size), or `budget: 0` | `additionalContext` plus a short `systemMessage` (no permission decision); a `logged-over-budget` line is appended |
 | second retry without a ledger entry (loop guard) | `deny` again once; the third attempt gets `additionalContext` plus a `systemMessage` (no permission decision) and a `skipped` line |
 | append-shaped `Edit` of the active ledger | `allow` (so a checkpoint costs one interruption, not two) |
 | any other edit of the ledger (frontmatter change, rewrite, Write, MultiEdit) | no decision: Claude Code's normal permission prompt applies |
@@ -176,7 +184,7 @@ The ledger auto-allow is deliberately narrow: only `Edit` (never Write, MultiEdi
 
 **Not-applicable acknowledgements** are matched by count, not timestamp: a `status=not-applicable` entry answers one pending line and lets one edit through (a `track:consumed` marker records it). After 3 acknowledged edits for one id the hook logs `logged-over-budget ... reason=na-cap` instead of asking again.
 
-Checkpoint ids are `<class>:<repo-relative path>`; a lock file maps to its manifest (`yarn.lock` is `dependency:package.json`). The hook appends only the class, the edited file's repo-relative path, and timestamps with a single `>>`; it never writes old/new strings or file content into the ledger. A path (or `cwd`) containing a control character such as a newline or carriage return makes the hook fail open without writing, so a file name cannot forge ledger marker lines.
+Checkpoint ids are `<class>:<repo-relative path>`; a lock file maps to its manifest (`yarn.lock` is `dependency:package.json#…`). Test and dependency ids end in `#<change>`, 8 hex digits of the `cksum` of the edit's changed-line set (`+added` / `-removed` lines, trimmed, sorted; context lines cancel out), so a retry of the same edit keeps its settled id while a second dependency in the same manifest or a second, different test weakening is a new checkpoint (over 512 KiB the id falls back to the bare path). **Budget pools:** scope checkpoints count against their own budget, the same size as `budget`, so out-of-scope edits never use up the questions for test, dependency, and api checkpoints. The hook appends only the class, the edited file's repo-relative path, the change checksum, and timestamps with a single `>>`; it never writes old/new strings or file content into the ledger. A path (or `cwd`) containing a control character such as a newline or carriage return makes the hook fail open without writing, so a file name cannot forge ledger marker lines.
 
 **No ledger text in output.** The ledger is repository-writable data, so the hook never echoes `scope`, `api_paths`, or any other frontmatter value into `permissionDecisionReason`, `additionalContext`, or `systemMessage`. Messages say "the ledger's scope" or "an API path listed in the ledger" and name only the edited file's repo-relative path.
 

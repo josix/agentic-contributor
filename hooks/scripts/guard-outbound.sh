@@ -608,6 +608,10 @@ gh_is_write() {
     secret|variable) verbs=" set delete " ;;
     alias) verbs=" set delete import " ;;
     codespace) verbs=" create delete edit stop rebuild " ;;
+    agent-task)
+      # `gh agent-task create` starts a Copilot coding-agent task that opens a PR.
+      # Allow-list the read verbs; any other (or future) subcommand is a write.
+      case "${2:-}" in ''|-*|list|view) return 1 ;; *) return 0 ;; esac ;;
   esac
   [[ -n "$verbs" && "$verbs" == *" $2 "* ]]
 }
@@ -681,10 +685,12 @@ check_wget_norm() {
 }
 
 # Canonicalise gh built-in aliases of NT[1..3] into g1/g2/g3 (caller locals):
-# cs -> codespace; new -> create; remove|rm -> delete.
+# cs -> codespace; agent-tasks|agent|agents -> agent-task; new -> create;
+# remove|rm -> delete.
 gh_canon_words() {
   g1="${NT[1]:-}"; g2="${NT[2]:-}"; g3="${NT[3]:-}"
   [[ "$g1" == cs ]] && g1=codespace
+  case "$g1" in agent-tasks|agent|agents) g1=agent-task ;; esac
   case "$g2" in new) g2=create ;; remove|rm) g2=delete ;; esac
   case "$g3" in new) g3=create ;; remove|rm) g3=delete ;; esac
 }
@@ -804,7 +810,7 @@ if [[ "$tool_name" == "Bash" ]]; then
   # Help-only invocations never mutate: `git <push> --help`, `gh pr create --help`.
   # Restricted to built-in gh groups (a gh shell alias given --help would run).
   WS="[ "$'\t'"]"
-  HELP_RE="^${WS}*(git${WS}+(push|send-email|send-pack|svn|subtree|lfs|p4)|gh${WS}+(pr|issue|release|repo|gist|label|project|ssh-key|gpg-key|cache|workflow|run|secret|variable|alias|codespace)(${WS}+[a-z][a-z0-9-]*){1,2})${WS}+(--help|-h)${WS}*\$"
+  HELP_RE="^${WS}*(git${WS}+(push|send-email|send-pack|svn|subtree|lfs|p4)|gh${WS}+(pr|issue|release|repo|gist|label|project|ssh-key|gpg-key|cache|workflow|run|secret|variable|alias|codespace|agent-task)(${WS}+[a-z][a-z0-9-]*){1,2})${WS}+(--help|-h)${WS}*\$"
   if [[ "$stripped" =~ $HELP_RE ]]; then
     exit 0
   fi

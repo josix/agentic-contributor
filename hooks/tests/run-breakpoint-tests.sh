@@ -205,7 +205,7 @@ drift_source: contributing:CONTRIBUTING.md:3" ;;
     tiny-hunk) chg_range src/app.js 40 43; st_add 'e\tsrc/app.js\n' ;; # 4 lines: below EXPLAIN_MIN_LINES
     tiny-untracked) gen_lines new 4 > "$root/src/new.js"; st_add 'e\tsrc/new.js\n' ;;
     chat-turn) hunk_app; st_add 'm\t0\n' ;; # edits from an earlier turn, none since the last stop
-    two-files | two-files-covered | two-files-targeted)
+    two-files | two-files-covered | two-files-covered-hash | two-files-targeted)
       chg_range src/a.js 20 24; chg_range src/b.js 10 49; st_add 'e\tsrc/a.js\ne\tsrc/b.js\n' ;;
     only-lock) gen_lines lock 3 >> "$root/yarn.lock"; st_add 'e\tyarn.lock\n' ;;
     untracked) gen_lines new 25 > "$root/src/new.js"; st_add 'e\tsrc/new.js\n' ;;
@@ -243,6 +243,8 @@ drift_source: contributing:CONTRIBUTING.md:3" ;;
       bp_marker "$old" s1 explain:1 src/x:1
       printf '<!-- track:entry status=skipped source=breakpoint asked=no reason=non-interactive at=%s id=explain:1 -->\n' "$T" >> "$ledger" ;;
     two-files-covered) printf '<!-- track:entry status=decided source=checkpoint asked=yes at=%s id=scope:src/b.js -->\n' "$T" >> "$ledger" ;;
+    two-files-covered-hash) # test/dependency ids end in #<change checksum>; the path is still covered
+      printf '<!-- track:entry status=decided source=checkpoint asked=yes at=%s id=test:src/b.js#0a1b2c3d -->\n' "$T" >> "$ledger" ;;
     two-files-targeted) bp_marker "$old" s0 explain:1 src/b.js:10 ;;
     stale-lock) mkdir "$ledger.lock"; touch -t 202001010000 "$ledger.lock" ;;
     busy-lock) mkdir "$ledger.lock" ;;

@@ -46,6 +46,7 @@ silent	latch	Stop	-	-
 explain-block	latch	StopS2	-	src/app.js:40
 explain-block	two-files	Stop	-	src/b.js:10
 explain-block	two-files-covered	Stop	-	src/a.js:20
+explain-block	two-files-covered-hash	Stop	-	src/a.js:20
 explain-block	two-files-targeted	Stop	-	src/a.js:20
 consume	only-lock	Stop	-	-
 explain-block	untracked	Stop	-	src/new.js:1
