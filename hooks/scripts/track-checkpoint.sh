@@ -172,34 +172,38 @@ case "$fm_budget" in '' | *[!0-9]*) fm_budget=3 ;; esac
 
 ASSERT_RE='\bassert[A-Za-z_]*\b|XCTAssert|\bexpect\s*\(|\b(?:it|test|describe|context)\s*\(|\bdef\s+test_|\bfunc\s+Test|#\[test\]|@Test\b|\bt\.(?:Error|Fatal)f?\s*\(|\brequire\.[A-Z][A-Za-z]*\s*\('
 SKIP_RE='@pytest\.mark\.(?:skip|xfail)|\b(?:xit|xdescribe|xtest)\s*\(|\.skip\s*\(|@Disabled\b|@Ignore\b|#\[ignore\]|\bt\.Skip|\bskipTest\b|unittest\.skip'
+TRACK_MAX_COUNT_CHARS=524288 # payload / existing-file size above which the test-weakening check is skipped
 
 # Comment-only lines must not count as assertions or skips (commenting an assert out is a removal).
 # Dropped: lines whose first non-blank is //, # (not #[ or #!), or * followed by space/end, and
 # /* ... */ blocks that start at the beginning of a line. One definition per backend.
-STRIP_JQ='def strip_comments:
-  reduce (split("\n")[]) as $l ({o: [], b: false};
+# Counting is single-pass and per line (no array is built or joined, so it stays linear): a token
+# never spans a newline, so `expect` and `(` on separate lines do not count as one assertion.
+STRIP_JQ='def counts($a; $s): reduce (split("\n")[]) as $l ({a: 0, s: 0, b: false};
     if .b then (if ($l | test("\\*/")) then .b = false else . end)
     elif ($l | test("^\\s*/\\*")) then
-      (if ($l | test("\\*/")) then (if ($l | sub("^.*\\*/"; "") | test("\\S")) then .o += [$l] else . end) else .b = true end)
+      (if ($l | test("\\*/")) then
+        (if ($l | sub("^.*\\*/"; "") | test("\\S")) then .a += ($l | [match($a; "g")] | length) | .s += ($l | [match($s; "g")] | length) else . end)
+       else .b = true end)
     elif ($l | test("^\\s*(//|#(?![\\[!])|\\*( |$))")) then .
-    else .o += [$l] end)
-  | .o | join("\n");
+    else .a += ($l | [match($a; "g")] | length) | .s += ($l | [match($s; "g")] | length) end)
+  | {a, s};
 '
 STRIP_PY='import re
-def strip_comments(s):
-    out = []; blk = False
-    for l in s.split("\n"):
+def counts(text, A, S):
+    a = s = 0; blk = False
+    for l in text.split("\n"):
         if blk:
             if "*/" in l: blk = False
             continue
         if re.match(r"\s*/\*", l):
             if "*/" in l:
-                if re.search(r"\S", l.rsplit("*/", 1)[1]): out.append(l)
+                if re.search(r"\S", l.rsplit("*/", 1)[1]): a += len(A.findall(l)); s += len(S.findall(l))
             else: blk = True
             continue
         if re.match(r"\s*(//|#(?![\[!])|\*( |$))", l): continue
-        out.append(l)
-    return "\n".join(out)
+        a += len(A.findall(l)); s += len(S.findall(l))
+    return a, s
 '
 
 have_jq=0
@@ -208,15 +212,15 @@ command -v jq > /dev/null 2>&1 && have_jq=1
 command -v python3 > /dev/null 2>&1 && have_py=1
 [ "$have_jq" -eq 1 ] || [ "$have_py" -eq 1 ] || exit 0
 
-# parse_input: prints US-separated tool, path, permission_mode, cwd, old/new assert, old/new skip
-# counts, and app (1 only for an append-shaped Edit: old_string is the ledger sentinel, new_string
-# is old_string plus a prefix that holds no sentinel, pending/consumed marker or source=hook).
+# parse_input: prints US-separated tool, path, permission_mode, cwd and app (1 only for an
+# append-shaped Edit: old_string is the ledger sentinel, new_string is old_string plus a prefix that
+# holds no sentinel, pending/consumed marker or source=hook). Assertion counts are NOT computed here:
+# they are only needed for test paths (count_input / count_file below).
 # A path or cwd containing a control character (newline, CR, US, ...) is printed as empty,
 # so it can neither shift the fields nor forge ledger marker lines: the hook then fails open.
 parse_input() {
   if [ "$have_jq" -eq 1 ]; then
-    printf '%s' "$input" | jq -r --arg a "$ASSERT_RE" --arg s "$SKIP_RE" "$STRIP_JQ"'
-      def cnt($re): strip_comments | [match($re; "g")] | length;
+    printf '%s' "$input" | jq -r '
       def endmark: "<!-- track:end -->";
       def appendshaped($ti):
         ($ti.old_string // "") as $o | ($ti.new_string // "") as $n
@@ -224,30 +228,16 @@ parse_input() {
         and (($n[0:(($n | length) - ($o | length))]) as $pre
           | ($pre | contains(endmark) or contains("<!-- track:pending ") or contains("<!-- track:consumed ") or contains(" source=hook")) | not);
       . as $d | ($d.tool_input // {}) as $ti | ($d.tool_name // "") as $t
-      | (if $t == "Edit" then [$ti] elif $t == "MultiEdit" then ($ti.edits // []) else [] end) as $es
-      | ($es | map((.old_string // "") | cnt($a)) | add // 0) as $oa
-      | ($es | map((.new_string // "") | cnt($a)) | add // 0) as $na
-      | ($es | map((.old_string // "") | cnt($s)) | add // 0) as $os
-      | ($es | map((.new_string // "") | cnt($s)) | add // 0) as $ns
-      | (if $t == "Write" then (($ti.content // "") | cnt($a)) else $na end) as $na2
-      | (if $t == "Write" then (($ti.content // "") | cnt($s)) else $ns end) as $ns2
       | (if $t == "Edit" and appendshaped($ti) then 1 else 0 end) as $app
       | def clean: if test("[\u0000-\u001f\u007f]") then "" else . end;
       [$t, (($ti.file_path // $ti.notebook_path // "") | tostring | clean), ($d.permission_mode // ""),
-         (($d.cwd // "") | tostring | clean), $oa, $na2, $os, $ns2, $app] | map(tostring) | join("\u001f")' 2> /dev/null
+         (($d.cwd // "") | tostring | clean), $app] | map(tostring) | join("\u001f")' 2> /dev/null
   else
-    printf '%s' "$input" | python3 -c "$STRIP_PY"'
-import sys, json
-A = re.compile(sys.argv[1]); S = re.compile(sys.argv[2])
+    printf '%s' "$input" | python3 -c '
+import sys, json, re
 d = json.load(sys.stdin)
 ti = d.get("tool_input") or {}
 t = d.get("tool_name") or ""
-es = [ti] if t == "Edit" else (ti.get("edits") or [] if t == "MultiEdit" else [])
-def tot(rx, k): return sum(len(rx.findall(strip_comments(e.get(k) or ""))) for e in es)
-oa, na, os_, ns = tot(A, "old_string"), tot(A, "new_string"), tot(S, "old_string"), tot(S, "new_string")
-if t == "Write":
-    c = strip_comments(ti.get("content") or "")
-    na, ns = len(A.findall(c)), len(S.findall(c))
 def clean(v):
     v = str(v or "")
     return "" if re.search("[\x00-\x1f\x7f]", v) else v
@@ -259,25 +249,57 @@ if t == "Edit" and ti.get("replace_all") is not True:
         pre = n[:len(n) - len(o)]
         if not any(x in pre for x in (END, "<!-- track:pending ", "<!-- track:consumed ", " source=hook")): app = 1
 p = clean(ti.get("file_path") or ti.get("notebook_path"))
-print("\x1f".join([t, p, str(d.get("permission_mode") or ""), clean(d.get("cwd")), str(oa), str(na), str(os_), str(ns), str(app)]))
+print("\x1f".join([t, p, str(d.get("permission_mode") or ""), clean(d.get("cwd")), str(app)]))
+' 2> /dev/null
+  fi
+}
+
+# count_input: prints "old_assert new_assert old_skip new_skip" for an Edit/MultiEdit/Write payload
+# (one jq or python3 call). For Write the old counts are 0 here; the caller counts the file on disk.
+count_input() {
+  if [ "$have_jq" -eq 1 ]; then
+    printf '%s' "$input" | jq -r --arg a "$ASSERT_RE" --arg s "$SKIP_RE" "$STRIP_JQ"'
+      . as $d | ($d.tool_input // {}) as $ti | ($d.tool_name // "") as $t
+      | (if $t == "Edit" then [$ti] elif $t == "MultiEdit" then ($ti.edits // []) else [] end) as $es
+      | [$es[] | (.old_string // "") | counts($a; $s)] as $o
+      | (if $t == "Write" then [($ti.content // "") | counts($a; $s)]
+         else [$es[] | (.new_string // "") | counts($a; $s)] end) as $n
+      | [($o | map(.a) | add // 0), ($n | map(.a) | add // 0), ($o | map(.s) | add // 0), ($n | map(.s) | add // 0)]
+      | map(tostring) | join(" ")' 2> /dev/null
+  else
+    printf '%s' "$input" | python3 -c "$STRIP_PY"'
+import sys, json
+A = re.compile(sys.argv[1]); S = re.compile(sys.argv[2])
+d = json.load(sys.stdin)
+ti = d.get("tool_input") or {}
+t = d.get("tool_name") or ""
+es = [ti] if t == "Edit" else (ti.get("edits") or [] if t == "MultiEdit" else [])
+def tot(k):
+    r = [counts(e.get(k) or "", A, S) for e in es]
+    return sum(x[0] for x in r), sum(x[1] for x in r)
+oa, os_ = tot("old_string")
+if t == "Write": na, ns = counts(ti.get("content") or "", A, S)
+else: na, ns = tot("new_string")
+print(oa, na, os_, ns)
 ' "$ASSERT_RE" "$SKIP_RE" 2> /dev/null
   fi
 }
 
-count_file() { # $1 file, $2 regex -> match count of non-comment lines on stdout
+count_file() { # $1 file -> "assert skip" counts of non-comment lines on stdout
   if [ "$have_jq" -eq 1 ]; then
-    jq -Rs --arg re "$2" "$STRIP_JQ"'strip_comments | [match($re; "g")] | length' < "$1" 2> /dev/null
+    jq -Rrs --arg a "$ASSERT_RE" --arg s "$SKIP_RE" "$STRIP_JQ"'counts($a; $s) | "\(.a) \(.s)"' < "$1" 2> /dev/null
   else
     python3 -c "$STRIP_PY"'
 import sys
-print(len(re.findall(sys.argv[1], strip_comments(open(sys.argv[2], errors="replace").read()))))
-' "$2" "$1" 2> /dev/null
+a, s = counts(open(sys.argv[3], errors="replace").read(), re.compile(sys.argv[1]), re.compile(sys.argv[2]))
+print(a, s)
+' "$ASSERT_RE" "$SKIP_RE" "$1" 2> /dev/null
   fi
 }
 
 parsed="$(parse_input)" || exit 0
 [ -n "$parsed" ] || exit 0
-IFS=$'\037' read -r tool_name path perm_mode cwd old_a new_a old_s new_s app <<< "$parsed"
+IFS=$'\037' read -r tool_name path perm_mode cwd app <<< "$parsed"
 [ -n "$path" ] || exit 0
 case "$path$cwd" in *[[:cntrl:]]*) exit 0 ;; esac # belt and braces: never log a control char
 [ "$perm_mode" = "plan" ] && exit 0
@@ -381,18 +403,33 @@ class=""
 key="$rel"
 trig=""
 if is_test_path "$rel" && { [ "$tool_name" = "Edit" ] || [ "$tool_name" = "MultiEdit" ] || [ "$tool_name" = "Write" ]; }; then
-  if [ "$tool_name" = "Write" ]; then
-    if [ -f "$abs" ]; then
-      old_a="$(count_file "$abs" "$ASSERT_RE")"
-      old_s="$(count_file "$abs" "$SKIP_RE")"
-    else
-      old_a=0; old_s=0; new_a=0; new_s=0 # a new test file never triggers
+  # Fail open (skip the test check, fall through to dependency/api/scope) when the payload or the
+  # existing file is over TRACK_MAX_COUNT_CHARS.
+  old_a=0; old_s=0; new_a=0; new_s=0; counted=0
+  if [ "${#input}" -le "$TRACK_MAX_COUNT_CHARS" ]; then
+    counted=1
+    read -r old_a new_a old_s new_s <<< "$(count_input)"
+    if [ "$tool_name" = "Write" ]; then
+      if [ -f "$abs" ]; then
+        fsize="$(wc -c < "$abs" 2> /dev/null)" || fsize=""
+        fsize="${fsize//[[:space:]]/}"
+        case "$fsize" in '' | *[!0-9]*) exit 0 ;; esac
+        if [ "$fsize" -gt "$TRACK_MAX_COUNT_CHARS" ]; then
+          counted=0
+        else
+          read -r old_a old_s <<< "$(count_file "$abs")"
+        fi
+      else
+        old_a=0; old_s=0; new_a=0; new_s=0 # a new test file never triggers
+      fi
     fi
   fi
-  case "$old_a$new_a$old_s$new_s$app" in '' | *[!0-9]*) exit 0 ;; esac
-  if [ "$new_a" -lt "$old_a" ] || [ "$new_s" -gt "$old_s" ]; then
-    class="test"
-    trig="the edit lowers assertions in a test file (asserts $old_a->$new_a, skips $old_s->$new_s)."
+  if [ "$counted" -eq 1 ]; then
+    case "${old_a:-x}${new_a:-x}${old_s:-x}${new_s:-x}$app" in '' | *[!0-9]*) exit 0 ;; esac
+    if [ "$new_a" -lt "$old_a" ] || [ "$new_s" -gt "$old_s" ]; then
+      class="test"
+      trig="the edit lowers assertions in a test file (asserts $old_a->$new_a, skips $old_s->$new_s)."
+    fi
   fi
 fi
 if [ -z "$class" ]; then
@@ -464,11 +501,12 @@ now="$(date -u +%Y-%m-%dT%H:%M:%SZ 2> /dev/null)" || exit 0
 
 # ── ledger state: settled / over-logged / pending count / asked ──────────────
 state="$(TRACK_ID="$id" awk '
-function lastid(l,   q, res, found) {
+# The id is everything after the FIRST " id=" up to the trailing " -->": the id itself may contain
+# " id=" (e.g. a path "docs/x id=y.md"); no attribute before id= is allowed to.
+function lastid(l,   q) {
   if (substr(l, length(l) - 3) != " -->") return "\001"
-  l = substr(l, 1, length(l) - 4); found = 0; res = ""
-  while ((q = index(l, " id=")) > 0) { l = substr(l, q + 4); res = l; found = 1 }
-  return found ? res : "\001"
+  l = substr(l, 1, length(l) - 4); q = index(l, " id=")
+  return q ? substr(l, q + 4) : "\001"
 }
 # Not-applicable acknowledgements are matched by COUNT, never by timestamp: per id, P pending
 # lines, N not-applicable entries, C consumed markers. Same-second markers and copied at= values

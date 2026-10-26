@@ -208,6 +208,8 @@ matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
 
 - A machine line is exactly one line. It starts with `<!-- track:entry ` or `<!-- track:pending `,
   and **`id=<id> -->` is the final token**, so ids with spaces still match as a literal suffix. The
+  id is everything after the **first** ` id=` up to the trailing ` -->`, so an id may itself contain
+  ` id=` or spaces (`docs/x id=y.md`); no attribute before `id=` may contain ` id=`. The
   hook matches with awk `index()` against `ENVIRON["TRACK_ID"]` (no regex metacharacters).
 - **settled(id)**: a `track:entry` line with `status=decided` or `status=skipped` and the suffix
   ` id=<id> -->`, **and** at least one `track:pending` line for the same id (a hand-written entry
@@ -270,6 +272,10 @@ basename like `test_*.py`, `*_test.(py|go|rb|exs|ex|dart)`, `*.test.*` / `*.spec
 
 Assertion tokens (jq/Oniguruma and python `re`, identical syntax):
 `\bassert[A-Za-z_]*\b|XCTAssert|\bexpect\s*\(|\b(?:it|test|describe|context)\s*\(|\bdef\s+test_|\bfunc\s+Test|#\[test\]|@Test\b|\bt\.(?:Error|Fatal)f?\s*\(|\brequire\.[A-Z][A-Za-z]*\s*\(`
+
+Assertions and skips are counted only for test paths, per line (a token never spans a newline), and
+only when the payload and the existing file are at most 512 KiB; above that the test-weakening check
+is skipped (fail open).
 
 Skip tokens:
 `@pytest\.mark\.(?:skip|xfail)|\b(?:xit|xdescribe|xtest)\s*\(|\.skip\s*\(|@Disabled\b|@Ignore\b|#\[ignore\]|\bt\.Skip|\bskipTest\b|unittest\.skip`

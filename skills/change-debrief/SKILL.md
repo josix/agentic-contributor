@@ -19,7 +19,7 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
 - The plugin never edits or reverts code, never runs tests, never pushes, never opens a PR, and
   never posts anything.
 - Local git reads only: `git diff <base>...HEAD`, `git diff --stat`, `git log`, `git merge-base`,
-  `git remote -v`, `git rev-parse --abbrev-ref HEAD`, `git merge-base --is-ancestor`.
+  `git remote -v`, `git rev-parse --abbrev-ref HEAD`, `git rev-parse --git-dir`, `git merge-base --is-ancestor`.
 - The output is a **private notes file** and is never formatted or offered as paste-ready PR text.
   It has no `oss:send` block. Do not add one.
 - Explaining the change is the user's job; this skill gives them the material and asks questions.
