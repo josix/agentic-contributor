@@ -80,6 +80,62 @@ paused	merged	Post	src/app.js	-
 paused	merged	Stop	-	-
 silent	rebased-noted	Post	src/app.js	-
 silent	rebased-noted	Stop	-	-
+# predict-then-reveal (UserPromptSubmit)
+noop	none	Prompt	-	-
+noop	active	Prompt	-	-
+noop	predict-off	Prompt	-	-
+predict-ctx	predict-on	Prompt	-	0/4 predict:1
+predict-ctx	predict-2	Prompt	-	2/4 predict:3
+predict-ctx	predict-mixed	Prompt	-	1/4 predict:2
+noop	predict-max2	Prompt	-	-
+noop	predict-full	Prompt	-	-
+noop	predict-b0	Prompt	-	-
+noop	predict-stopped	Prompt	-	-
+noop	predict-on	PromptSlash	-	-
+noop	predict-on	PromptSpaceSlash	-	-
+noop	predict-on	PromptEmpty	-	-
+# path-like prompts are text, not slash commands; trivial prompts are silent; plan mode still predicts
+predict-ctx	predict-on	PromptM:/src/parser.c:42 crashes on empty input, why?	-	0/4 predict:1
+noop	predict-on	PromptM:/oss track status	-	-
+noop	predict-on	PromptM:/agentic-contributor:oss track	-	-
+noop	predict-on	PromptM:thanks!	-	-
+noop	predict-on	PromptM:ok	-	-
+predict-ctx	predict-on	PromptM:解析器在空輸入時崩潰，原因是什麼	-	0/4 predict:1
+predict-ctx	predict-on	PromptM:lexer.c line 40 hangs	-	0/4 predict:1
+noop	predict-on	PromptM:change the title	-	-
+predict-ctx	predict-on	PromptM:the test is flaky	-	0/4 predict:1
+noop	predict-on	PromptM:謝謝	-	-
+predict-ctx	predict-on	PromptM:could you take a look at the build setup	-	0/4 predict:1
+predict-ctx	predict-plan	Prompt	-	0/4 predict:1
+predict-ctx-short	predict-short	Prompt	-	0/4 predict:1
+noop	predict-on	RAW	{"hook_event_name":"UserPromptSubmit","cwd":"<root>	-
+noop	predict-on	RAW	{"hook_event_name":"UserPromptSubmit","cwd":"<root>","prompt":	-
+silent	predict-stop	Stop	-	m advanced
+# predict: auto (UserPromptSubmit). auto-ctx "<reason> <markers>" | auto-silent "<markers> [last marker state]"
+auto-ctx	auto-new	Prompt	-	newcomer 1
+auto-silent	auto-vet	Prompt	-	0
+auto-silent	auto-vet-marker	Prompt	-	2 off
+auto-ctx	auto-explain-skip	Prompt	-	explain-skipped 1
+auto-ctx	auto-explain-nr	Prompt	-	explain-not-requested 1
+auto-ctx	auto-prior3	Prompt	-	prior-unknowns 1
+auto-silent	auto-noidea	Prompt	-	0
+auto-silent	auto-noidea-marker	Prompt	-	2 off
+# "no idea" is an exact match on the recorded prediction after normalizing the option A label, punctuation and case; a newcomer would otherwise be on
+auto-silent	auto-noidea-dash	Prompt	-	2 off
+auto-silent	auto-noidea-dot	Prompt	-	2 off
+auto-silent	auto-noidea-lower	Prompt	-	2 off
+auto-ctx	auto-noidea-guess	Prompt	-	newcomer 1
+# exact match only: "No idea, maybe lexer.c" is a guess; a column-padded user_commits parses
+auto-ctx	auto-noidea-maybe	Prompt	-	newcomer 1
+auto-ctx	auto-padded	Prompt	-	newcomer 1
+auto-silent	auto-unknown	Prompt	-	0
+auto-silent	auto-nokey	Prompt	-	0
+auto-silent	auto-new-b0	Prompt	-	0
+auto-silent	auto-new-cap	Prompt	-	0
+auto-silent	auto-slash	PromptSlash	-	0
+auto-ctx	auto-busy	Prompt	-	newcomer 0
+predict-ctx	auto-alias-on	Prompt	-	0/4 predict:1
+noop	auto-alias-off	Prompt	-	-
 # ── already asking: the last message waits on the user (markdown, full-width, option lists) ──
 silent	hunk	StopM:**Shall I proceed?**	-	-
 silent	hunk	StopM:要继续吗？	-	-

@@ -128,7 +128,8 @@ Invoke the `oss-scenario-routing` skill to classify the intent from `$ARGUMENTS`
 - Debrief signals ("help me understand what I changed", "debrief my change", "what did the agent
   change") route to `prepare-pr` with `mode: debrief`; this is not an 11th scenario.
 - Track signals ("track …", "start tracking", "stop tracking", "track status", "log this decision")
-  route to `prepare-pr` with `mode: track` (sub-action start/stop/status/log); not an 11th scenario.
+  route to `prepare-pr` with `mode: track` (sub-action start/stop/status/log); not an 11th scenario. The flag `--predict[=on|off|auto]`, `--no-predict` and `track predict on|off|auto`
+  are recognised here (predict-then-reveal) and change no scenario.
 - After classification, proceed immediately — do not ask additional questions at this stage.
 
 ---
@@ -368,5 +369,5 @@ Local file writes via the Write tool are NOT covered by the guardrail (they cann
 and are explicitly permitted for draft file export.
 
 `hooks/scripts/track-checkpoint.sh` (PreToolUse) and `hooks/scripts/track-breakpoint.sh`
-(PostToolUse and Stop) are separate, advisory hooks for Edit/Write inside a tracked session. They
+(PostToolUse, Stop and UserPromptSubmit) are separate, advisory hooks for Edit/Write inside a tracked session. They
 are not part of the draft-only guardrail above and fail open.

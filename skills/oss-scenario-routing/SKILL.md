@@ -53,7 +53,7 @@ To classify the user's intent:
    else's PR ("review this PR", "help me review PR #N", no "my") routes to engage. If still
    ambiguous ("review my draft"), ask the one clarifying question with exactly these three options.
 7. **Track signals** ("track …", "start tracking", "stop tracking", "track status", "log this
-   decision") route to scenario 10 with `mode: track` (sub-action start/stop/status/log). No policy
+   decision") route to scenario 10 with `mode: track` (sub-action start/stop/status/log; `--predict[=on|off|auto]`, `--no-predict` and "track predict on|off|auto" set predict mode). No policy
    preflight and no issue-first check; not an 11th scenario.
 
 ### Claim → Engage Branch

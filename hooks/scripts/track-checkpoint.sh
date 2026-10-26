@@ -226,7 +226,7 @@ parse_input() {
         ($ti.old_string // "") as $o | ($ti.new_string // "") as $n
         | (($ti.replace_all // false) != true) and ($o == endmark or $o == endmark + "\n") and ($n | endswith($o))
         and (($n[0:(($n | length) - ($o | length))]) as $pre
-          | ($pre | contains(endmark) or contains("<!-- track:pending ") or contains("<!-- track:consumed ") or contains("<!-- track:drift") or contains("<!-- track:breakpoint") or contains(" source=hook")) | not);
+          | ($pre | contains(endmark) or contains("<!-- track:pending ") or contains("<!-- track:consumed ") or contains("<!-- track:drift") or contains("<!-- track:breakpoint") or contains("<!-- track:predict-auto") or contains(" source=hook")) | not);
       . as $d | ($d.tool_input // {}) as $ti | ($d.tool_name // "") as $t
       | (if $t == "Edit" and appendshaped($ti) then 1 else 0 end) as $app
       | def clean: if test("[\u0000-\u001f\u007f]") then "" else . end;
@@ -247,7 +247,7 @@ if t == "Edit" and ti.get("replace_all") is not True:
     o = ti.get("old_string") or ""; n = ti.get("new_string") or ""
     if o in (END, END + "\n") and n.endswith(o):
         pre = n[:len(n) - len(o)]
-        if not any(x in pre for x in (END, "<!-- track:pending ", "<!-- track:consumed ", "<!-- track:drift", "<!-- track:breakpoint", " source=hook")): app = 1
+        if not any(x in pre for x in (END, "<!-- track:pending ", "<!-- track:consumed ", "<!-- track:drift", "<!-- track:breakpoint", "<!-- track:predict-auto", " source=hook")): app = 1
 p = clean(ti.get("file_path") or ti.get("notebook_path"))
 print("\x1f".join([t, p, str(d.get("permission_mode") or ""), clean(d.get("cwd")), str(app)]))
 ' 2> /dev/null
@@ -670,5 +670,5 @@ fi
 nl=$'\n'
 reason="[agentic-contributor · tracked session] $pool checkpoint $k/$fm_budget before this $tool_name on $rel.${nl}Trigger: $trig${nl}Checkpoint id: $id"
 [ -n "$retry" ] && reason="$reason${nl}$retry"
-reason="$reason${nl}${nl}Do this, then retry the same edit unchanged:${nl}1. Ask the user with AskUserQuestion: ONE question, \"$question\", with 2-3 options (suggested: $opts). Each option gets a one-line trade-off. Put your recommendation first and mark it \"(Recommended)\". The last option is \"Skip — decide later\". Ask them to choose, not to approve or deny.$depnote${nl}2. Read $rel_ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### $id · <UTC now>${nl}<!-- track:entry status=<decided|skipped> source=checkpoint asked=yes at=<UTC now> id=$id -->${nl}- trigger: $class — $rel${nl}- files: $rel${nl}- options: A) … | B) … | C) Skip — decide later${nl}- chosen: <letter|Skip>${nl}- decided_by: <user-on-recommendation if they picked your recommendation | user otherwise>${nl}- reason: <the user's own words, verbatim, or TODO(you) if they gave none>${nl}   Use status=skipped (reason: TODO(you)) if they pick Skip; you did ask, so keep asked=yes.${nl}3. If AskUserQuestion is unavailable (non-interactive run or subagent): write the entry with status=skipped, asked=no (in the marker line), chosen: none, decided_by: agent, reason: non-interactive (does not use budget).${nl}4. If the user's choice means not making this edit, do not retry. Follow their choice.${nl}Write \"decided_by: user…\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
+reason="$reason${nl}${nl}Do this, then retry the same edit unchanged:${nl}1. Ask the user with AskUserQuestion: ONE question, \"$question\", with 2-3 options (suggested: $opts). Each option gets a one-line trade-off. Put your recommendation first and mark it \"(Recommended)\". The last option is \"Skip — decide later\". Ask them to choose, not to approve or deny.$depnote${nl}2. Read $ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### $id · <UTC now>${nl}<!-- track:entry status=<decided|skipped> source=checkpoint asked=yes at=<UTC now> id=$id -->${nl}- trigger: $class — $rel${nl}- files: $rel${nl}- options: A) … | B) … | C) Skip — decide later${nl}- chosen: <letter|Skip>${nl}- decided_by: <user-on-recommendation if they picked your recommendation | user otherwise>${nl}- reason: <the user's own words, verbatim, or TODO(you) if they gave none>${nl}   Use status=skipped (reason: TODO(you)) if they pick Skip; you did ask, so keep asked=yes.${nl}3. If AskUserQuestion is unavailable (non-interactive run or subagent): write the entry with status=skipped, asked=no (in the marker line), chosen: none, decided_by: agent, reason: non-interactive (does not use budget).${nl}4. If the user's choice means not making this edit, do not retry. Follow their choice.${nl}Write \"decided_by: user…\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
 emit deny "$reason" ""
