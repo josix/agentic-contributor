@@ -99,6 +99,10 @@ noop	predict-on	PromptM:/oss track status	-	-
 noop	predict-on	PromptM:/agentic-contributor:oss track	-	-
 noop	predict-on	PromptM:thanks!	-	-
 noop	predict-on	PromptM:ok	-	-
+predict-ctx	predict-on	PromptM:解析器在空輸入時崩潰，原因是什麼	-	0/4 predict:1
+predict-ctx	predict-on	PromptM:lexer.c line 40 hangs	-	0/4 predict:1
+predict-ctx	predict-on	PromptM:the test is flaky	-	0/4 predict:1
+noop	predict-on	PromptM:謝謝	-	-
 predict-ctx	predict-on	PromptM:could you take a look at the build setup	-	0/4 predict:1
 predict-ctx	predict-plan	Prompt	-	0/4 predict:1
 predict-ctx-short	predict-short	Prompt	-	0/4 predict:1

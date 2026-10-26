@@ -127,7 +127,8 @@ drift and explain items, and the count of explain answers. Offer the debrief in 
 limits, `predict: on/off/auto` (for auto: the current state and reason, for example `auto (on: newcomer)`, plus the recorded switches) and `<used>/<predict_max>`, and a table of entries. No auto-close of abandoned sessions; show the age.
 
 **Predict on|off|auto:** `/oss track predict on|off|auto` edits `predict:` in the active ledger
-frontmatter (`on` = `true`, `off` = `false`; Edit, already auto-allowed) and confirms in one line.
+frontmatter (`on` = `true`, `off` = `false`; a frontmatter Edit, so Claude Code shows its normal permission prompt; only appends at
+`<!-- track:end -->` are auto-allowed) and confirms in one line.
 The `UserPromptSubmit` hook reads it from the next prompt on. In `auto` the hook alone appends the
 switch markers (`<!-- track:predict-auto ... -->`); never write them by hand.
 

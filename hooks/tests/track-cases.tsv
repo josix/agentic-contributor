@@ -33,6 +33,8 @@ silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:entry status=decided so
 silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:drift at=x lines=1 files=1 crossed=lines modules=- asked=yes id=drift:9 -->\n<!-- track:end -->	-
 silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:drift-paused at=x reason=base-moved -->\n<!-- track:end -->	-
 silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:breakpoint at=x epoch=1 sid=s target=a:1 id=explain:9 -->\n<!-- track:end -->	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:predict-auto at=x state=off reason=two-no-idea -->\n<!-- track:end -->	-
+allow-ledger	active	Edit	@ledger	<!-- track:end -->	<!-- track:outcome at=x id=predict:1 -->\n- outcome: matched\n<!-- track:end -->	-
 allow-ledger	active	Edit	@ledger	<!-- track:end -->	<!-- track:entry status=decided source=drift asked=yes at=x id=drift:1 -->\n- chosen: A\n<!-- track:end -->	-
 allow-ledger	active	Edit	@ledger	<!-- track:end -->\n	 x\n<!-- track:end -->\n	-
 silent	active	MultiEdit	@ledger	<!-- track:end -->	x\n<!-- track:end -->	-

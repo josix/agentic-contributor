@@ -197,7 +197,7 @@ Written by Claude when predict mode is on and the user is asked for a prediction
 
 The entry is written right after the answer (so it counts toward `predict_max` and the watermark at
 ask time, even if the turn ends before the reveal), with `- outcome: pending`. At the reveal the agent
-appends, by the same sentinel append (PR2 auto-allows it), and never edits the entry above:
+appends, by the same sentinel append (an append at `<!-- track:end -->`, auto-allowed per section 8), and never edits the entry above:
 
 ```markdown
 ### predict:<n> outcome
@@ -210,7 +210,7 @@ block when present and falls back to the inline outcome line.
 
 Option A ("No idea — go ahead") is recorded as exactly `prediction: no idea` (status=answered).
 Skipped (option B, "Skip predictions for this session") uses `status=skipped`, `prediction: none`,
-and also sets `predict: false` in the frontmatter for the rest of the session. Never write a predict entry when
+and also sets `predict: false` in the frontmatter for the rest of the session (a normal permission prompt). Never write a predict entry when
 the question could not be asked. Predictions are private learning notes: never scored, never in send
 blocks or PR text.
 
@@ -345,7 +345,7 @@ behaves like `*`). A trailing `/` means prefix. Comparison is against the repo-r
   questions have `explain_max` (4), at least `explain_interval_min` (20) minutes apart; predictions
   have `predict_max` (4). Worst case 3+2+4+4 = 13 questions per session; typical 0 to 3. `budget: 0` is
   quiet mode for all four.
-- Silent with no session (no git-dir pointer, or not a git repository), `status: stopped`, `OSS_TRACK_DISABLE=1`, `permission_mode: plan`, an
+- Silent with no session (no git-dir pointer, or not a git repository), `status: stopped`, `OSS_TRACK_DISABLE=1`, `permission_mode: plan` (except the predict note, section 15), an
   invalid pointer, or any internal error (the hook is advisory and fails open).
 
 ## 8. Auto-allow of the ledger Edit
@@ -355,7 +355,7 @@ So that a checkpoint costs one interruption (the question) and not two, the hook
 NotebookEdit) that **appends**: `old_string` is `<!-- track:end -->` (optionally followed by a
 newline), `replace_all` is not set, and `new_string` ends with `old_string`, with a prefix that
 contains no `<!-- track:end -->`, `<!-- track:pending `, `<!-- track:consumed `, `<!-- track:drift` (also
-`track:drift-paused`), `<!-- track:breakpoint` or ` source=hook`.
+`track:drift-paused`), `<!-- track:breakpoint`, `<!-- track:predict-auto` or ` source=hook`.
 The `file_path` must name the active ledger from the pointer (after the hook normalizes the path
 and compares logical and physical repository roots), and the raw `file_path` must not contain a
 `..`, `.` or empty segment. Every other edit of the ledger (frontmatter changes such as widening
@@ -420,6 +420,7 @@ in the ledger, so deleting it cannot lift a cap. A missing, malformed, or symlin
 e<TAB><rel>      PostToolUse: a successful Edit/Write/MultiEdit/NotebookEdit outside .oss-drafts/
 d                PostToolUse: a drift check ran (throttle point)
 m<TAB><q>        Stop: question watermark (questions(q) at this stop)
+p<TAB><sid>      UserPromptSubmit: the full predict note was sent to this session_id
 b<TAB><id|none>  Stop: breakpoint consumed (explain:<k> asked, none = no target, compacted)
 s<TAB><n>        Stop: number of asked=no drift markers already summarised to the user
 ```
@@ -428,7 +429,7 @@ s<TAB><n>        Stop: number of asked=no drift markers already summarised to th
 are never logged, so ledger writes never re-arm a breakpoint. The last `m` and `s` values win.
 
 **Compaction.** Above 400 lines the hook (under the ledger lock; skipped if busy) folds all but the
-newest 100 lines into a prefix: the last `m` and `s`, one `e` per distinct path edited before the
+newest 100 lines into a prefix: the last `m` and `s`, every distinct `p` line, one `e` per distinct path edited before the
 last dropped `b` (the session-wide set used for untracked-file counting), `b<TAB>compacted`, one
 `e` per distinct path after it, and one `d` if any was dropped. Nothing reads line counts, so only
 the "edits since the last `d`" throttle can be undercounted, which at most postpones one check. An
@@ -555,10 +556,10 @@ prediction first, reveal its own with a "Your prediction vs. what I found" compa
 and record a predict entry. It is silent when: no session; status not `active`; `predict` not
 `true` / `auto` (or `auto` computes off); `budget: 0`; predict_n >= `predict_max`; the prompt is
 empty, a slash command (`/name` followed by a space or end; a path such as `/src/a.c:4 ...` is text),
-or trivial (24 characters or fewer, no `?`, no diagnosis or planning keyword, e.g. `thanks!`); or any
+or trivial (24 bytes or fewer in UTF-8, no `?`, no diagnosis or planning keyword, e.g. `thanks!`); or any
 parse error. Plan mode does not silence it (planning prompts are what it is for): the note says to
 write the entry as soon as plan mode ends. The full note is sent once per session (a `p<TAB><sid>`
-line in `<ledger>.state`); later prompts get a short reminder with the absolute path of this section. Consumers: `change-debrief` lists predict
+line in `<ledger>.state`); later prompts get a short reminder with the absolute path of this file (entry format in section 4). Consumers: `change-debrief` lists predict
 entries and auto switches in a private "Your predictions" subsection; `describe` never uses them.
 With no `predict` key, or a value other than `true` / `on` / `auto`, the hook exits after reading the
 frontmatter with builtins, before any JSON parse. A paused session (`track:drift-paused`, base

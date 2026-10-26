@@ -239,7 +239,7 @@ command -v python3 > /dev/null 2>&1 && have_py=1
 
 # parse_input: US-separated event, path, permission_mode, session_id, stop_hook_active, agent_id,
 # asking (1/0), cwd, prompt kind (empty|slash|text; slash = "/name" followed by space or end, so a
-# path like /src/a.c:4 is text), trivial (1 for a short prompt of 24 chars or fewer with no question
+# path like /src/a.c:4 is text), trivial (1 for a short prompt of 24 UTF-8 bytes or fewer with no question
 # mark and no diagnosis/planning keyword). Any field containing a control character (newline, CR, US, ...) is printed as
 # empty, so it can neither shift the fields nor forge ledger/state lines. "asking" is 1 when the
 # last assistant message already waits on the user: its last non-blank line (trailing markdown
@@ -247,7 +247,7 @@ command -v python3 > /dev/null 2>&1 && have_py=1
 # option list whose lead-in line does (the last 40 non-blank lines are examined).
 # last_assistant_message (Stop) and agent_id (PostToolUse in a subagent) need a Claude Code version
 # that sends them; without them the "already asking" and subagent checks simply never fire.
-KW_RE='bug|fail|error|crash|broken|wrong|why|fix|plan|approach|design|implement|refactor|debug|problem|issue|slow|leak|panic|exception'
+KW_RE='bug|fail|error|crash|broken|wrong|why|fix|plan|approach|design|implement|refactor|debug|problem|issue|slow|leak|panic|exception|hang|flaky|stuck|timeout|broke'
 parse_input() {
   if [ "$have_jq" -eq 1 ]; then
     printf '%s' "$input" | jq -r --arg kw "$KW_RE" '
@@ -269,7 +269,7 @@ parse_input() {
          (.last_assistant_message | asking | if . then "1" else "0" end), (.cwd // ""),
          (((.prompt // "") | tostring | sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "")) as $p
           | (if $p == "" then "empty" elif ($p | test("^/[A-Za-z0-9_:-]+(\\s|$)")) then "slash" else "text" end),
-            (if ($p | length) <= 24 and ($p | test("[?\uff1f]") | not) and ($p | test($kw; "i") | not) then "1" else "0" end))]
+            (if ($p | utf8bytelength) <= 24 and ($p | test("[?\uff1f]") | not) and ($p | test($kw; "i") | not) then "1" else "0" end))]
       | map(clean) | join("\u001f")' 2> /dev/null
   else
     printf '%s' "$input" | python3 -c '
@@ -278,7 +278,7 @@ d = json.load(sys.stdin)
 ti = d.get("tool_input") or {}
 pr = str(d.get("prompt") or "").strip()
 pk = "empty" if not pr else ("slash" if re.match(r"/[A-Za-z0-9_:-]+(\s|$)", pr) else "text")
-pt = "1" if len(pr) <= 24 and not re.search("[?\uff1f]", pr) and not re.search(sys.argv[1], pr, re.I) else "0"
+pt = "1" if len(pr.encode("utf-8")) <= 24 and not re.search("[?\uff1f]", pr) and not re.search(sys.argv[1], pr, re.I) else "0"
 def clean(v):
     v = str(v or "")
     return "" if re.search("[\x00-\x1f\x7f]", v) else v
@@ -1060,7 +1060,7 @@ predict_text() { # $1 = used count, $2 = auto reason label (empty when explicit)
 predict_text_short() { # $1 = used count, $2 = auto reason label
   local nl=$'\n' k=$(($1 + 1)) plan=""
   [ "$perm_mode" = plan ] && plan=" You are in plan mode: record it as soon as plan mode ends, before any other edit."
-  printf '%s' "[agentic-contributor · tracked session] Predict mode is on${2:+ (auto: $2)} ($1/$predict_max used). Only if this prompt asks you to diagnose a problem or propose a plan for a code change and you have not asked yet: first ask ONE AskUserQuestion (header \"Predict\"; \"Where do you think the problem is?\" or \"Which files or parts do you expect need to change?\"; A) No idea — go ahead | B) Skip predictions for this session; guess under Other), no hints. Record predict:$k right after the answer, reveal with \"Your prediction vs. what I found\" (format: ${BASH_SOURCE[0]%/hooks/scripts/*}/skills/pr-preparation/references/decision-ledger.md section 15).${plan}${nl}The ledger is private: never copy it into any sendable text."
+  printf '%s' "[agentic-contributor · tracked session] Predict mode is on${2:+ (auto: $2)} ($1/$predict_max used). Only if this prompt asks you to diagnose a problem or propose a plan for a code change and you have not asked yet: first ask ONE AskUserQuestion (header \"Predict\"; \"Where do you think the problem is?\" or \"Which files or parts do you expect need to change?\"; A) No idea — go ahead | B) Skip predictions for this session; guess under Other), no hints. Record predict:$k right after the answer, reveal with \"Your prediction vs. what I found\" (format: ${BASH_SOURCE[0]%/hooks/scripts/*}/skills/pr-preparation/references/decision-ledger.md section 4, \"Predict entries\"; rules: section 15).${plan}${nl}The ledger is private: never copy it into any sendable text."
 }
 
 # ── UserPromptSubmit ─────────────────────────────────────────────────────────
@@ -1074,11 +1074,10 @@ auto_eval() {
   local out k v uc pu a_expl a_noidea
   a_expl=""; a_noidea=0; a_last=off
   out="$(awk '
-function lastid(l,   q, res, found) {
+function lastid(l,   q) {
   if (substr(l, length(l) - 3) != " -->") return ""
-  l = substr(l, 1, length(l) - 4); found = 0; res = ""
-  while ((q = index(l, " id=")) > 0) { l = substr(l, q + 4); res = l; found = 1 }
-  return found ? res : ""
+  l = substr(l, 1, length(l) - 4); q = index(l, " id=")
+  return q ? substr(l, q + 4) : ""
 }
 function tok(l, name,   q, r) {
   q = index(l, " " name "="); if (!q) return ""

@@ -416,10 +416,10 @@ while IFS="$tab" read -r expect profile event ptoken want || [ -n "${expect:-}" 
         elif [ "$(jqf '.decision // empty')" != "" ] || ! jqt --arg a "Predict mode is on ($pu used)" --arg n "id=$pn -->" '.hookSpecificOutput.hookEventName == "UserPromptSubmit" and (.hookSpecificOutput.additionalContext | contains($a) and contains($n) and contains("Only if this prompt asks you to diagnose") and contains("never copy it into any sendable text"))' > /dev/null 2>&1; then
           bad "$label expected predict context ($want), got: $out"; good=0; fi ;;
       predict-ctx-short)
-        # repeat note: no new p line, compact (text minus the reference path <= 600 bytes), keeps the gate
+        # repeat note: no new p line, compact (text minus the reference path <= 650 bytes), keeps the gate
         pn="${want#* }"
         if [ "$l_before" != "$l_after" ] || [ "$s_before" != "$s_after" ]; then bad "$label hook wrote to ledger/state"; good=0
-        elif ! jqt --arg n "$pn" --arg r "$plugin_root/skills/pr-preparation/references/decision-ledger.md" '.hookSpecificOutput.additionalContext | (length - ($r | length)) <= 600 and contains("Predict mode is on") and contains("Only if this prompt asks you to diagnose") and contains("Record " + $n + " right after the answer") and contains($r) and contains("never copy it into any sendable text")' > /dev/null 2>&1; then
+        elif ! jqt --arg n "$pn" --arg r "$plugin_root/skills/pr-preparation/references/decision-ledger.md" '.hookSpecificOutput.additionalContext | (length - ($r | length)) <= 650 and contains("section 4") and contains("Predict mode is on") and contains("Only if this prompt asks you to diagnose") and contains("Record " + $n + " right after the answer") and contains($r) and contains("never copy it into any sendable text")' > /dev/null 2>&1; then
           bad "$label expected the short predict note, got: $out"; good=0; fi ;;
       auto-ctx)
         # want: "<reason> <markers>"; markers = count of predict-auto markers after the run
