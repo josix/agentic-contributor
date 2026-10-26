@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Over-budget and loop-guard notices also set a top-level `systemMessage`, so the user sees them on Claude Code versions without PreToolUse `additionalContext` support.
 - The `.oss-drafts/` exclude step uses `git rev-parse --git-path info/exclude` instead of assuming `.git/info/exclude` (linked worktrees, submodules).
 - The session lookup and lock helpers are delimited `# --- shared: ... (keep identical in track-*.sh) ---` blocks in `track-checkpoint.sh`.
-- Harness: 81 cases (committed in-worktree pointer, `.git` file worktrees with relative and absolute `gitdir:`, injection text in `scope`/`api_paths`, control characters in `file_path`, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload); fixtures put the pointer in the git dir and run the hook from the fixture root.
+- Harness cases cover: committed in-worktree pointer, `.git` file worktrees with relative and absolute `gitdir:`, injection text in `scope`/`api_paths`, control characters in `file_path`, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload; fixtures put the pointer in the git dir and run the hook from the fixture root.
 - Comment-only lines no longer count as assertions or skips: `assert x` -> `# assert x`, `expect(a)` -> `// expect(a)` and `/* ... */` blocks now trigger the test-weakening checkpoint (Rust `#[test]` is still counted). Same logic on the jq and python3 paths.
 - The ledger auto-allow is append-only as documented: only an `Edit` that inserts one entry at `<!-- track:end -->` is allowed. Frontmatter edits (scope widening, `status: stopped`, `budget`) and rewrites of earlier entries now get Claude Code's normal permission prompt. A `decided`/`skipped` entry settles an id only if the hook asked about it (a pending line exists).
 - File paths are normalized (`//`, `./`, `..`) and compared against both logical and physical (`pwd -P`) repo roots: `src/../package.json` no longer gets a separate id and budget slot, paths outside the repo get no checkpoint, and a symlinked `$CLAUDE_PROJECT_DIR` works with real-path `file_path`s (and the reverse), including the ledger auto-allow.
@@ -43,7 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A stale ledger lock no longer costs every edit about 2.8 s: the holder writes its pid, a dead holder's lock is broken at once, and a pid-less lock is stale after 5 s (was 10 s).
 - The deny text and `decision-ledger.md` now say which `asked=` value to use: `asked=yes` when the user was asked, `status=skipped, asked=no` (does not use budget) when AskUserQuestion is unavailable.
 - README table matched to the hook: deny with one retry denied again and a context-only third attempt; budget spent gives no permission decision.
-- Harness: 115 checks, including a dead-holder and a live-holder lock, symlinked roots, and the python3 fallback for test-class counting and append detection.
+- Harness: 119 checks, including a dead-holder and a live-holder lock, symlinked roots, and the python3 fallback for test-class counting and append detection.
+- Track hook performance and ledger ids: assertions and skips are now counted in one linear per-line pass and only for test paths (a 1.2 MB non-test Write no longer pays for four quadratic counts); a payload or existing test file over 512 KiB skips the test-weakening check (fail open). A ledger id is everything after the first ` id=`, so a path such as `docs/x id=y.md` is no longer re-denied forever with an extra pending line each time.
+- `change-debrief` lists `git rev-parse --git-dir` among its local git reads.
 
 ### Notes
 
