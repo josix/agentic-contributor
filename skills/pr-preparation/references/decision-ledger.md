@@ -38,6 +38,8 @@ records prompts, transcripts, keystrokes, or file contents.
 plugin: agentic-contributor
 scenario: prepare-pr
 mode: track
+body_format: 2            # no send block exists, so nothing is sendable
+sendable: false           # private ledger: never send or lint, whatever body_format says
 repo: <owner/repo|local>
 item: <issueN|task>
 task: "<one line, user's words>"
@@ -124,18 +126,26 @@ Rules:
 
 - Write `decided_by: user…` only if the user actually answered. Never invent a user choice.
 - `Skip` means `status=skipped`, `reason: TODO(you)`. The debrief lists it under Unknowns.
-- No AskUserQuestion available (headless run, subagent): `status=skipped`, `chosen: none`,
-  `decided_by: agent`, `reason: non-interactive`.
+- You asked the user (AskUserQuestion): `asked=yes`, whatever they chose (including `Skip`).
+- No AskUserQuestion available (headless run, subagent): `status=skipped`, `asked=no`, `chosen: none`,
+  `decided_by: agent`, `reason: non-interactive`. `asked=no` means it does not use budget.
 - Dependency false positive (the edit changes no dependency, only scripts, version, or metadata):
   `status=not-applicable`, `chosen: not-a-dependency-change`, `decided_by: agent`, `asked=no`. It
   does not settle the id (a later real dependency change still gets a checkpoint), does not count
-  toward the budget (it also clears the id's pending line). The hook lets that one acknowledged edit through and appends a `<!-- track:consumed at=<UTC> id=<id> -->` marker; the next edit to the same id is checkpointed again. The debrief shows it under "Agent's
+  toward the budget (each not-applicable entry answers one pending line). The hook matches by
+  **count, not time**: an entry is an unused acknowledgement while the number of not-applicable
+  entries for the id (capped by its pending lines) exceeds the number of
+  `<!-- track:consumed at=<UTC> id=<id> -->` markers. It lets that one acknowledged edit through and
+  appends a consumed marker; the next edit to the same id is checkpointed again. `at=` is not
+  compared, so same-second entries and copied timestamps behave the same. A not-applicable entry
+  written before any pending line acknowledges nothing. **Cap:** after 3 acknowledged edits for one id
+  the hook stops asking: it appends `status=logged-over-budget source=hook asked=no reason=na-cap`
+  and lets the edit through (an Unknown in the debrief). The debrief shows acknowledged edits under "Agent's
   implicit decisions".
 - Manual entries ("log this decision"): `id=manual:<UTC>`, `source=manual`, `asked=no`, trigger
   `manual`, status `decided`.
 - `at=` is the current UTC time as `YYYY-MM-DDTHH:MM:SSZ` (take it from `date -u +%Y-%m-%dT%H:%M:%SZ`).
-  The hook drops fractional seconds. A missing, malformed or future `at=` is read as the oldest
-  possible time, so a bad timestamp can only cause an extra checkpoint, never a skipped one.
+  `at=` is for humans: the hook never compares it, so a wrong value cannot change a decision.
 
 ### Drift entries
 
@@ -195,8 +205,9 @@ blocks or PR text.
 
 The hook only ever appends with `>>` at end of file (one atomic line write, no read-modify-write).
 It holds a lock directory (`<ledger>.lock`) while it reads the ledger, checks the budget and appends,
-so parallel edits cannot spend the same budget slot. A lock older than 10 seconds is treated as stale;
-if the lock stays busy for about 2 seconds the hook gives up silently (fail open).
+so parallel edits cannot spend the same budget slot. The holder writes its pid to `<ledger>.lock/pid`;
+a lock whose pid is dead is stale and is broken at once, and a lock with no pid file is stale after
+5 seconds. If a live holder keeps the lock busy for about 2 seconds the hook gives up silently (fail open).
 These land below the anchor, which is harmless because readers parse by machine line, not position.
 
 ```
@@ -230,9 +241,12 @@ matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
   and **`id=<id> -->` is the final token**, so ids with spaces still match as a literal suffix. The
   hook matches with awk `index()` against `ENVIRON["TRACK_ID"]` (no regex metacharacters).
 - **settled(id)**: a `track:entry` line with `status=decided` or `status=skipped` and the suffix
-  ` id=<id> -->`.
+  ` id=<id> -->`, **and** at least one `track:pending` line for the same id (a hand-written entry
+  with no pending line settles nothing).
 - **over_logged(id)**: a `track:entry` line with `status=logged-over-budget` and that suffix.
-- **pending(id)**: count of `track:pending` lines with that suffix.
+- **pending(id)**: count of `track:pending` lines with that suffix, minus the count of
+  `status=not-applicable` entries for the id (never below 0).
+- **acknowledged(id)**: min(pending lines, not-applicable entries) > count of `track:consumed` markers.
 - **asked** = |distinct ids over pending lines| − |distinct ids with a `track:entry … asked=no`
   line that also have a pending line|.
 - **drift_n** = count of `^<!-- track:drift ` lines; **drift_asked** = those containing ` asked=yes `.
@@ -318,9 +332,16 @@ behaves like `*`). A trailing `/` means prefix. Comparison is against the repo-r
 
 So that a checkpoint costs one interruption (the question) and not two, the hook returns
 `permissionDecision: allow` for exactly one case: tool **Edit** (never Write, MultiEdit, or
-NotebookEdit) whose `file_path`, made absolute, equals the active ledger path read from the
-pointer, byte for byte. Paths containing a `..` segment, non-normalized forms, symlinked ledger or
-`.oss-drafts/`, pointers outside `.oss-drafts/track-*.md`, and every other path get no allow.
+NotebookEdit) that **appends**: `old_string` is `<!-- track:end -->` (optionally followed by a
+newline), `replace_all` is not set, and `new_string` ends with `old_string`, with a prefix that
+contains no `<!-- track:end -->`, `<!-- track:pending `, `<!-- track:consumed ` or ` source=hook`.
+The `file_path` must name the active ledger from the pointer (after the hook normalizes the path
+and compares logical and physical repository roots), and the raw `file_path` must not contain a
+`..`, `.` or empty segment. Every other edit of the ledger (frontmatter changes such as widening
+`scope:` or `status: stopped`, rewrites of earlier entries, Write, MultiEdit) gets no decision, so
+Claude Code's normal permission prompt applies: those changes stay possible but are never silent.
+Symlinked ledger or `.oss-drafts/`, pointers outside `.oss-drafts/track-*.md`, and every other
+path get no allow.
 
 ## 9. Deny reason template (addressed to Claude)
 
@@ -332,8 +353,8 @@ Checkpoint id: <id>
 
 Do this, then retry the same edit unchanged:
 1. Ask the user with AskUserQuestion: ONE question, "<question>", with 2-3 options. Each option gets a one-line trade-off. Put your recommendation first and mark it "(Recommended)". The last option is "Skip — decide later". Ask them to choose, not to approve or deny.
-2. Read <rel_ledger>, then use Edit to replace the line `<!-- track:end -->` with the entry (section 4) followed by `<!-- track:end -->`.
-3. If AskUserQuestion is unavailable: write the entry with status=skipped, chosen: none, decided_by: agent, reason: non-interactive.
+2. Read <rel_ledger>, then use Edit to replace the line `<!-- track:end -->` with the entry (section 4, `asked=yes`) followed by `<!-- track:end -->`.
+3. If AskUserQuestion is unavailable: write the entry with status=skipped, asked=no, chosen: none, decided_by: agent, reason: non-interactive (does not use budget).
 4. If the user's choice means not making this edit, do not retry. Follow their choice.
 Write "decided_by: user…" only if the user actually answered. The ledger is private: never copy it into any sendable text.
 ```
@@ -396,7 +417,7 @@ the "edits since the last `d`" throttle can be undercounted, which at most postp
 
 - **Events**: PostToolUse (throttled: a git check runs only when the edited path is new to the
   session's edit log, or after 5 edits since the last check) and Stop (once per turn end, which also
-  catches Bash-made changes). Inside a subagent (`agent_id` present) PostToolUse logs the edit but
+  catches Bash edits to tracked files; files created by Bash are not counted, because counting every untracked file would turn pre-existing scratch files into drift without a recorded baseline). Inside a subagent (`agent_id` present) PostToolUse logs the edit but
   defers the check to the main thread's Stop, without writing a `d` throttle line.
 - **Base moved**: before measuring, the hook checks `git merge-base --is-ancestor <base_commit>
   HEAD` and `git rev-list --merges <base_commit>..HEAD`. If the base is no longer an ancestor, or a
@@ -404,21 +425,32 @@ the "edits since the last `d`" throttle can be undercounted, which at most postp
   upstream changes as drift: drift and explain-back pause, `track:drift-paused` is written once, and
   the user is told "base moved — drift paused; restart tracking (/oss track stop + start) to
   re-baseline" (PostToolUse: `additionalContext` plus `systemMessage`; Stop: `systemMessage` only).
-  A fast-forward pull is not detected. An unknown base commit fails open (silent).
-- **Size**: changed lines = added + deleted from `git diff --numstat <base_commit>` (base vs working
-  tree) plus the line count of untracked files created with Edit/Write. Lock files count as files
-  but not lines; binary files count as files with 0 lines; `.oss-drafts/` is excluded. Thresholds
+  A fast-forward pull is not detected. If git works but the base commit no longer exists (garbage
+  collected, shallow clone) the pause reason is `base-missing` and the user is told "base commit not
+  found (garbage-collected or shallow clone) — drift and explain-back paused; restart tracking to
+  re-baseline". Any other git failure fails open (silent).
+- **Size**: changed lines = added + deleted from `git diff -M --numstat <base_commit>` (base vs
+  working tree, renames detected, so a pure rename is 0 lines) plus the line count of untracked text
+  files created with Edit/Write (capped at 20000 lines each; untracked binary or empty files, found
+  with one `grep -lI`, count as files with 0 lines and are never explain targets). Lock files count
+  as files but not lines; binary files count as files with 0 lines; `.oss-drafts/` is excluded.
+  Scope and module paths come from a second, rename-free diff so both sides of a rename are literal. Thresholds
   are strictly greater than `drift_lines` / `drift_files`.
 - **Modules**: changed paths outside `scope` that no checkpoint covers (covered(rel)), grouped by
-  the first two directory segments or `(root)`. Off when `scope: []`. Each module alerts once.
+  the first two directory segments or `(root)`. Off when `scope: []`. Each module alerts once. The
+  alert text lists at most 10 modules (`… (+N more)`); the marker keeps the full list.
 - **Delivery**: PostToolUse gives `hookSpecificOutput.additionalContext` (never a block, so the
   agent does not treat the edit as failed and revert). Stop gives `{"decision":"block"}`, and drift
-  takes precedence over explain-back at the same stop. If the agent ignores PostToolUse context,
+  takes precedence over explain-back at the same stop. **Spacing**: no new drift question is asked
+  in a turn that already had a checkpoint or drift question (PostToolUse defers; Stop skips the
+  drift check) when the question count exceeds the state `m` watermark. Stop advances `m` on every
+  stop that has a state file, even when explain-back is off. If the agent ignores PostToolUse context,
   `emit_post` can switch to a block (one-line change).
 - **Cap**: `drift_max` asked alerts; over the cap, or with `budget: 0`, the marker is written with
   `asked=no` (log only) and nothing is injected after the edit. At the next Stop the user gets one
   `systemMessage` summarising the new `asked=no` markers (counted against the state `s` line), and
-  the debrief lists them. The `track:drift` marker is the
+  the debrief lists them. That summary is user-facing: the agent does not see it, and with
+  `budget: 0` nothing is asked at all. The `track:drift` marker is the
   alerted state, so a missing Claude entry never causes a repeat. Simultaneous crossings are merged
   into one alert.
 - **Git safety**: every git call runs with `GIT_OPTIONAL_LOCKS=0 GIT_LITERAL_PATHSPECS=1 git -C
@@ -431,8 +463,9 @@ At Stop, when code edits happened since the last breakpoint, the hook blocks onc
 to put ONE skippable question about a specific `file:line` to the user and record the verbatim
 answer. All of these must hold: session active; not plan mode; `stop_hook_active` false;
 `budget>0` and `explain_max>0`; at least one edit since the last `b`; no checkpoint or drift
-question since the previous stop (the `m` watermark); the last assistant message does not end with
-`?`; bp_n < `explain_max`; now - bp_last >= `explain_interval_min` x 60; the non-interactive latch
+question since the previous stop (the `m` watermark); the last assistant message is not already asking
+(its last non-blank line, ignoring trailing markdown emphasis, quotes and brackets, ends in `?` or
+full-width `？`, or it ends in a list of options whose lead-in line does); bp_n < `explain_max`; now - bp_last >= `explain_interval_min` x 60; the non-interactive latch
 is not set for this `session_id`; a target exists. When a rate limit or deferral applies the edits
 are kept, so a later stop can still ask.
 

@@ -66,7 +66,8 @@ base commit. It raises **one alert** when the change crosses:
 - more than `drift_lines` changed lines (default 400), or more than `drift_files` files (default 10).
   Lock files count as files but not as lines; files the agent created count too.
 - a module (first two directory segments) outside `scope` that no checkpoint already covered. This
-  mostly catches changes made outside Edit, such as formatters, generators, or Bash.
+  mostly catches changes made outside Edit, such as formatters or generators, and Bash edits to
+  tracked files; files created by Bash are not counted.
 
 The agent is told to ask you what to do with the part that grew: **keep** it, **set it aside for a
 separate PR**, **drop** it, or **skip** (decide later). Your choice is recorded as `drift:<k>` in
@@ -196,7 +197,13 @@ worktree or submodule has its own git dir and so its own session.
   Git work runs only inside a session, throttled, and can take longer on huge repos.
 - After the drift question cap is spent, or with `budget: 0`, new drift (including each newly seen
   out-of-scope module) is recorded silently and summarised once at the end of the turn and in the
-  debrief, never injected after every edit.
+  debrief, never injected after every edit. The end-of-turn summary is a `systemMessage` shown to
+  you only; the agent does not see it. With `budget: 0` nothing is asked.
+- Binary and empty untracked files count as 0 lines, a pure rename counts as 0 lines, and an
+  untracked text file is counted up to 20 000 lines. If the base commit no longer exists (garbage
+  collected, or a shallow clone) drift and explain-back pause with a one-time "base commit not found"
+  notice; restart tracking to re-baseline. No drift question is asked in a turn that already asked
+  one; it waits for a later turn.
 - The "agent is already asking" check needs `last_assistant_message` in the Stop input, and the
   subagent deferral needs `agent_id` in the PostToolUse input. On a Claude Code version that does
   not send them, a breakpoint question may follow a question the agent just asked, and a

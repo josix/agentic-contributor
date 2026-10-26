@@ -88,7 +88,8 @@ body_format: 2
 | `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, `debrief`, or `task` (track ledgers) |
 | `generated_at` | ISO-8601 UTC timestamp |
 | `status` | Always `draft` — change to `sent` once the execution plugin posts it |
-| `body_format` | Draft tier, v0.4.0+: `2` means only the `oss:send` block is sendable. `private` (change debriefs) means nothing is sendable; consumers must refuse it. Absent or `1` means legacy (whole body sendable) |
+| `body_format` | Draft tier, v0.4.0+: `2` means only the `oss:send` block is sendable (zero send blocks = nothing sendable). Absent or `1` means legacy (whole body sendable) |
+| `sendable` | Only the private `prepare-pr` debrief file: `false` means never send, regardless of `body_format` |
 | `mode` | `review-reply`: `brief` (default) or `lint`. `prepare-pr`: `track`, `debrief`, `draft` (default), or `lint` |
 | `base`, `head`, `diff_stats` | v0.7.0+, `prepare-pr` only: the refs diffed and `{files, insertions, deletions}` |
 | `policy` | v0.5.0+, `find`, `norms`, and draft-tier scenarios: the project's detected AI-policy and contribution-limit block (see below) |
@@ -107,7 +108,7 @@ drafts and prompt for confirmation before acting on them.
 A tracked session (`/oss track`) writes a private ledger with its own frontmatter and an append-only
 list of decisions, plus the one-line pointer `"$(git rev-parse --git-dir)/agentic-contributor/track-active"` (in the
 git dir, never the worktree, so a cloned repository cannot ship an active session; tracked sessions
-require git). It has no send block and is
+require git). Its frontmatter carries `body_format: 2` and `sendable: false`; it has no send block and is
 never PR text. The full format (frontmatter, entries, hook-written lines, trigger classes) lives in
 `skills/pr-preparation/references/decision-ledger.md`; see
 [Tracked Sessions & Checkpoints](tracked-sessions.md) for how it is used.
@@ -157,6 +158,7 @@ Draft-tier files (`body_format: 2`) split sendable text from private notes:
 - A `TODO(you):` inside a send block means the text is not ready; the execution plugin must refuse to send while it remains (and lint reports it as AP8).
 - Files with several independent messages (one reply per review comment) use one marker pair per message.
 - Files with no `body_format`, or `1`, are legacy: the whole body is sendable.
+- `body_format: 2` with no send block means nothing is sendable; `sendable: false` means never send.
 - Report-tier files have no send block.
 
 This is a handoff contract with the execution plugin; see [Two-Plugin System](two-plugin-system.md).
@@ -179,7 +181,7 @@ draft), then shows verbatim:
 > **DRAFT — saved to `<path>`. Review and edit this file before sending.**
 > This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
 
-Then it asks you to review and modify the file before confirming. For `review-reply`, the chat shows the understanding brief and `TODO(you)` placeholders; you write the reply yourself in the send block. For `prepare-pr`, the send block is a problem-first scaffold whose Why, What changed, and Unknowns sections are `TODO(you)`; debrief mode writes a private file with no send block.
+Then it asks you to review and modify the file before confirming. For `review-reply`, the chat shows the understanding brief and `TODO(you)` placeholders; you write the reply yourself in the send block. For `prepare-pr`, the send block is a problem-first scaffold whose Why, What changed, and Unknowns sections are `TODO(you)`; debrief mode writes a private file with `body_format: 2`, `sendable: false` and no send block.
 
 ## Gitignore-Ensure Behavior
 
@@ -205,7 +207,7 @@ write to paths under `.oss-drafts/` in the user's working directory — never to
 The `PreToolUse` guardrail hook does **not** block Write tool calls — it matches only `Bash` and
 `mcp__plugin_agentic-contributor_github__*` tool calls. A separate advisory hook
 (`track-checkpoint.sh`, and from v0.9.0 `track-breakpoint.sh` on `PostToolUse`/`Stop`/`UserPromptSubmit`) does match Edit/Write, but only inside a tracked session, and it never acts
-on files in `.oss-drafts/` except to auto-allow an Edit of the active ledger. `/oss` gains `Edit` for
+on files in `.oss-drafts/` except to auto-allow an append-shaped Edit of the active ledger. `/oss` gains `Edit` for
 the ledger only. Therefore:
 
 - Local draft file writes cannot reach GitHub.
