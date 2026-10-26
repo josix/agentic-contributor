@@ -391,6 +391,13 @@ known-bypass	Bash	bash -c "git push origin main"
 known-bypass	Bash	g$(true)it push origin main
 known-bypass	Bash	$'\x67'it push origin main
 known-bypass	Bash	git --config-env alias.p=PUSHALIAS p
+# Indirect execution, persistent aliases, other forge CLIs (not planned):
+known-bypass	Bash	find . -exec git push \;
+known-bypass	Bash	echo push | xargs git
+known-bypass	Bash	git config alias.sync push; git sync origin main
+known-bypass	Bash	gh extension install owner/gh-poster
+known-bypass	Bash	hub pull-request -m x
+known-bypass	Bash	glab mr create --fill
 
 # ── v0.7.0 review-fix regressions (aliases, wrappers, subcommands, MCP, curl/wget, help) ──
 deny	Bash	gh pr new --title t --body b
@@ -457,3 +464,22 @@ deny	Bash	git push --help; git push origin main
 deny	Bash	wget --post-data=x https://example.com
 deny	Bash	wget --body-data=x https://example.com
 deny	Bash	wget --method=POST https://example.com
+
+# ── review-fix: env -S / --split-string ──
+deny	Bash	env -S "git push origin main"
+deny	Bash	env -S 'gh pr create --title t'
+deny	Bash	env --split-string='git push origin main'
+deny	Bash	env --split-string "git push"
+deny	Bash	env --sp='git push'
+deny	Bash	env -iS 'git push'
+deny	Bash	/usr/bin/env -S git push origin main
+allow	Bash	env -u SHELL git log
+allow	Bash	env -uSHELL git log
+allow	Bash	env -i git status
+allow	Bash	env -S 'make' && git status
+
+# ── review-fix: whole-word trigger per segment ──
+allow	Bash	cat > s.css <<'EOF'\n.a { height: 1px }\n.b { right: 0 }\nEOF\ngit status
+allow	Bash	ls ~/github/proj && echo right
+deny	Bash	echo height; git push
+deny	Bash	/usr/bin/git push && echo right
