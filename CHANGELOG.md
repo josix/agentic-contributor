@@ -86,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`contributor-readiness` skill** and an advisory, private readiness self-check in `claim` and `find`, based on Andrew Lamb's review-priority tiers. It reads only the user's own public data (open PRs vs the project's cap, merged PRs, account age, vouch status, whether they use the project), shows which login was used (request, then `contributor.github_login`, then the authenticated account), maps to a tier, and gives constructive "how to move up" steps. Appears only in Private notes, never in an `oss:send` block, never blocks a draft. "skip readiness" opts out.
 - `oss-researcher` scenario key `readiness` (dispatched in parallel with `oss-claim-analyst` in claim and with the normal fetch in find).
 - Frontmatter fields `readiness_login` and `readiness`.
-- Optional `contributor:` block (`github_login`, `uses`) and per-project `uses` in `config/targets.example.yaml` (local-only).
+- Optional local-only `contributor:` block (`github_login`, `uses`) in `config/targets.example.yaml`.
 - `find` favours track-record work: repro, triage, and review items, a work-type and track-record-value line per item, triage-labelled issues and review-requested PRs in the fetch, and a score boost for areas you use.
 
 ### Changed
