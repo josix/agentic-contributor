@@ -102,7 +102,7 @@ setup() { # $1 profile -> sets d root ledger pointer env_extra
   printf '{}\n' > "$root/notebooks/x.ipynb"
   printf 'def test_a():\n    assert 1\n    assert 2\n    assert 3\n' > "$root/tests/test_foo.py"
   case "$p" in
-    scoped) scope='["src/**"]' ;;
+    scoped | scoped-old) scope='["src/**"]' ;;
     api) api='["src/api/public.ts"]' ;;
     stopped) status=stopped ;;
     budget0) budget=0 ;;
@@ -204,7 +204,7 @@ setup() { # $1 profile -> sets d root ledger pointer env_extra
     head-ledger) # started detached (branch: HEAD): the branch check is off
       awk '{ sub(/^branch: main$/, "branch: HEAD") } 1' "$ledger" > "$ledger.new" && mv "$ledger.new" "$ledger"
       printf 'ref: refs/heads/other\n' > "$gitdir/HEAD" ;;
-    old-ptr) touch -t 202501010000 "$pointer" ;;
+    old-ptr | scoped-old) touch -t 202501010000 "$pointer" ;;
     old-ptr-noage) touch -t 202501010000 "$pointer"; env_extra="OSS_TRACK_MAX_AGE_HOURS=0" ;;
     old-ptr-biglimit) touch -t 202501010000 "$pointer"; env_extra="OSS_TRACK_MAX_AGE_HOURS=1000000" ;;
     plan) perm=plan ;;
