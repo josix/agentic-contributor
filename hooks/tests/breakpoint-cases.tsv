@@ -88,6 +88,8 @@ explain-block	hunk	StopM:Done. Tests pass.	-	src/app.js:40
 silent	untracked-binary	Post	src/logo.png	-
 explain-block	untracked-binary-text	Stop	-	src/new.js:1
 silent	renamed	Post	src/big2.js	-
+explain-block	renamed-edit	Stop	-	src/a.js:10
+consume	renamed	Stop	-	-
 # ── spacing: no drift alert in a turn that already asked ──
 silent	asked-this-turn	Post	src/app.js	-
 silent	asked-this-turn	Stop	-	-

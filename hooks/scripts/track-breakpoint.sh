@@ -822,7 +822,7 @@ post_tool_use() {
 
 # pick_target: sets t_rel t_line t_size from the files edited since the last breakpoint
 pick_target() { # $1 = newline list of edited rels
-  local rel cand="" tagged="" d p
+  local rel cand="" tagged="" cand_tagged="" d p
   local -a ca
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
@@ -834,20 +834,28 @@ pick_target() { # $1 = newline list of edited rels
   t_rel=""; t_line=""; t_size=""
   [ -n "$cand" ] || return 1
   ca=()
-  while IFS= read -r rel; do [ -n "$rel" ] && ca[${#ca[@]}]="$rel"; done <<< "$cand"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    ca[${#ca[@]}]="$rel"
+    cand_tagged="$cand_tagged"$'\001'"C"$'\t'"$rel"$'\n'
+  done <<< "$cand"
   [ "${#ca[@]}" -gt 0 ] || return 1
-  d="$(gitq diff --no-ext-diff --no-textconv --no-renames --no-color -U0 --src-prefix=a/ --dst-prefix=b/ "$base" -- "${ca[@]}" 2> /dev/null)" || return 1
+  # Rename-aware (-M) and not path-limited: a pathspec of only the new path hides the rename source,
+  # so a pure `git mv` would look entirely new. The candidates are filtered in awk instead.
+  d="$(gitq diff --no-ext-diff --no-textconv -M --no-color -U0 --src-prefix=a/ --dst-prefix=b/ "$base" -- 2> /dev/null)" || return 1
   untracked_scan "${ca[@]}"
   # binary and empty untracked files (tagged B) are never targets
   while IFS= read -r p; do
     case "$p" in $'\001'T$'\t'*) tagged="$tagged"$'\001'"U"$'\t'"${p#*$'\t'}"$'\n' ;; esac
   done <<< "$ut_tagged"
-  res="$(printf '%s\n%s\n' "$d" "$tagged" | TRACK_ROOT="$root" TRACK_TARGETS="$targets" awk "$AWK_DQ"'
+  res="$(printf '%s\n%s\n%s\n' "$cand_tagged" "$d" "$tagged" | TRACK_ROOT="$root" TRACK_TARGETS="$targets" awk "$AWK_DQ"'
 function enc(s) { gsub(/%/, "%25", s); gsub(/ /, "%20", s); gsub(/,/, "%2C", s); return s }
 function consider(rel, ln, sz) {
+  if (!(rel in iscand)) return
   if (rel ~ sprintf("[%c-%c%c]", 1, 31, 127)) return
   nh++; hr[nh] = rel; hl[nh] = ln; hs[nh] = sz
 }
+/^\001C\t/ { iscand[substr($0, 4)] = 1; next }
 /^\001U\t/ {
   p = substr($0, 4); f = ENVIRON["TRACK_ROOT"] "/" p; c = 0
   while (c < 20000 && (getline row < f) > 0) c++

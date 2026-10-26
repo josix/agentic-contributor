@@ -124,7 +124,7 @@ setup() { # $1 profile -> sets d root ledger pointer state evil env_extra perm
         git -c user.email=t@t -c user.name=t commit -q -m mine > /dev/null 2>&1
         git -c user.email=t@t -c user.name=t merge -q --no-ff -m merge up > /dev/null 2>&1
       ) ;;
-    renamed) # a 300-line file committed, then renamed in the working tree
+    renamed | renamed-edit) # a 300-line file committed, then renamed in the working tree
       (
         cd "$root" || exit 1
         gen_lines big 300 > src/big.js
@@ -210,6 +210,7 @@ setup() { # $1 profile -> sets d root ledger pointer state evil env_extra perm
       st_add 'e\tsrc/logo.png\n'
       [ "$p" = untracked-binary-text ] && { gen_lines new 25 > "$root/src/new.js"; st_add 'e\tsrc/new.js\n'; } ;;
     renamed) st_add 'e\tsrc/big2.js\n' ;;
+    renamed-edit) st_add 'e\tsrc/big2.js\n'; chg_range src/a.js 10 29; st_add 'e\tsrc/a.js\n' ;;
   esac
   case "$p" in
     asked-this-turn | asked-prev-turn | explain0-pending)
