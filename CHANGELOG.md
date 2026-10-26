@@ -77,14 +77,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Guard review fixes (gh aliases):** `gh` built-in aliases are canonicalised before the write check (`new` = `create`, `remove`/`rm` = `delete`, `cs` = `codespace`), so `gh pr new`, `gh secret remove`, and `gh cs create` are denied.
 - **Guard review fixes (wrappers):** more wrapper prefixes are looked through (`timeout`, `nice`, `ionice`, `stdbuf`, `setsid`, `caffeinate`, `doas`, `watch`, `unbuffer`, `flock`, `chrt`, `taskset`, `coproc`), and dashed git binaries (`/usr/libexec/git-core/git-push`, `git-send-email`) are treated as `git <cmd>`. `flock -c '…'` and `watch '…'` string commands are documented known bypasses.
 - **Guard review fixes (git):** `git subtree push`, `git lfs push`, and `git p4 submit` are denied.
-- **Guard review fixes (size cap):** a command over 256 KiB, or with more than 500 trigger segments, is denied instead of running into the hook timeout (which allowed it).
+- **Guard review fixes (size cap):** a command over 64 KiB, with more than 2000 shell separators (counted before parsing), or with more than 500 whole-word trigger segments is denied instead of running into the hook timeout (which allowed it). Any analysis still running after 10 seconds is denied too. Segments are gated on whole-word `gh`/`git`/`curl`/`wget`, so `height`/`right`/`github` no longer count toward the cap.
+- **Guard review fixes (env -S):** `env -S` / `--split-string` (any spelling) in a command that mentions gh/git/curl/wget is denied, since the guard cannot analyse the command string; `env -P` is skipped as an option with an argument.
+- **Known bypasses added:** `find -exec`, `xargs`, persistent git aliases, `gh` extensions, and `hub`/`glab` are documented as not planned.
 - **Guard review fixes (MCP):** the `*_read` suffix rule is replaced by the explicit `issue_read` and `pull_request_read`; `mark_all_notifications_read` and similar mutating tools are denied.
 - **Guard review fixes (curl/wget):** `curl --expand-<option>` (curl 8.3+) is normalised to the plain option. wget `-X`/`-d`/`-F`/`--data`/`--form` are no longer treated as mutation (they are exclude-dirs/debug/force-html); `--body-data`/`--body-file` are denied. `curl -G`/`--get` with `-d`/`--data*` (query parameters) is allowed.
 - **Guard review fixes (false positives):** help-only invocations of push-like commands and built-in gh groups (`git push --help`, `gh pr create --help`) are allowed.
 - **Private debrief is not sendable:** the debrief file now carries `body_format: 2` and `sendable: false`; contract text says `body_format: 2` with no send block means nothing is sendable and `sendable: false` means never send.
 - **issue-drafting** output uses `body_format: 2` with an `oss:send` block around the issue body, a trailing `## Private notes (not sent)`, and `TODO(you):` placeholders so unfilled drafts are refused.
 - **Routing:** new rule 6 disambiguates review-reply lint, prepare-pr lint, and engage; row 10 lists lint-mode phrases.
-- Guard tests: 360 to 424 cases (new regression rows plus size-cap checks).
+- Guard tests: 360 to 442 cases (new regression rows plus size-cap checks).
 
 ## [0.6.0] - 2026-10-21
 
