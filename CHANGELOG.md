@@ -49,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Separate caps: checkpoints 3 (unchanged), drift 2, explain-back 4. `budget: 0` is now quiet mode for the whole session (no checkpoint, drift, or explain questions; drift is still logged).
 - `change-debrief` and the `prepare-pr` scaffold use explain answers as the strongest Why evidence and turn skipped or unanswered drift and explain items into Unknowns and follow-ups. `/oss track status` and `/oss track stop` report the new counts; `stop` also deletes the state file.
 - `hooks/hooks.json` registers `PostToolUse` and `Stop`.
-- `track-checkpoint.sh` behaviour: with `budget: 0`, an edit that already has a pending marker is now logged as `logged-over-budget` (with the notice) instead of getting a retry/skip prompt, so quiet mode never asks. Its shared code sits in `# --- shared: <name> (keep identical in track-*.sh) ---` blocks (list cleaning, manifest map, glob match added to the v0.8.0 session lookup and lock helpers). Its harness gains a `budget0-pending` case (82/82).
+- `track-checkpoint.sh` behaviour: with `budget: 0`, an edit that already has a pending marker is now logged as `logged-over-budget` (with the notice) instead of getting a retry/skip prompt, so quiet mode never asks. Its shared code sits in `# --- shared: <name> (keep identical in track-*.sh) ---` blocks (list cleaning, manifest map, glob match added to the v0.8.0 session lookup and lock helpers). Its harness gains a `budget0-pending` case (125/125).
 
 ### Fixed
 
@@ -59,15 +59,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Inside a subagent, PostToolUse checks `agent_id` before writing the `d` throttle marker, so a subagent edit no longer postpones the main thread's next drift check.
 - Ported the v0.8.0 security fixes to `track-breakpoint.sh`: the git-dir session pointer (shared lookup block, checked before stdin is read; the `stop_hook_active` guard still runs before any parsing), control characters in `file_path`/`cwd` or other input fields fail open without writing, control characters in git-reported file names are replaced, and no ledger text is echoed (the drift source is shown as a fixed label, never the ledger's `drift_source` value).
 - `docs/reference/hooks.md` documents that `last_assistant_message` (Stop) and `agent_id` (PostToolUse in a subagent) need a Claude Code version that sends them, and what degrades without them.
-- Harness: 90 breakpoint checks (gitdir pointer fixtures run from the fixture root; committed in-worktree pointer, `.git`-file worktree, injection text in `scope`/`drift_source`, control characters in input, rebased and merged base, quiet-mode summary, state compaction, subagent `d` marker, a tracked path with a space in the explain target, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload); also pass with GNU `stat` on `PATH`. The byte-identity check uses the new block delimiters and also compares the set of shared block names.
+- Harness: new breakpoint checks (gitdir pointer fixtures run from the fixture root; committed in-worktree pointer, `.git`-file worktree, injection text in `scope`/`drift_source`, control characters in input, rebased and merged base, quiet-mode summary, state compaction, subagent `d` marker, a tracked path with a space in the explain target, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload); also pass with GNU `stat` on `PATH`. The byte-identity check uses the new block delimiters and also compares the set of shared block names.
 - Review fixes in `track-breakpoint.sh`: the drift loop runs without per-path forks (a 2000-file out-of-scope change takes about 1 s) and lists at most 10 modules in the alert text; the "agent is already asking" check recognises markdown-wrapped, full-width and option-list questions; untracked binary or empty files count as 0 lines and are never explain targets (text files are capped at 20000 lines); a pure rename counts as 0 lines; no drift question is asked in a turn that already asked one, and the question watermark advances on every stop; a base commit that was garbage-collected or is missing from a shallow clone pauses drift once with a clear notice (`reason=base-missing`) instead of failing silently.
 - Docs: `PostToolUse` drift context is never a block while `Stop` may hold the stop once; the quiet-drift summary is a user-facing `systemMessage` the agent does not see (and `budget: 0` asks nothing); files created by Bash are not counted (a documented limit, no longer contradicted).
-- Harness: 109 breakpoint checks (adds the asking forms, binary and renamed files, spacing, base-missing, and a 2000-path timing check).
+- Harness: 115 breakpoint checks (adds the asking forms, binary and renamed files, spacing, base-missing, and a 2000-path timing check).
 - The explain-back target (`pick_target`) is rename-aware like the drift totals: a pure `git mv` of an unchanged file contributes 0 lines and a rename with edits counts only the edited lines, so a renamed file is no longer picked as the "largest change" (single `-M` diff, candidates filtered in awk, no per-path forks).
+- Review fixes (PR #3): ledger appends of `track:drift` (also `track:drift-paused`) and `track:breakpoint` markers are no longer auto-allowed (hook-only markers); a Stop that holds for a drift question advances the `m` watermark first and always writes it (the state file is created if needed); Stop defers the drift question while the agent's last message already asks the user; a `logged-over-budget` entry no longer counts as covered, so out-of-scope files past the checkpoint budget can still raise module drift; no `git` call runs inside the ledger lock at Stop; the breakpoint ledger-id parser takes everything after the first ` id=` like `track-checkpoint.sh`. Docs: lock staleness, `--no-renames`/`-M`, `emit_json`, and who sees over-budget notes.
 
 ### Notes
 
-- Guard untouched (`guard-outbound.sh`, its harness and cases; 271/271). No scenario or skill count change.
+- Guard untouched (`guard-outbound.sh`, its harness and cases; 442/442). No scenario or skill count change.
 - Hooks never revert, stash, or edit code. Limits: Bash-created untracked files are not counted, `SubagentStop` is not covered, and `Stop` does not run on interrupt.
 
 ## [0.8.0] - 2026-10-24
@@ -100,7 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Over-budget and loop-guard notices also set a top-level `systemMessage`, so the user sees them on Claude Code versions without PreToolUse `additionalContext` support.
 - The `.oss-drafts/` exclude step uses `git rev-parse --git-path info/exclude` instead of assuming `.git/info/exclude` (linked worktrees, submodules).
 - The session lookup and lock helpers are delimited `# --- shared: ... (keep identical in track-*.sh) ---` blocks in `track-checkpoint.sh`.
-- Harness: 81 cases (committed in-worktree pointer, `.git` file worktrees with relative and absolute `gitdir:`, injection text in `scope`/`api_paths`, control characters in `file_path`, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload); fixtures put the pointer in the git dir and run the hook from the fixture root.
+- Harness cases cover: committed in-worktree pointer, `.git` file worktrees with relative and absolute `gitdir:`, injection text in `scope`/`api_paths`, control characters in `file_path`, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload; fixtures put the pointer in the git dir and run the hook from the fixture root.
 - Comment-only lines no longer count as assertions or skips: `assert x` -> `# assert x`, `expect(a)` -> `// expect(a)` and `/* ... */` blocks now trigger the test-weakening checkpoint (Rust `#[test]` is still counted). Same logic on the jq and python3 paths.
 - The ledger auto-allow is append-only as documented: only an `Edit` that inserts one entry at `<!-- track:end -->` is allowed. Frontmatter edits (scope widening, `status: stopped`, `budget`) and rewrites of earlier entries now get Claude Code's normal permission prompt. A `decided`/`skipped` entry settles an id only if the hook asked about it (a pending line exists).
 - File paths are normalized (`//`, `./`, `..`) and compared against both logical and physical (`pwd -P`) repo roots: `src/../package.json` no longer gets a separate id and budget slot, paths outside the repo get no checkpoint, and a symlinked `$CLAUDE_PROJECT_DIR` works with real-path `file_path`s (and the reverse), including the ledger auto-allow.
@@ -108,7 +109,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A stale ledger lock no longer costs every edit about 2.8 s: the holder writes its pid, a dead holder's lock is broken at once, and a pid-less lock is stale after 5 s (was 10 s).
 - The deny text and `decision-ledger.md` now say which `asked=` value to use: `asked=yes` when the user was asked, `status=skipped, asked=no` (does not use budget) when AskUserQuestion is unavailable.
 - README table matched to the hook: deny with one retry denied again and a context-only third attempt; budget spent gives no permission decision.
-- Harness: 115 checks, including a dead-holder and a live-holder lock, symlinked roots, and the python3 fallback for test-class counting and append detection.
+- Harness: 119 checks, including a dead-holder and a live-holder lock, symlinked roots, and the python3 fallback for test-class counting and append detection.
+- Track hook performance and ledger ids: assertions and skips are now counted in one linear per-line pass and only for test paths (a 1.2 MB non-test Write no longer pays for four quadratic counts); a payload or existing test file over 512 KiB skips the test-weakening check (fail open). A ledger id is everything after the first ` id=`, so a path such as `docs/x id=y.md` is no longer re-denied forever with an extra pending line each time.
+- `change-debrief` lists `git rev-parse --git-dir` among its local git reads.
 
 ### Notes
 
@@ -142,14 +145,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Guard review fixes (gh aliases):** `gh` built-in aliases are canonicalised before the write check (`new` = `create`, `remove`/`rm` = `delete`, `cs` = `codespace`), so `gh pr new`, `gh secret remove`, and `gh cs create` are denied.
 - **Guard review fixes (wrappers):** more wrapper prefixes are looked through (`timeout`, `nice`, `ionice`, `stdbuf`, `setsid`, `caffeinate`, `doas`, `watch`, `unbuffer`, `flock`, `chrt`, `taskset`, `coproc`), and dashed git binaries (`/usr/libexec/git-core/git-push`, `git-send-email`) are treated as `git <cmd>`. `flock -c '…'` and `watch '…'` string commands are documented known bypasses.
 - **Guard review fixes (git):** `git subtree push`, `git lfs push`, and `git p4 submit` are denied.
-- **Guard review fixes (size cap):** a command over 256 KiB, or with more than 500 trigger segments, is denied instead of running into the hook timeout (which allowed it).
+- **Guard review fixes (size cap):** a command over 64 KiB, with more than 2000 shell separators (counted before parsing), or with more than 500 whole-word trigger segments is denied instead of running into the hook timeout (which allowed it). Any analysis still running after 10 seconds is denied too. Segments are gated on whole-word `gh`/`git`/`curl`/`wget`, so `height`/`right`/`github` no longer count toward the cap.
+- **Guard review fixes (env -S):** `env -S` / `--split-string` (any spelling) in a command that mentions gh/git/curl/wget is denied, since the guard cannot analyse the command string; `env -P` is skipped as an option with an argument.
+- **Known bypasses added:** `find -exec`, `xargs`, persistent git aliases, `gh` extensions, and `hub`/`glab` are documented as not planned.
 - **Guard review fixes (MCP):** the `*_read` suffix rule is replaced by the explicit `issue_read` and `pull_request_read`; `mark_all_notifications_read` and similar mutating tools are denied.
 - **Guard review fixes (curl/wget):** `curl --expand-<option>` (curl 8.3+) is normalised to the plain option. wget `-X`/`-d`/`-F`/`--data`/`--form` are no longer treated as mutation (they are exclude-dirs/debug/force-html); `--body-data`/`--body-file` are denied. `curl -G`/`--get` with `-d`/`--data*` (query parameters) is allowed.
 - **Guard review fixes (false positives):** help-only invocations of push-like commands and built-in gh groups (`git push --help`, `gh pr create --help`) are allowed.
 - **Private debrief is not sendable:** the debrief file now carries `body_format: 2` and `sendable: false`; contract text says `body_format: 2` with no send block means nothing is sendable and `sendable: false` means never send.
 - **issue-drafting** output uses `body_format: 2` with an `oss:send` block around the issue body, a trailing `## Private notes (not sent)`, and `TODO(you):` placeholders so unfilled drafts are refused.
 - **Routing:** new rule 6 disambiguates review-reply lint, prepare-pr lint, and engage; row 10 lists lint-mode phrases.
-- Guard tests: 360 to 424 cases (new regression rows plus size-cap checks).
+- Guard tests: 360 to 442 cases (new regression rows plus size-cap checks).
 
 ## [0.6.0] - 2026-10-21
 

@@ -252,6 +252,8 @@ matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
 
 - A machine line is exactly one line. It starts with `<!-- track:entry ` or `<!-- track:pending `,
   and **`id=<id> -->` is the final token**, so ids with spaces still match as a literal suffix. The
+  id is everything after the **first** ` id=` up to the trailing ` -->`, so an id may itself contain
+  ` id=` or spaces (`docs/x id=y.md`); no attribute before `id=` may contain ` id=`. The
   hook matches with awk `index()` against `ENVIRON["TRACK_ID"]` (no regex metacharacters).
 - **settled(id)**: a `track:entry` line with `status=decided` or `status=skipped` and the suffix
   ` id=<id> -->`, **and** at least one `track:pending` line for the same id (a hand-written entry
@@ -271,7 +273,7 @@ matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
 - **latch(sid)**: a breakpoint line with `sid=<sid>` whose id also has a `track:entry` line with
   `source=breakpoint` containing ` reason=non-interactive ` and the suffix ` id=<id> -->`.
 - **covered(rel)**: a `track:entry` or `track:pending` line whose final id is
-  `<test|dependency|api|scope>:<rel>`.
+  `<test|dependency|api|scope>:<rel>`, except `status=logged-over-budget` entries (not asked).
 - **predict_n** = count of `track:entry` lines whose final id is `predict:<n>`. Next id =
   `predict:<predict_n+1>`.
 - **questions(q)** = (count of `track:pending` lines) + drift_asked + predict_n, used for the explain
@@ -318,6 +320,10 @@ basename like `test_*.py`, `*_test.(py|go|rb|exs|ex|dart)`, `*.test.*` / `*.spec
 Assertion tokens (jq/Oniguruma and python `re`, identical syntax):
 `\bassert[A-Za-z_]*\b|XCTAssert|\bexpect\s*\(|\b(?:it|test|describe|context)\s*\(|\bdef\s+test_|\bfunc\s+Test|#\[test\]|@Test\b|\bt\.(?:Error|Fatal)f?\s*\(|\brequire\.[A-Z][A-Za-z]*\s*\(`
 
+Assertions and skips are counted only for test paths, per line (a token never spans a newline), and
+only when the payload and the existing file are at most 512 KiB; above that the test-weakening check
+is skipped (fail open).
+
 Skip tokens:
 `@pytest\.mark\.(?:skip|xfail)|\b(?:xit|xdescribe|xtest)\s*\(|\.skip\s*\(|@Disabled\b|@Ignore\b|#\[ignore\]|\bt\.Skip|\bskipTest\b|unittest\.skip`
 
@@ -348,7 +354,8 @@ So that a checkpoint costs one interruption (the question) and not two, the hook
 `permissionDecision: allow` for exactly one case: tool **Edit** (never Write, MultiEdit, or
 NotebookEdit) that **appends**: `old_string` is `<!-- track:end -->` (optionally followed by a
 newline), `replace_all` is not set, and `new_string` ends with `old_string`, with a prefix that
-contains no `<!-- track:end -->`, `<!-- track:pending `, `<!-- track:consumed ` or ` source=hook`.
+contains no `<!-- track:end -->`, `<!-- track:pending `, `<!-- track:consumed `, `<!-- track:drift` (also
+`track:drift-paused`), `<!-- track:breakpoint` or ` source=hook`.
 The `file_path` must name the active ledger from the pointer (after the hook normalizes the path
 and compares logical and physical repository roots), and the raw `file_path` must not contain a
 `..`, `.` or empty segment. Every other edit of the ledger (frontmatter changes such as widening
@@ -450,16 +457,18 @@ the "edits since the last `d`" throttle can be undercounted, which at most postp
   as files but not lines; binary files count as files with 0 lines; `.oss-drafts/` is excluded.
   Scope and module paths come from a second, rename-free diff so both sides of a rename are literal. Thresholds
   are strictly greater than `drift_lines` / `drift_files`.
-- **Modules**: changed paths outside `scope` that no checkpoint covers (covered(rel)), grouped by
+- **Modules**: changed paths outside `scope` that no checkpoint covers (covered(rel); an over-budget log does not count), grouped by
   the first two directory segments or `(root)`. Off when `scope: []`. Each module alerts once. The
   alert text lists at most 10 modules (`… (+N more)`); the marker keeps the full list.
 - **Delivery**: PostToolUse gives `hookSpecificOutput.additionalContext` (never a block, so the
   agent does not treat the edit as failed and revert). Stop gives `{"decision":"block"}`, and drift
   takes precedence over explain-back at the same stop. **Spacing**: no new drift question is asked
   in a turn that already had a checkpoint or drift question (PostToolUse defers; Stop skips the
-  drift check) when the question count exceeds the state `m` watermark. Stop advances `m` on every
-  stop that has a state file, even when explain-back is off. If the agent ignores PostToolUse context,
-  `emit_post` can switch to a block (one-line change).
+  drift check) when the question count exceeds the state `m` watermark. Stop also defers the drift
+  check, without recording it, when the agent's last message already asks the user. Stop advances `m`
+  on every stop (the state file is created if needed), including one that holds for a drift question
+  (`m` is written before the block), even when explain-back is off. If the agent ignores PostToolUse
+  context, `emit_json post` can switch to a block (one-line change).
 - **Cap**: `drift_max` asked alerts; over the cap, or with `budget: 0`, the marker is written with
   `asked=no` (log only) and nothing is injected after the edit. At the next Stop the user gets one
   `systemMessage` summarising the new `asked=no` markers (counted against the state `s` line), and
@@ -468,7 +477,8 @@ the "edits since the last `d`" throttle can be undercounted, which at most postp
   alerted state, so a missing Claude entry never causes a repeat. Simultaneous crossings are merged
   into one alert.
 - **Git safety**: every git call runs with `GIT_OPTIONAL_LOCKS=0 GIT_LITERAL_PATHSPECS=1 git -C
-  <root> -c core.quotepath=off ... --no-ext-diff --no-renames`, and never inside the ledger lock.
+  <root> -c core.quotepath=off ... --no-ext-diff`, plus `--no-renames` (scope and module paths) or `-M` (size totals and the explain-back
+  target), and never inside the ledger lock.
   Hooks never revert, stash, reset, or edit code.
 
 ## 13. Explain-back at breakpoints
@@ -484,7 +494,7 @@ is not set for this `session_id`; a target exists. When a rate limit or deferral
 are kept, so a later stop can still ask.
 
 - **Target**: the largest hunk (max of old/new line count, from `git diff -U0`) among files edited
-  since the last breakpoint, excluding dependency files, covered files, and `.oss-drafts/`;
+  since the last breakpoint, excluding dependency files, covered files (an over-budget log does not cover), and `.oss-drafts/`;
   untracked created files count as one hunk at line 1. Files no earlier question targeted are
   preferred. With no target the hook appends `b<TAB>none` and stays silent.
 - **Loop safety**: (1) `stop_hook_active:true` exits before any work; (2) the ledger marker and

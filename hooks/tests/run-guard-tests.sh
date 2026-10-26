@@ -82,13 +82,13 @@ run_guard_file() { # $1 = file holding the command; sets rc and elapsed seconds
   elapsed=$(( $(date +%s) - t0 ))
 }
 
-# 2500 harmless git segments then a mutating gh api: must be denied, quickly.
+# 2500 harmless git segments (denied by the separator cap) then a mutating gh api: must be denied, quickly.
 awk 'BEGIN { for (i = 0; i < 2500; i++) print "git status"; print "gh api -X POST repos/o/r/issues" }' > "$tmpd/big.txt"
 run_guard_file "$tmpd/big.txt"
-if [ "$rc" -eq 2 ] && [ "$elapsed" -le 25 ]; then
+if [ "$rc" -eq 2 ] && [ "$elapsed" -le 12 ]; then
   pass=$((pass + 1))
 else
-  fail=$((fail + 1)); printf 'FAIL big command: expected rc 2 within 25s, got rc %d in %ds\n' "$rc" "$elapsed"
+  fail=$((fail + 1)); printf 'FAIL big command: expected rc 2 within 12s, got rc %d in %ds\n' "$rc" "$elapsed"
 fi
 
 # A 400-line git script must still be allowed.
@@ -98,6 +98,33 @@ if [ "$rc" -eq 0 ]; then
   pass=$((pass + 1)); printf 'info: 400-line git script allowed in %ds\n' "$elapsed"
 else
   fail=$((fail + 1)); printf 'FAIL 400-line git script: expected rc 0, got rc %d\n' "$rc"
+fi
+
+# One huge quoted argument then a mutating call: byte cap, no quadratic work.
+awk 'BEGIN { printf "git commit -m \""; for (i = 0; i < 70000; i++) printf "x"; print "\"; gh api -X POST repos/o/r/issues" }' > "$tmpd/size1.txt"
+run_guard_file "$tmpd/size1.txt"
+if [ "$rc" -eq 2 ] && [ "$elapsed" -le 5 ]; then
+  pass=$((pass + 1)); printf 'info: 70 KB single segment denied in %ds\n' "$elapsed"
+else
+  fail=$((fail + 1)); printf 'FAIL size-1: expected rc 2 within 5s, got rc %d in %ds\n' "$rc" "$elapsed"
+fi
+
+# Many tiny segments: separator cap denies before any regex/awk work.
+awk 'BEGIN { for (i = 0; i < 2500; i++) printf "a;"; print "gh api -X POST repos/o/r/issues" }' > "$tmpd/size2.txt"
+run_guard_file "$tmpd/size2.txt"
+if [ "$rc" -eq 2 ] && [ "$elapsed" -le 5 ]; then
+  pass=$((pass + 1)); printf 'info: 2500-separator command denied in %ds\n' "$elapsed"
+else
+  fail=$((fail + 1)); printf 'FAIL size-2: expected rc 2 within 5s, got rc %d in %ds\n' "$rc" "$elapsed"
+fi
+
+# A css heredoc (height/right contain "gh") must not hit the trigger-segment cap.
+awk 'BEGIN { print "cat > style.css <<'"'"'EOF'"'"'"; for (i = 0; i < 600; i++) print ".c" i " { height: 10px }"; print "EOF" }' > "$tmpd/size3.txt"
+run_guard_file "$tmpd/size3.txt"
+if [ "$rc" -eq 0 ] && [ "$elapsed" -le 10 ]; then
+  pass=$((pass + 1)); printf 'info: 600-line css heredoc allowed in %ds\n' "$elapsed"
+else
+  fail=$((fail + 1)); printf 'FAIL size-3: expected rc 0 within 10s, got rc %d in %ds\n' "$rc" "$elapsed"
 fi
 
 total=$((pass + fail))

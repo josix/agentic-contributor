@@ -389,10 +389,20 @@ check_gh_api() {
 NORM_RM=$'\001'
 GIT_INLINE_ALIAS=""
 # Fail closed on huge inputs instead of hitting the hook timeout (fail-open).
-GUARD_MAX_BYTES=262144
+# The hook timeout (30 s) allows the command, so every cap below must trip well
+# before it: byte size, separator count (upper bound on segments), trigger
+# segments, and a wall-clock deadline measured with bash $SECONDS.
+GUARD_MAX_BYTES=65536
+GUARD_MAX_SEPS=2000
 GUARD_MAX_SEGS=500
+GUARD_DEADLINE_SECS=10
 seg_checked=0
-GUARD_TOO_BIG_MSG="command too large to analyse safely; split it into smaller commands"
+GUARD_TOO_BIG_MSG="command too large to analyse safely; split it into smaller commands (or write a script with the Write tool and run it)"
+
+guard_deadline() {
+  [[ $SECONDS -ge $GUARD_DEADLINE_SECS ]] && deny "$GUARD_TOO_BIG_MSG"
+  return 0
+}
 
 # True when redirection token $1 carries no target of its own (target is next word).
 rd_is_bare() {
@@ -414,12 +424,44 @@ nt_skip_rd() {
   done
 }
 
+# env option word $1: true when it is --split-string (any unambiguous
+# abbreviation, with or without =value) or a short bundle containing S.
+# u/C/P take an argument (rest of the word or the next word): stop walking.
+env_opt_split_string() {
+  local o="$1" rest c
+  case "$o" in
+    --s*) return 0 ;;
+    --*) return 1 ;;
+  esac
+  rest="${o#-}"
+  while [[ -n "$rest" ]]; do
+    c="${rest:0:1}"; rest="${rest:1}"
+    case "$c" in
+      S) return 0 ;;
+      u|C|P) return 1 ;;
+    esac
+  done
+  return 1
+}
+
+# True when short-option bundle $1 ends in an option whose argument is the next word.
+env_opt_takes_arg() {
+  local rest="${1#-}" c
+  while [[ -n "$rest" ]]; do
+    c="${rest:0:1}"; rest="${rest:1}"
+    case "$c" in
+      u|C|P) [[ -z "$rest" ]]; return ;;
+    esac
+  done
+  return 1
+}
+
 # Skip the options of wrapper $1 (env, sudo, xargs, ...) starting at p, then the
 # wrapper's leading positional word where it has one (timeout DURATION, ...).
 nt_skip_wrapper_opts() {
   local argopts="" o posskip=0
   case "$1" in
-    env) argopts=" -u -C -S --unset --chdir --split-string " ;;
+    env) argopts=" -u -C -P --unset --chdir " ;;
     exec) argopts=" -a " ;;
     time) argopts=" -f -o --format --output " ;;
     sudo) argopts=" -u -g -h -p -C -D -r -t -U -R -T --user --group --host --prompt --close-from --chdir --role --type --other-user --chroot " ;;
@@ -441,6 +483,10 @@ nt_skip_wrapper_opts() {
     if [[ "$o" == "--" ]]; then p=$((p + 1)); break; fi
     [[ "$o" == -?* ]] || break
     p=$((p + 1))
+    if [[ "$1" == env ]]; then
+      env_opt_split_string "$o" && deny "env -S/--split-string (command string the guard cannot analyse): $seg"
+      case "$o" in --*) ;; -*) env_opt_takes_arg "$o" && p=$((p + 1)) ; continue ;; esac
+    fi
     if [[ "$argopts" == *" $o "* ]]; then p=$((p + 1)); fi
   done
   if [[ $posskip -eq 1 ]]; then
@@ -677,13 +723,21 @@ check_norm_rules() {
 # Returns 0 when the text MAY contain a trigger (slow path required).
 # $2 = "big": delete with one tr fork (bash 3.2 ${x//pat/} is quadratic on
 # long multi-line text); otherwise pure bash (short single-line segments).
+# $2 = "word": per-segment mode; also requires gh/git/curl/wget as a whole word
+# (a deny rule needs the command word, so `height`/`github` cannot match).
+TRIG_WORD_RE='(^|[^[:alnum:]_])([gG][hH]|[gG][iI][tT]|[cC][uU][rR][lL]|[wW][gG][eE][tT])([^[:alnum:]_]|$)'
 has_trigger() {
-  local t="$1"
-  if [[ "${2:-}" == big ]]; then
+  local t="$1" mode="${2:-}"
+  [[ "$mode" == word && ${#t} -gt 4096 ]] && mode=bigword
+  if [[ "$mode" == big || "$mode" == bigword ]]; then
     t="$(printf '%s' "$t" | tr -d "\"'\\\\\n\r")" || return 0
   else
     t="${t//\"/}"; t="${t//\'/}"; t="${t//\\/}"
     t="${t//$'\n'/}"; t="${t//$'\r'/}"
+  fi
+  if [[ "$mode" == word || "$mode" == bigword ]]; then
+    [[ "$t" =~ $TRIG_WORD_RE ]]
+    return
   fi
   case "$t" in
     *[gG][hH]*|*[gG][iI][tT]*|*[cC][uU][rR][lL]*|*[wW][gG][eE][tT]*) return 0 ;;
@@ -694,9 +748,10 @@ has_trigger() {
 # Raw (original) and normalized checks for one segment.
 check_segment() {
   local seg="$1" full="$2"
-  # Per-segment fast path: no trigger word -> no rule can deny this segment
+  guard_deadline
+  # Per-segment fast path: no whole-word trigger -> no rule can deny this segment
   # (substitution bodies are walked separately by check_cmd_text).
-  has_trigger "$seg" || return 0
+  has_trigger "$seg" word || return 0
   seg_checked=$((seg_checked + 1))
   [[ $seg_checked -gt $GUARD_MAX_SEGS ]] && deny "$GUARD_TOO_BIG_MSG"
   check_gh_api "$seg" "$full"
@@ -740,6 +795,11 @@ if [[ "$tool_name" == "Bash" ]]; then
   fi
 
   [[ ${#stripped} -gt $GUARD_MAX_BYTES ]] && deny "$GUARD_TOO_BIG_MSG"
+
+  # Separator count bounds the segment count before any regex/awk work.
+  seps="$(printf '%s' "$stripped" | tr -cd ';|&()`\n' | wc -c)" || seps=0
+  seps="${seps//[[:space:]]/}"
+  [[ "${seps:-0}" -gt $GUARD_MAX_SEPS ]] && deny "$GUARD_TOO_BIG_MSG"
 
   # Help-only invocations never mutate: `git <push> --help`, `gh pr create --help`.
   # Restricted to built-in gh groups (a gh shell alias given --help would run).
@@ -793,11 +853,13 @@ if [[ "$tool_name" == "Bash" ]]; then
   # substitution body the same way. Segmenter failure fails closed.
   # The same walk also runs the normalized-segment rules (wrappers, path-qualified
   # binaries, git/gh global options) for git, gh, curl and wget.
+  guard_deadline
   if ! check_cmd_text "$stripped" "$stripped" &&
      [[ "$stripped" =~ (^|[^[:alnum:]_.-])(gh|git|curl|wget)[[:space:]] ]]; then
     deny "command could not be analysed: $command_str"
   fi
 
+  guard_deadline
   # curl with mutating methods or data payloads
   if [[ "$stripped" =~ $SEP'curl'[[:space:]] ]]; then
     if [[ "$stripped" =~ [[:space:]]-X[[:space:]]*(POST|PUT|PATCH|DELETE) ]] || \

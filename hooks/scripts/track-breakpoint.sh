@@ -459,11 +459,11 @@ ledger_state() {
   pend_n=0; drift_n=0; drift_asked=0; drift_logged=0; paused=0; bp_n=0; bp_last=0; latch=0; predict_n=0
   alerted_c=","; alerted_m=","; covered=$'\n'; targets="|"
   out="$(TRACK_SID="$sid" TRACK_NOW_S="$now_s" awk '
-function lastid(l,   q, res, found) {
+# The id is everything after the FIRST " id=": the id itself may contain " id=" (e.g. a path).
+function lastid(l,   q) {
   if (substr(l, length(l) - 3) != " -->") return "\001"
-  l = substr(l, 1, length(l) - 4); found = 0; res = ""
-  while ((q = index(l, " id=")) > 0) { l = substr(l, q + 4); res = l; found = 1 }
-  return found ? res : "\001"
+  l = substr(l, 1, length(l) - 4); q = index(l, " id=")
+  return q ? substr(l, q + 4) : "\001"
 }
 function tok(l, name,   q, r) {
   q = index(l, " " name "="); if (!q) return ""
@@ -472,7 +472,7 @@ function tok(l, name,   q, r) {
 function mark_cov(i) { if (i ~ /^(test|dependency|api|scope):/) cov[substr(i, index(i, ":") + 1)] = 1 }
 /^<!-- track:pending / { pend++; mark_cov(lastid($0)) }
 /^<!-- track:entry / {
-  i = lastid($0); mark_cov(i)
+  i = lastid($0); if (!index($0, " status=logged-over-budget ")) mark_cov(i)
   if (index($0, " source=breakpoint ") && index($0, " reason=non-interactive ")) ni[i] = 1
   if (i ~ /^predict:/) pn++
 }
@@ -966,7 +966,7 @@ finish() {
 }
 
 stop_event() {
-  local edited q_mark s_mark n_lines q_now k had_state why
+  local edited edited0 bp0 q_mark s_mark n_lines q_now k had_state why
   sys_note=""
   read -r now_utc now_s <<< "$(date -u '+%Y-%m-%dT%H:%M:%SZ %s' 2> /dev/null)"
   [ -n "$now_utc" ] || exit 0
@@ -991,8 +991,11 @@ stop_event() {
       if [ "$base_rc" = 1 ]; then sys_note="$PAUSE_MSG"; else sys_note="$MISSING_MSG"; fi
     fi
     ledger_state || exit 0
-  elif [ "$base_rc" = 0 ] && [ "$paused" -eq 0 ] && drift_enabled && drift_eval && [ -n "$d_new_c$d_new_m" ]; then
+  elif [ "$base_rc" = 0 ] && [ "$paused" -eq 0 ] && [ "$asking" != 1 ] && drift_enabled && drift_eval && [ -n "$d_new_c$d_new_m" ]; then
     if record_drift && [ "$rd_asked" = yes ]; then
+      # advance the question watermark before blocking, or the next Stop sees this question as new
+      ledger_state || exit 0
+      printf 'm\t%s\n' "$((pend_n + drift_asked + predict_n))" >> "$state" 2> /dev/null
       emit_json stop "$(drift_text stop "$rd_alert" "$rd_k")"
     fi
     ledger_state || exit 0
@@ -1001,9 +1004,7 @@ stop_event() {
   # (b) explain-back. The question watermark advances on every stop that has a state file, even
   # when explain-back itself is off, so Post's spacing check stays current.
   q_now=$((pend_n + drift_asked + predict_n))
-  if [ "$had_state" -eq 1 ]; then
-    printf 'm\t%s\n' "$q_now" >> "$state" 2> /dev/null || finish
-  fi
+  printf 'm\t%s\n' "$q_now" >> "$state" 2> /dev/null || finish
   # drift recorded without asking (cap spent or quiet mode) is summarised here, once per new item;
   # it is a user-facing systemMessage the agent does not see
   if [ "$drift_logged" -gt "$s_mark" ]; then
@@ -1023,6 +1024,7 @@ stop_event() {
     printf 'b\tnone\n' >> "$state" 2> /dev/null
     finish
   fi
+  edited0="$edited"; bp0=$bp_n
   take_lock
   read -r now_utc now_s <<< "$(date -u '+%Y-%m-%dT%H:%M:%SZ %s' 2> /dev/null)"
   [ -n "$now_utc" ] || finish
@@ -1033,9 +1035,12 @@ stop_event() {
   # revalidate under the lock: a concurrent Stop may have consumed the edits or targeted this spot
   read_edits || finish
   [ -n "$edited" ] || finish
+  # no git under the lock: the target picked above stands if nothing changed meanwhile (a concurrent
+  # breakpoint bumps bp_n and appends a b line, which changes edited)
+  [ "$edited" = "$edited0" ] || finish
+  [ "$bp_n" -eq "$bp0" ] || finish
   q_now=$((pend_n + drift_asked + predict_n))
   [ "$q_now" -gt "$q_mark" ] && finish # a checkpoint/drift question landed after the first check
-  pick_target "$edited" || finish
   k=$((bp_n + 1))
   printf '%s\n%s\n' \
     "<!-- track:breakpoint at=$now_utc epoch=$now_s sid=$sid target=$(enc "$t_rel"):$t_line id=explain:$k -->" \

@@ -22,6 +22,7 @@ drift-ctx	manifest-drift	Post	src/new.js	1 modules=(root)
 explain-block	plus-hunk	Stop	-	src/app.js:60
 drift-ctx	scoped-docs	Post	src/new.js	1 modules=docs
 silent	scoped-docs-covered	Post	src/new.js	-
+drift-ctx	scoped-docs-overbudget	Post	src/new.js	1 modules=docs
 silent	scope-empty-docs	Post	src/new.js	-
 drift-quiet	drift-capped	Post	src/x.js	3 crossed=files
 drift-quiet	budget0-big	Post	src/app.js	1 crossed=lines
@@ -134,6 +135,7 @@ silent	hunk	StopM:**Shall I proceed?**	-	-
 silent	hunk	StopM:要继续吗？	-	-
 silent	hunk	StopM:Which option?\n\n1. Keep\n2. Drop	-	-
 silent	hunk	StopM:Pick one?\n- A) x\n- B) y	-	-
+silent	edits-big	StopQ	-	-
 explain-block	hunk	StopM:Done. Tests pass.	-	src/app.js:40
 # ── binary / large untracked files, renames ──
 silent	untracked-binary	Post	src/logo.png	-

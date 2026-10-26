@@ -317,6 +317,21 @@ else
   bad "(a) path with space: expected deny, got: $out"
 fi
 
+# (a2) an id containing " id=" is matched on the first " id=": deny, then silent after a decided entry,
+#      with exactly one pending line (the last-" id=" parse used to re-deny and re-append forever).
+setup scoped
+printf 'x\n' > "$root/docs/x id=y.md"
+json="$(build_json Edit "$root/docs/x id=y.md" a b)"
+run_hook "$json"
+if [ "$(decision_of)" = deny ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("Checkpoint id: scope:docs/x id=y.md")' > /dev/null 2>&1; then
+  entry decided yes "scope:docs/x id=y.md"
+  run_hook "$json"
+  npend="$(grep -c '^<!-- track:pending ' "$ledger")"
+  { [ -z "$out" ] && [ "$npend" -eq 1 ]; } && ok || bad "(a2) id with ' id=': expected silent + 1 pending line, got pending=$npend out: $out"
+else
+  bad "(a2) id with ' id=': expected deny, got: $out"
+fi
+
 # (b) latency of the no-session fast path (informational; warns above 20 ms).
 setup none
 json="$(build_json Edit "$root/package.json" a b)"
@@ -349,6 +364,8 @@ if PATH="$nojq_path" command -v python3 > /dev/null 2>&1 && ! PATH="$nojq_path" 
   }
   decision="$(py_decision "$(build_json Edit "$ledger" '<!-- track:end -->' $'x\n<!-- track:end -->')")"
   [ "$decision" = allow ] && ok || bad "(c) python3 fallback expected allow-ledger, got: $decision"
+  decision="$(py_decision "$(build_json Edit "$ledger" '<!-- track:end -->' $'<!-- track:drift at=x lines=1 files=1 crossed=lines modules=- asked=yes id=drift:9 -->\n<!-- track:end -->')")"
+  [ "$decision" = silent ] && ok || bad "(c) python3 fallback expected silent for a drift-marker append, got: $decision"
   decision="$(py_decision "$(build_json Edit "$ledger" a b)")"
   [ "$decision" = silent ] && ok || bad "(c) python3 fallback expected silent for non-append ledger edit, got: $decision"
   # test-class counting under python: commented-out assert, plain assert drop, Write over an existing test file
@@ -427,6 +444,34 @@ json="$(build_json Edit "$root/package.json" a b)"
 run_hook "$json"
 printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("status=skipped, asked=no") and contains("does not use budget")' > /dev/null 2>&1 \
   && ok || bad "(h) deny text should specify asked=no for non-interactive skips, got: $out"
+
+# (i) counting is only for test paths and linear: a 1.2 MB Write to a non-test file in an active
+#     session is silent and fast; over-cap payloads on a test path fail open; a big payload under the
+#     cap still counts (more asserts -> silent) in bounded time.
+TIMEFORMAT=%R
+setup active
+awk 'BEGIN { for (i = 0; i < 20000; i++) print "const value_" i " = compute(" i ", \"some plain content here\");" }' > "$d/gen.txt"
+jq -n --rawfile c "$d/gen.txt" --arg cwd "$root" --arg p "$root/src/gen.js" \
+  '{tool_name:"Write",cwd:$cwd,tool_input:{file_path:$p,content:$c}}' > "$d/gen.json"
+secs="$( { time (cd "$root" && env CLAUDE_PROJECT_DIR="$root" "$runner" "$hook" < "$d/gen.json" > "$d/gen.out" 2> /dev/null) ; } 2>&1 )"
+echo "info: (i) 1.2 MB non-test Write took ${secs} s ($(wc -c < "$d/gen.json" | tr -d ' ') bytes)"
+{ [ ! -s "$d/gen.out" ] && awk -v s="$secs" 'BEGIN { exit !(s < 2) }'; } && ok || bad "(i) non-test 1.2 MB Write: expected silent in <2 s, took ${secs} s, out: $(cat "$d/gen.out")"
+
+setup active
+awk 'BEGIN { for (i = 0; i < 20000; i++) print "plain filler line number " i " with no checks in it" }' > "$d/new.txt"
+jq -n --rawfile n "$d/new.txt" --arg cwd "$root" --arg p "$root/tests/test_foo.py" \
+  '{tool_name:"Edit",cwd:$cwd,tool_input:{file_path:$p,old_string:"assert 1",new_string:$n}}' > "$d/over.json"
+secs="$( { time (cd "$root" && env CLAUDE_PROJECT_DIR="$root" "$runner" "$hook" < "$d/over.json" > "$d/over.out" 2> /dev/null) ; } 2>&1 )"
+echo "info: (i2) over-cap test Edit ($(wc -c < "$d/over.json" | tr -d ' ') bytes) took ${secs} s"
+{ [ ! -s "$d/over.out" ] && awk -v s="$secs" 'BEGIN { exit !(s < 2) }'; } && ok || bad "(i2) over-cap test Edit: expected silent (fail open) in <2 s, took ${secs} s, out: $(cat "$d/over.out")"
+
+setup active
+awk 'BEGIN { for (i = 0; i < 20000; i++) print "assert x" }' > "$d/new.txt"
+jq -n --rawfile n "$d/new.txt" --arg cwd "$root" --arg p "$root/tests/test_foo.py" \
+  '{tool_name:"Edit",cwd:$cwd,tool_input:{file_path:$p,old_string:"assert 1",new_string:$n}}' > "$d/under.json"
+secs="$( { time (cd "$root" && env CLAUDE_PROJECT_DIR="$root" "$runner" "$hook" < "$d/under.json" > "$d/under.out" 2> /dev/null) ; } 2>&1 )"
+echo "info: (i3) under-cap test Edit with 20000 asserts took ${secs} s"
+{ [ ! -s "$d/under.out" ] && awk -v s="$secs" 'BEGIN { exit !(s < 2) }'; } && ok || bad "(i3) under-cap test Edit adding asserts: expected silent in <2 s, took ${secs} s, out: $(cat "$d/under.out")"
 
 total=$((pass + fail))
 echo "track tests ($runner): $pass/$total passed"
