@@ -247,7 +247,7 @@ command -v python3 > /dev/null 2>&1 && have_py=1
 # option list whose lead-in line does (the last 40 non-blank lines are examined).
 # last_assistant_message (Stop) and agent_id (PostToolUse in a subagent) need a Claude Code version
 # that sends them; without them the "already asking" and subagent checks simply never fire.
-KW_RE='bug|fail|error|crash|broken|wrong|why|fix|plan|approach|design|implement|refactor|debug|problem|issue|slow|leak|panic|exception|hang|flaky|stuck|timeout|broke'
+KW_RE='bug|fail|error|crash|broken|wrong|why|fix|plan|approach|design|implement|refactor|debug|problem|issue|slow|leak|panic|exception|hangs|hanging|hung|flaky|stuck|timeout|broke'
 parse_input() {
   if [ "$have_jq" -eq 1 ]; then
     printf '%s' "$input" | jq -r --arg kw "$KW_RE" '
