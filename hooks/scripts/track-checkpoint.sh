@@ -126,6 +126,32 @@ trk_relpath() { # $1 absolute path -> trk_rel
 }
 # --- end shared ---
 
+# --- shared: pause check (keep identical in track-*.sh) ---
+# A session belongs to a repository, not to one Claude Code session, so it only acts while it
+# plausibly belongs to the current work. trk_pause_check "<ledger branch>" sets trk_paused to
+# "branch" when HEAD is not on that branch (not checked when it is empty or HEAD, i.e. started
+# detached), "age" when the pointer was written more than OSS_TRACK_MAX_AGE_HOURS ago (default 24,
+# 0 = no limit; `/oss track resume` rewrites it), else "". One fork (find) only on the age check.
+trk_pause_check() {
+  local head_line=""
+  trk_paused=""
+  trk_max_age="${OSS_TRACK_MAX_AGE_HOURS:-24}"
+  case "$trk_max_age" in '' | *[!0-9]*) trk_max_age=24 ;; esac
+  if [ -n "$1" ] && [ "$1" != HEAD ]; then
+    IFS= read -r head_line < "$trk_gitdir/HEAD" 2> /dev/null || true
+    case "$head_line" in
+      "ref: refs/heads/"?*) [ "${head_line#ref: refs/heads/}" = "$1" ] || trk_paused=branch ;;
+      *) trk_paused=branch ;; # detached HEAD while the session was started on a branch
+    esac
+  fi
+  if [ -z "$trk_paused" ] && [ "$trk_max_age" -gt 0 ] \
+    && [ -n "$(find "$trk_ptr" -mmin "+$((trk_max_age * 60))" 2> /dev/null)" ]; then
+    trk_paused=age
+  fi
+  return 0
+}
+# --- end shared ---
+
 # ── FAST PATH: no session pointer -> exit before reading stdin (builtins only) ──
 trk_find_session || exit 0
 
@@ -507,28 +533,12 @@ fi
 [ -z "$class" ] && exit 0
 id="$class:$key"
 
-# ── pause: a session is not tied to one Claude Code session, so it only asks while it plausibly
-# belongs to the current work. It pauses when HEAD is on a different branch than the ledger's
-# `branch:` (skipped when that is HEAD, i.e. started detached), or when the pointer was written
-# more than OSS_TRACK_MAX_AGE_HOURS ago (default 24; 0 turns the age limit off). `/oss track resume`
-# rewrites the pointer. A paused session asks nothing and writes nothing to the ledger; the user is
-# told once per pointer write (marker newer than the pointer). Ledger values are never echoed.
-paused=""
-if [ -n "$fm_branch" ] && [ "$fm_branch" != HEAD ]; then
-  head_line=""
-  IFS= read -r head_line < "$trk_gitdir/HEAD" 2> /dev/null || true
-  case "$head_line" in
-    "ref: refs/heads/"?*) [ "${head_line#ref: refs/heads/}" = "$fm_branch" ] || paused=branch ;;
-    *) paused=branch ;; # detached HEAD while the session was started on a branch
-  esac
-fi
-if [ -z "$paused" ]; then
-  max_age="${OSS_TRACK_MAX_AGE_HOURS:-24}"
-  case "$max_age" in '' | *[!0-9]*) max_age=24 ;; esac
-  if [ "$max_age" -gt 0 ] && [ -n "$(find "$trk_ptr" -mmin "+$((max_age * 60))" 2> /dev/null)" ]; then
-    paused=age
-  fi
-fi
+# ── pause (see the shared pause check): a paused session asks nothing and writes nothing to the
+# ledger. The user is told once per pointer write (marker not older than the pointer). Ledger values
+# are never echoed.
+trk_pause_check "$fm_branch"
+paused="$trk_paused"
+max_age="$trk_max_age"
 if [ -n "$paused" ]; then
   marker="$trk_gitdir/agentic-contributor/track-paused-notified"
   [[ -f "$marker" ]] && ! [[ "$trk_ptr" -nt "$marker" ]] && exit 0
