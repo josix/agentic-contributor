@@ -127,4 +127,7 @@ allow-ledger	other-branch	Edit	@ledger	<!-- track:end -->	x\n<!-- track:end -->	
 silent	scoped	Write	.git/agentic-contributor/track-active	x	-	-
 silent	scoped-old	Write	.git/agentic-contributor/track-active	x	-	-
 silent	scoped-old	Edit	@abs:<root>/.git/agentic-contributor/track-paused	a	b	-
+deny	scoped	Edit	.github/workflows/x.yml	a	b	scope:.github/workflows/x.yml
+deny	scoped	Edit	.gitignore	a	b	scope:.gitignore
+silent	worktree	Write	@abs:<root>/../realgit/agentic-contributor/track-active	x	-	-
 paused	scoped-old	Edit	docs/x.md	a	b	-
