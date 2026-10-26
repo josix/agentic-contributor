@@ -132,5 +132,6 @@ silent	other-branch	Edit	src/app.js	a	b	-
 allow-ledger	other-branch	Edit	@ledger	<!-- track:end -->	x\n<!-- track:end -->	-
 # ── writes into the git dir are bookkeeping: no checkpoint, no paused notice ──
 silent	scoped	Write	.git/agentic-contributor/track-active	x	-	-
-silent	old-ptr	Write	.git/agentic-contributor/track-active	x	-	-
-silent	old-ptr	Edit	@abs:<root>/.git/agentic-contributor/track-paused	a	b	-
+silent	scoped-old	Write	.git/agentic-contributor/track-active	x	-	-
+silent	scoped-old	Edit	@abs:<root>/.git/agentic-contributor/track-paused	a	b	-
+paused	scoped-old	Edit	docs/x.md	a	b	-
