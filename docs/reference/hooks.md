@@ -55,7 +55,7 @@ The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostTo
 
 **Matcher:** `Bash|mcp__plugin_agentic-contributor_github__.*` — matches all Bash tool calls and all GitHub MCP tool calls namespaced to this plugin.
 
-**Timeout:** 30 seconds. Typical commands finish in well under 1 second (bash string matching plus a few `awk` passes, no network calls). A command that contains none of the trigger words `gh`, `git`, `curl`, or `wget` (checked case-insensitively after deleting quotes, backslashes, and newlines, so `g\it` or `"g"it` still count) is allowed immediately. Segments without a trigger word are skipped one by one, so a 600-segment one-liner or a 300-line script that runs `git` on every line still finishes in a few seconds. The 30-second timeout leaves headroom for slow machines.
+**Timeout:** 30 seconds. Typical commands finish in well under 1 second (bash string matching plus a few `awk` passes, no network calls). A command that contains none of the trigger words `gh`, `git`, `curl`, or `wget` (checked case-insensitively after deleting quotes, backslashes, and newlines, so `g\it` or `"g"it` still count) is allowed immediately. Segments without a trigger word are skipped one by one, so a 400-line script that runs `git` on every line still finishes in a few seconds. The guard fails closed on very large input rather than running into the timeout (which would allow the command): a command of more than 256 KiB, or one with more than 500 segments that contain a trigger word, is denied with "command too large to analyse safely; split it into smaller commands". The 30-second timeout leaves headroom for slow machines.
 
 ## `guard-outbound.sh` Logic
 
@@ -79,8 +79,8 @@ The script reads the tool-use JSON from stdin, extracts `tool_name` and `tool_in
 
 Known gaps are recorded as `known-bypass` rows in `hooks/tests/guard-cases.tsv`. They are reported, not counted as failures, and the harness prints a note when one starts being denied. Two kinds:
 
-- **Forms an agent may write by accident** (covered since v0.5.1): global options before the subcommand (`git -C dir push`, `git -c k=v push`, `gh -R owner/repo pr create`), path-qualified binaries (`/usr/bin/git push`, `./gh pr create`), wrapper prefixes and env assignments (`env git push`, `FOO=1 git push`, `command`, `exec`, `builtin`, `nohup`, `time`, `sudo`, `xargs`), and the extra `gh`, `git`, `curl`, and `wget` write forms listed in the matrix below. Each command segment is normalized (wrappers, assignments, path prefix, and global options removed) and checked in addition to the raw text, so normalization can only add denials.
-- **Deliberate obfuscation** (not planned): variables (`p=push; git $p`), `eval`, aliases, shell functions, `bash -c "…"` strings, `$(echo git)`, `IFS` and brace-expansion tricks, quoting tricks inside heredocs, and similar. These are realistic only if the agent is manipulated, for example by a prompt injection hidden in an issue, PR, or comment the plugin reads.
+- **Forms an agent may write by accident** (covered since v0.5.1): global options before the subcommand (`git -C dir push`, `git -c k=v push`, `gh -R owner/repo pr create`), path-qualified binaries (`/usr/bin/git push`, `./gh pr create`), wrapper prefixes and env assignments (`env git push`, `FOO=1 git push`, `command`, `exec`, `builtin`, `nohup`, `time`, `sudo`, `xargs`, `timeout`, `nice`, `ionice`, `stdbuf`, `setsid`, `caffeinate`, `doas`, `watch`, `unbuffer`, `flock`, `chrt`, `taskset`, `coproc`), dashed git binaries (`/usr/libexec/git-core/git-push`, `git-send-email`), and the extra `gh`, `git`, `curl`, and `wget` write forms listed in the matrix below. Each command segment is normalized (wrappers, assignments, path prefix, and global options removed) and checked in addition to the raw text, so normalization can only add denials.
+- **Deliberate obfuscation** (not planned): variables (`p=push; git $p`), `eval`, aliases, shell functions, `bash -c "…"` strings (and the same class: `flock FILE -c "…"`, `watch "…"`), `$(echo git)`, `IFS` and brace-expansion tricks, quoting tricks inside heredocs, and similar. These are realistic only if the agent is manipulated, for example by a prompt injection hidden in an issue, PR, or comment the plugin reads.
 
 **The real boundary is the credentials.** Give the plugin a GitHub token without write permissions (see [GitHub Access](../guides/github-access.md#use-a-read-only-token)). With a read-only token, GitHub itself rejects any write that slips past the guard. `git push` uses your local git credentials instead, which this plugin cannot restrict; keep Claude Code's permission prompts on for commands you have not allowed.
 
@@ -91,23 +91,23 @@ Known gaps are recorded as `known-bypass` rows in `hooks/tests/guard-cases.tsv`.
 The plugin's GitHub MCP namespace is **default-deny**. The script takes the tool-name suffix after the last `__` and allows it only when it names a read tool:
 
 ```
-get_*  |  list_*  |  search_*  |  *_read
+get_*  |  list_*  |  search_*  |  issue_read  |  pull_request_read
 ```
 
-Even with one of those prefixes, a suffix that contains `write`, `create`, `delete`, `submit`, or `fork` is denied. A suffix with characters other than `a-z`, `0-9`, and `_` is denied too. Every other tool is denied, including tools the upstream GitHub MCP server adds later.
+There is no generic `*_read` rule: `mark_all_notifications_read` mutates, so only the two named read tools pass. Even with one of those prefixes, a suffix that contains `write`, `create`, `delete`, `submit`, or `fork` is denied. A suffix with characters other than `a-z`, `0-9`, and `_` is denied too. Every other tool is denied, including tools the upstream GitHub MCP server adds later.
 
 **ALLOW examples:** `get_me`, `get_file_contents`, `get_commit`, `list_issues`, `list_pull_requests`, `list_releases`, `search_code`, `search_issues`, `search_repositories`, `issue_read`, `pull_request_read`.
 
-**DENY examples:** `issue_write`, `sub_issue_write`, `pull_request_review_write`, `add_issue_comment`, `add_comment_to_pending_review`, `create_pull_request`, `create_branch`, `create_repository`, `create_or_update_file`, `delete_file`, `push_files`, `merge_pull_request`, `update_pull_request`, `update_pull_request_branch`, `fork_repository`, `assign_copilot_to_issue`, `request_copilot_review`.
+**DENY examples:** `mark_all_notifications_read`, `dismiss_notification`, `manage_notification_subscription`, `issue_write`, `sub_issue_write`, `pull_request_review_write`, `add_issue_comment`, `add_comment_to_pending_review`, `create_pull_request`, `create_branch`, `create_repository`, `create_or_update_file`, `delete_file`, `push_files`, `merge_pull_request`, `update_pull_request`, `update_pull_request_branch`, `fork_repository`, `assign_copilot_to_issue`, `request_copilot_review`.
 
 ### Bash Commands — DENY
 
 | Pattern checked | Blocked example |
 |---|---|
 | `git push` at command position | `git push origin main` |
-| `git push`, `git send-email`, `git send-pack`, `git svn dcommit`, also after global options (`-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`, `--no-pager`, …), a path-qualified binary, or a wrapper prefix | `git -C dir push`, `/usr/bin/git push`, `env git push` |
+| `git push`, `git send-email`, `git send-pack`, `git svn dcommit`, `git subtree push`, `git lfs push`, `git p4 submit`, also after global options (`-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`, `--no-pager`, …), a path-qualified binary, or a wrapper prefix | `git -C dir push`, `/usr/bin/git push`, `env git push` |
 | `git -c alias.<name>=<value>` whose value contains `push`, `send-email`, `send-pack`, or `dcommit`, or starts with `!` (shell alias) | `git -c alias.p=push p origin main` |
-| `gh pr create/comment/review/edit/merge/close/reopen/lock/unlock/ready/update-branch/revert/--fill` | `gh pr create --title "…"` |
+| `gh pr create/comment/review/edit/merge/close/reopen/lock/unlock/ready/update-branch/revert/--fill`; built-in aliases are canonicalised first: `new` = `create`, `remove`/`rm` = `delete`, `cs` = `codespace` | `gh pr create --title "…"`, `gh pr new` |
 | `gh issue create/comment/edit/close/reopen/lock/unlock/delete/transfer/pin/unpin/develop` | `gh issue comment 123 --body "…"` |
 | `gh release create/edit/delete/delete-asset/upload` | `gh release create v1.0` |
 | `gh repo create/fork/delete/edit/sync/rename/archive/unarchive`, `gh repo deploy-key add/delete`, `gh repo autolink create/delete` | `gh repo fork apache/airflow` |
@@ -121,13 +121,15 @@ Even with one of those prefixes, a suffix that contains `write`, `create`, `dele
 | `gh api` with `--input` (always) | `gh api repos/… --input body.json` |
 | `gh api graphql` containing `mutation`, `=@file`, command substitution, or a `query=$VAR` value | `gh api graphql -f query='mutation {…}'` |
 | `curl` with `-X`/`--request` and any method other than GET/HEAD/OPTIONS (any case, also `-XPOST`, `--request=POST`) | `curl -X POST https://api.github.com/…` |
-| `curl` with `-d`/`--data`/`--data-raw`/`--data-binary`/`--data-urlencode`/`--data=…`/`-dVALUE`/`--json`, `-F`/`--form`/`--form-string`, `-T`/`--upload-file`, or `-K`/`--config` (also inside short-option bundles such as `-sd`) | `curl -d '{"body":"…"}' …` |
-| `wget` with mutation flags (`-X`, `--request`, `-d`, `--data`, `--data-raw`, `-F`, `--form`, `--method POST/…` in any case, `--post-data`, `--post-file`, `--body-data`, `--body-file`) | `wget --post-data '…' …` |
+| `curl` with `-d`/`--data`/`--data-raw`/`--data-binary`/`--data-urlencode`/`--data=…`/`-dVALUE`/`--json`, `-F`/`--form`/`--form-string`, `-T`/`--upload-file`, or `-K`/`--config` (also inside short-option bundles such as `-sd`, and the curl 8.3+ `--expand-<option>` forms such as `--expand-data`). Data options combined with `-G`/`--get` are query parameters and are allowed (`curl -G -d q=x …`); `-F`, `--json`, `-T`, `-K` and a non-GET `-X` still deny | `curl -d '{"body":"…"}' …` |
+| `wget` with mutation flags (`--method POST/…` in any case, `--post-data`, `--post-file`, `--body-data`, `--body-file`); wget's `-X`, `-d` and `-F` are not mutation options (exclude-dirs, debug, force-html) and are allowed | `wget --post-data '…' …` |
 
 ### Bash Commands — ALLOW
 
 Everything not matched by a deny pattern:
 
+- Help only: `git push --help`, `git push -h`, `gh pr create --help` (built-in gh groups only; a gh shell alias given `--help` would run, so it is not exempt)
+- `curl -G -d q=x …` (data options under `-G`/`--get` are query parameters)
 - `git clone`, `git status`, `git log`, `git diff`, `git fetch`, `git checkout` (local), `git add`, `git commit` (local)
 - `gh pr view`, `gh pr list`, `gh pr checks`, `gh pr diff`
 - `gh issue view`, `gh issue list`
@@ -163,9 +165,14 @@ Everything not matched by a deny pattern:
 | id already settled, or already logged over budget | silent |
 | budget spent (default 3 questions asked), or `budget: 0` | `additionalContext` plus a short `systemMessage` (no permission decision); a `logged-over-budget` line is appended |
 | second retry without a ledger entry (loop guard) | `deny` again once; the third attempt gets `additionalContext` plus a `systemMessage` (no permission decision) and a `skipped` line |
-| tool `Edit` whose path equals exactly the active ledger path | `allow` (so a checkpoint costs one interruption, not two) |
+| append-shaped `Edit` of the active ledger | `allow` (so a checkpoint costs one interruption, not two) |
+| any other edit of the ledger (frontmatter change, rewrite, Write, MultiEdit) | no decision: Claude Code's normal permission prompt applies |
 
-The ledger auto-allow is deliberately narrow: only `Edit` (never Write, MultiEdit, or NotebookEdit), only the byte-for-byte active ledger path read from the pointer, nothing with a `..` segment, and nothing when the ledger, the pointer, or `.oss-drafts/` is a symlink. Every other path, including other files in `.oss-drafts/`, gets no allow.
+The ledger auto-allow is deliberately narrow: only `Edit` (never Write, MultiEdit, or NotebookEdit) that appends one entry (`old_string` is `<!-- track:end -->`, `new_string` ends with it, no `replace_all`, and the added text holds no sentinel, `track:pending`, `track:consumed` or `source=hook`), only the active ledger path read from the pointer (compared after normalizing `//`, `./`, `..` and logical versus physical roots), a raw `file_path` with no `..`, `.` or empty segment, and nothing when the ledger, the pointer, or `.oss-drafts/` is a symlink. Every other edit, including widening `scope:`, `status: stopped` and other files in `.oss-drafts/`, gets no allow, so it still works but is never silent. A `decided` or `skipped` entry settles an id only when the hook asked about it (a `track:pending` line exists), so a pre-written entry settles nothing.
+
+**Paths and comments.** File paths are normalized before use: `src/../package.json` and `./src/app.js` give the same id as the plain path, and a path outside the repository gets no checkpoint. Comment-only lines (`//`, `#` not followed by `[` or `!`, `* `, and `/* ... */` blocks that start a line) are not counted as assertions or skips, so commenting out an assert counts as removing it.
+
+**Not-applicable acknowledgements** are matched by count, not timestamp: a `status=not-applicable` entry answers one pending line and lets one edit through (a `track:consumed` marker records it). After 3 acknowledged edits for one id the hook logs `logged-over-budget ... reason=na-cap` instead of asking again.
 
 Checkpoint ids are `<class>:<repo-relative path>`; a lock file maps to its manifest (`yarn.lock` is `dependency:package.json`). The hook appends only the class, the edited file's repo-relative path, and timestamps with a single `>>`; it never writes old/new strings or file content into the ledger. A path (or `cwd`) containing a control character such as a newline or carriage return makes the hook fail open without writing, so a file name cannot forge ledger marker lines.
 
@@ -173,7 +180,7 @@ Checkpoint ids are `<class>:<repo-relative path>`; a lock file maps to its manif
 
 **Context-only notices.** The over-budget and loop-guard notices rely on `additionalContext` in a PreToolUse hook without a permission decision, which needs a Claude Code version that supports PreToolUse `additionalContext`. On older versions Claude does not see the note, so the hook also sets a top-level `systemMessage` that the user sees either way.
 
-**Locking.** Reading state, checking the budget, and appending a pending marker happen under a `mkdir` lock (`<ledger>.lock`). A lock older than about 10 seconds is treated as stale: its mtime comes from `stat -c %Y` (GNU) or `stat -f %m` (BSD), validated as a number, and it is renamed to a per-process name before removal so a fresh lock is never deleted. If the lock stays busy for about 2 seconds the hook fails open.
+**Locking.** Reading state, checking the budget, and appending a pending marker happen under a `mkdir` lock (`<ledger>.lock`). The holder writes its pid to `<ledger>.lock/pid`. A lock whose pid is dead is stale and is broken at once; a lock with no pid file is stale after about 5 seconds (its mtime comes from `stat -c %Y` (GNU) or `stat -f %m` (BSD), validated as a number). A stale lock is renamed to a per-process name before removal so a fresh lock is never deleted. If a live holder keeps the lock busy for about 2 seconds the hook fails open.
 
 Harness: `bash hooks/tests/run-track-tests.sh` (bash 3.2 compatible; builds a fixture git repo in a temp dir per case).
 

@@ -42,13 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Tracked sessions** (`/oss track`, a `prepare-pr` mode with `start`, `stop`, `status`, `log`): a private, append-only **decision ledger** `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md` plus a pointer `<gitdir>/agentic-contributor/track-active` in the git dir (never the worktree). One active session per project folder; tracked sessions require git.
 - **Decision checkpoints**: a new, separate, advisory `PreToolUse` hook `hooks/scripts/track-checkpoint.sh` for `Edit|Write|MultiEdit|NotebookEdit`. Opt-in per session (no session means no output and no subprocess); fails open; `jq`, then `python3`, else silent allow. Four trigger classes (test weakening, dependency manifests and lock files, opt-in `api_paths`, out-of-scope edits) become "choose, not approve" questions with a Skip option. Budget default 3 questions, a loop guard, `budget: 0` log-only mode, and `OSS_TRACK_DISABLE=1`.
-- The hook auto-allows `Edit` only for the exact active ledger path (no `..`, no symlinks, nothing else) so a checkpoint costs one interruption.
+- The hook auto-allows `Edit` only for an append-shaped edit of the exact active ledger path (no `..`, no symlinks, nothing else) so a checkpoint costs one interruption.
 - Harness `hooks/tests/run-track-tests.sh` with `hooks/tests/track-cases.tsv` (bash 3.2, fixture git repo per case).
 - `oss-researcher` scenario key `track-start`; reference `skills/pr-preparation/references/decision-ledger.md` (canonical ledger format); concept page `docs/concepts/tracked-sessions.md`.
 
 ### Changed
 
 - `change-debrief` and the `prepare-pr` scaffold read the ledger as first-hand evidence (`evidenced: ledger <id>`); skipped, over-budget, and hook-skipped decisions become Unknowns; the send block stays `TODO(you)`.
+- The decision ledger frontmatter carries `body_format: 2` and `sendable: false` (no send block), so consumers never post or lint it.
 - `/oss` allowed-tools adds `Edit` (active ledger only); the `mode` list adds `track`; `item` adds `task`.
 
 ### Security
@@ -66,6 +67,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `.oss-drafts/` exclude step uses `git rev-parse --git-path info/exclude` instead of assuming `.git/info/exclude` (linked worktrees, submodules).
 - The session lookup and lock helpers are delimited `# --- shared: ... (keep identical in track-*.sh) ---` blocks in `track-checkpoint.sh`.
 - Harness: 81 cases (committed in-worktree pointer, `.git` file worktrees with relative and absolute `gitdir:`, injection text in `scope`/`api_paths`, control characters in `file_path`, `$CLAUDE_PROJECT_DIR` lookup, a 3 MB no-session payload); fixtures put the pointer in the git dir and run the hook from the fixture root.
+- Comment-only lines no longer count as assertions or skips: `assert x` -> `# assert x`, `expect(a)` -> `// expect(a)` and `/* ... */` blocks now trigger the test-weakening checkpoint (Rust `#[test]` is still counted). Same logic on the jq and python3 paths.
+- The ledger auto-allow is append-only as documented: only an `Edit` that inserts one entry at `<!-- track:end -->` is allowed. Frontmatter edits (scope widening, `status: stopped`, `budget`) and rewrites of earlier entries now get Claude Code's normal permission prompt. A `decided`/`skipped` entry settles an id only if the hook asked about it (a pending line exists).
+- File paths are normalized (`//`, `./`, `..`) and compared against both logical and physical (`pwd -P`) repo roots: `src/../package.json` no longer gets a separate id and budget slot, paths outside the repo get no checkpoint, and a symlinked `$CLAUDE_PROJECT_DIR` works with real-path `file_path`s (and the reverse), including the ledger auto-allow.
+- Not-applicable acknowledgements are matched by count (pending / not-applicable / consumed per id) instead of 1-second timestamps, so same-second entries and copied `at=` values work. Capped at 3 acknowledged edits per id, after which the hook logs `reason=na-cap` instead of asking again, so a repeated scripts-only `package.json` edit cannot cause unbounded deny round-trips.
+- A stale ledger lock no longer costs every edit about 2.8 s: the holder writes its pid, a dead holder's lock is broken at once, and a pid-less lock is stale after 5 s (was 10 s).
+- The deny text and `decision-ledger.md` now say which `asked=` value to use: `asked=yes` when the user was asked, `status=skipped, asked=no` (does not use budget) when AskUserQuestion is unavailable.
+- README table matched to the hook: deny with one retry denied again and a context-only third attempt; budget spent gives no permission decision.
+- Harness: 115 checks, including a dead-holder and a live-holder lock, symlinked roots, and the python3 fallback for test-class counting and append detection.
 
 ### Notes
 
@@ -88,7 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Guard: GitHub MCP tools are now default-deny.** The write-verb check matched the whole tool suffix, so real write tools passed (`issue_write`, `pull_request_review_write`, `add_comment_to_pending_review`, `push_files`, `merge_pull_request`, `update_pull_request`, `update_pull_request_branch`, `fork_repository`, `create_or_update_file`, `delete_file`, `sub_issue_write`, `assign_copilot_to_issue`, `create_branch`, `create_pull_request`, `create_repository`, `request_copilot_review`). Only `get_*`, `list_*`, `search_*`, and `*_read` tools are allowed now, unless the name also contains `write`, `create`, `delete`, `submit`, or `fork`.
+- **Guard: GitHub MCP tools are now default-deny.** The write-verb check matched the whole tool suffix, so real write tools passed (`issue_write`, `pull_request_review_write`, `add_comment_to_pending_review`, `push_files`, `merge_pull_request`, `update_pull_request`, `update_pull_request_branch`, `fork_repository`, `create_or_update_file`, `delete_file`, `sub_issue_write`, `assign_copilot_to_issue`, `create_branch`, `create_pull_request`, `create_repository`, `request_copilot_review`). Only `get_*`, `list_*`, `search_*`, and the named read tools `issue_read` and `pull_request_read` are allowed now, unless the name also contains `write`, `create`, `delete`, `submit`, or `fork`.
 - **Guard: more `gh` write subcommands denied:** `gh pr revert`, `gh project` create/edit/delete/close/copy/link/unlink/mark-template/item-add/item-create/item-edit/item-delete/item-archive/field-create/field-delete, `gh ssh-key add/delete`, `gh gpg-key add/delete`, `gh repo deploy-key add/delete`, `gh repo autolink create/delete`, `gh cache delete`, `gh release delete-asset`, `gh gist rename`, `gh alias delete/import`, `gh codespace delete/edit/stop/rebuild`. Read forms (`gh project list/view`, `gh ssh-key list`, `gh cache list`, …) and `gh repo set-default` stay allowed.
 - **Guard: inline git aliases.** `git -c alias.<name>=<value> <name>` is denied when the value pushes or sends (`push`, `send-email`, `send-pack`, `dcommit`) or is a shell alias (`!…`).
 - **Guard performance.** Commands with none of the trigger words `gh`/`git`/`curl`/`wget` (checked after deleting quotes, backslashes, and newlines) are allowed immediately; segments without a trigger word are skipped; the duplicate outer segmentation pass is skipped when a command has no substitutions. A 600-segment one-liner went from about 10 s to 0.3 s and a 300-line `git` script from about 7 s to 1.6 s. The hook timeout is raised from 10 to 30 seconds.
@@ -96,6 +105,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/oss` Step 4 now lists `report` and `prepare-pr` among the scenarios that dispatch `oss-researcher`.
 - Docs (hooks reference, draft-only guardrail, GitHub access, commands reference, `/oss` Guardrail Reminder) describe the MCP allowlist instead of "all other MCP tools are allowed".
 - Guard tests: 271 to 360 cases; 3 new known-bypass rows (`g$(true)it push`, `$'\x67'it push`, `git --config-env alias.p=ENV p`).
+- **Guard review fixes (gh aliases):** `gh` built-in aliases are canonicalised before the write check (`new` = `create`, `remove`/`rm` = `delete`, `cs` = `codespace`), so `gh pr new`, `gh secret remove`, and `gh cs create` are denied.
+- **Guard review fixes (wrappers):** more wrapper prefixes are looked through (`timeout`, `nice`, `ionice`, `stdbuf`, `setsid`, `caffeinate`, `doas`, `watch`, `unbuffer`, `flock`, `chrt`, `taskset`, `coproc`), and dashed git binaries (`/usr/libexec/git-core/git-push`, `git-send-email`) are treated as `git <cmd>`. `flock -c '…'` and `watch '…'` string commands are documented known bypasses.
+- **Guard review fixes (git):** `git subtree push`, `git lfs push`, and `git p4 submit` are denied.
+- **Guard review fixes (size cap):** a command over 256 KiB, or with more than 500 trigger segments, is denied instead of running into the hook timeout (which allowed it).
+- **Guard review fixes (MCP):** the `*_read` suffix rule is replaced by the explicit `issue_read` and `pull_request_read`; `mark_all_notifications_read` and similar mutating tools are denied.
+- **Guard review fixes (curl/wget):** `curl --expand-<option>` (curl 8.3+) is normalised to the plain option. wget `-X`/`-d`/`-F`/`--data`/`--form` are no longer treated as mutation (they are exclude-dirs/debug/force-html); `--body-data`/`--body-file` are denied. `curl -G`/`--get` with `-d`/`--data*` (query parameters) is allowed.
+- **Guard review fixes (false positives):** help-only invocations of push-like commands and built-in gh groups (`git push --help`, `gh pr create --help`) are allowed.
+- **Private debrief is not sendable:** the debrief file now carries `body_format: 2` and `sendable: false`; contract text says `body_format: 2` with no send block means nothing is sendable and `sendable: false` means never send.
+- **issue-drafting** output uses `body_format: 2` with an `oss:send` block around the issue body, a trailing `## Private notes (not sent)`, and `TODO(you):` placeholders so unfilled drafts are refused.
+- **Routing:** new rule 6 disambiguates review-reply lint, prepare-pr lint, and engage; row 10 lists lint-mode phrases.
+- Guard tests: 360 to 424 cases (new regression rows plus size-cap checks).
 
 ## [0.6.0] - 2026-10-21
 

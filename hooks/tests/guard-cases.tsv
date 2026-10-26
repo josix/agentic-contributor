@@ -391,3 +391,69 @@ known-bypass	Bash	bash -c "git push origin main"
 known-bypass	Bash	g$(true)it push origin main
 known-bypass	Bash	$'\x67'it push origin main
 known-bypass	Bash	git --config-env alias.p=PUSHALIAS p
+
+# ── v0.7.0 review-fix regressions (aliases, wrappers, subcommands, MCP, curl/wget, help) ──
+deny	Bash	gh pr new --title t --body b
+deny	Bash	gh issue new --title t
+deny	Bash	gh repo new o/r --public
+deny	Bash	gh release new v1.0
+deny	Bash	gh gist new f.txt
+deny	Bash	gh secret remove TOKEN
+deny	Bash	gh variable remove V
+deny	Bash	gh cs create
+deny	Bash	gh -R o/r pr new
+allow	Bash	gh secret list
+allow	Bash	gh cs list
+deny	Bash	timeout 60 git push origin main
+deny	Bash	timeout -s KILL 60 git push
+deny	Bash	timeout --kill-after=5 60 gh pr create --title t
+deny	Bash	timeout 30 gh api -X POST repos/o/r/issues
+deny	Bash	nice git push
+deny	Bash	nice -n 10 git push
+deny	Bash	nice -10 git push
+deny	Bash	coproc git push
+deny	Bash	coproc P { git push; }
+deny	Bash	stdbuf -oL git push
+deny	Bash	ionice -c 3 git push
+deny	Bash	setsid git push
+deny	Bash	caffeinate -i git push
+deny	Bash	doas -u me git push
+deny	Bash	watch -n 5 gh pr create
+deny	Bash	/usr/libexec/git-core/git-push origin main
+deny	Bash	git-send-email x.patch
+allow	Bash	timeout 60 git fetch
+allow	Bash	nice git log
+allow	Bash	timeout 5 echo git push
+known-bypass	Bash	flock /tmp/l -c 'git push'
+known-bypass	Bash	watch 'git push origin main'
+deny	Bash	git subtree push --prefix=docs origin gh-pages
+deny	Bash	git subtree -P docs push origin gh-pages
+deny	Bash	git lfs push origin main
+deny	Bash	git p4 submit
+allow	Bash	git subtree split --prefix=docs
+allow	Bash	git lfs pull
+allow	Bash	git lfs ls-files
+deny	mcp__plugin_agentic-contributor_github__mark_all_notifications_read	-
+deny	mcp__plugin_agentic-contributor_github__dismiss_notification	-
+deny	mcp__plugin_agentic-contributor_github__manage_notification_subscription	-
+deny	Bash	curl --expand-data '{}' https://api.github.com/repos/o/r/issues
+deny	Bash	curl --expand-json '{}' https://api.github.com/x
+deny	Bash	curl --expand-request POST https://api.github.com/x
+allow	Bash	curl --expand-header 'Accept: x' https://api.github.com/x
+allow	Bash	wget -d https://example.com
+allow	Bash	wget -F -i links.html
+allow	Bash	curl -G -d q=x https://api.github.com/search/issues
+allow	Bash	curl --get --data-urlencode 'q=repo:o/r' https://api.github.com/search/issues
+allow	Bash	curl -sG -d q=x https://api.github.com/search
+allow	Bash	gh pr create --help
+allow	Bash	git push --help
+allow	Bash	git push -h
+deny	Bash	curl -G -X POST -d q=x https://api.github.com/x
+deny	Bash	curl -G -F f=@x https://api.github.com/x
+deny	Bash	curl -G --json '{}' https://api.github.com/x
+deny	Bash	curl -oG -d x https://api.github.com/x
+deny	Bash	gh pr create --body --help --title t
+deny	Bash	git push --help; git push origin main
+deny	Bash	wget --post-data=x https://example.com
+deny	Bash	wget --body-data=x https://example.com
+deny	Bash	wget --method=POST https://example.com

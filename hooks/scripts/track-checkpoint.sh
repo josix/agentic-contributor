@@ -87,13 +87,51 @@ trk_find_session() {
 }
 # --- end shared ---
 
+# --- shared: path normalize (keep identical in track-*.sh) ---
+# Lexical normalisation (collapse //, ./, ..), then a repo-relative path. trk_relpath sets trk_rel
+# ("" when the path is outside the repository). The cheap lexical comparison runs first; the
+# physical (pwd -P) comparison, which forks, runs only when it misses, so a symlinked
+# CLAUDE_PROJECT_DIR and a real-path file_path (or the reverse) still agree.
+trk_norm() { # $1 absolute path -> trk_np
+  local IFS=/ c out=""
+  for c in $1; do
+    case "$c" in '' | .) ;; ..) out="${out%/*}" ;; *) out="$out/$c" ;; esac
+  done
+  trk_np="${out:-/}"
+}
+trk_under() { # $1 normalized path, $2 normalized root -> trk_rel on success
+  case "$1" in "$2"/*) trk_rel="${1#"$2"/}"; return 0 ;; esac
+  return 1
+}
+trk_relpath() { # $1 absolute path -> trk_rel
+  local a r ra p suffix pa full
+  trk_rel=""
+  trk_norm "$1"; a="$trk_np"
+  trk_norm "$trk_root"; r="$trk_np"
+  trk_under "$a" "$r" && return 0
+  ra="$(cd "$trk_root" 2> /dev/null && pwd -P)" || ra=""
+  [ -n "$ra" ] && trk_under "$a" "$ra" && return 0
+  # physical path of the nearest existing ancestor (the file itself may not exist yet)
+  p="$a"; suffix=""
+  while :; do
+    pa="$(cd "${p:-/}" 2> /dev/null && pwd -P)" && break
+    [ -n "$p" ] || return 0
+    suffix="/${p##*/}$suffix"
+    p="${p%/*}"
+  done
+  full="${pa%/}$suffix"
+  trk_under "$full" "$r" && return 0
+  [ -n "$ra" ] && trk_under "$full" "$ra" && return 0
+  return 0
+}
+# --- end shared ---
+
 # ── FAST PATH: no session pointer -> exit before reading stdin (builtins only) ──
 trk_find_session || exit 0
 
 # ── SLOW PATH: a session pointer exists. Any failure below fails open. ───────
 input="$(cat 2> /dev/null)" || exit 0
 [ -n "$input" ] || exit 0
-root="$trk_root"
 ledger="$trk_ledger"
 rel_ledger="$trk_rel_ledger"
 
@@ -135,6 +173,35 @@ case "$fm_budget" in '' | *[!0-9]*) fm_budget=3 ;; esac
 ASSERT_RE='\bassert[A-Za-z_]*\b|XCTAssert|\bexpect\s*\(|\b(?:it|test|describe|context)\s*\(|\bdef\s+test_|\bfunc\s+Test|#\[test\]|@Test\b|\bt\.(?:Error|Fatal)f?\s*\(|\brequire\.[A-Z][A-Za-z]*\s*\('
 SKIP_RE='@pytest\.mark\.(?:skip|xfail)|\b(?:xit|xdescribe|xtest)\s*\(|\.skip\s*\(|@Disabled\b|@Ignore\b|#\[ignore\]|\bt\.Skip|\bskipTest\b|unittest\.skip'
 
+# Comment-only lines must not count as assertions or skips (commenting an assert out is a removal).
+# Dropped: lines whose first non-blank is //, # (not #[ or #!), or * followed by space/end, and
+# /* ... */ blocks that start at the beginning of a line. One definition per backend.
+STRIP_JQ='def strip_comments:
+  reduce (split("\n")[]) as $l ({o: [], b: false};
+    if .b then (if ($l | test("\\*/")) then .b = false else . end)
+    elif ($l | test("^\\s*/\\*")) then
+      (if ($l | test("\\*/")) then (if ($l | sub("^.*\\*/"; "") | test("\\S")) then .o += [$l] else . end) else .b = true end)
+    elif ($l | test("^\\s*(//|#(?![\\[!])|\\*( |$))")) then .
+    else .o += [$l] end)
+  | .o | join("\n");
+'
+STRIP_PY='import re
+def strip_comments(s):
+    out = []; blk = False
+    for l in s.split("\n"):
+        if blk:
+            if "*/" in l: blk = False
+            continue
+        if re.match(r"\s*/\*", l):
+            if "*/" in l:
+                if re.search(r"\S", l.rsplit("*/", 1)[1]): out.append(l)
+            else: blk = True
+            continue
+        if re.match(r"\s*(//|#(?![\[!])|\*( |$))", l): continue
+        out.append(l)
+    return "\n".join(out)
+'
+
 have_jq=0
 have_py=0
 command -v jq > /dev/null 2>&1 && have_jq=1
@@ -142,12 +209,20 @@ command -v python3 > /dev/null 2>&1 && have_py=1
 [ "$have_jq" -eq 1 ] || [ "$have_py" -eq 1 ] || exit 0
 
 # parse_input: prints US-separated tool, path, permission_mode, cwd, old/new assert, old/new skip
-# counts. A path or cwd containing a control character (newline, CR, US, ...) is printed as empty,
+# counts, and app (1 only for an append-shaped Edit: old_string is the ledger sentinel, new_string
+# is old_string plus a prefix that holds no sentinel, pending/consumed marker or source=hook).
+# A path or cwd containing a control character (newline, CR, US, ...) is printed as empty,
 # so it can neither shift the fields nor forge ledger marker lines: the hook then fails open.
 parse_input() {
   if [ "$have_jq" -eq 1 ]; then
-    printf '%s' "$input" | jq -r --arg a "$ASSERT_RE" --arg s "$SKIP_RE" '
-      def cnt($re): [match($re; "g")] | length;
+    printf '%s' "$input" | jq -r --arg a "$ASSERT_RE" --arg s "$SKIP_RE" "$STRIP_JQ"'
+      def cnt($re): strip_comments | [match($re; "g")] | length;
+      def endmark: "<!-- track:end -->";
+      def appendshaped($ti):
+        ($ti.old_string // "") as $o | ($ti.new_string // "") as $n
+        | (($ti.replace_all // false) != true) and ($o == endmark or $o == endmark + "\n") and ($n | endswith($o))
+        and (($n[0:(($n | length) - ($o | length))]) as $pre
+          | ($pre | contains(endmark) or contains("<!-- track:pending ") or contains("<!-- track:consumed ") or contains(" source=hook")) | not);
       . as $d | ($d.tool_input // {}) as $ti | ($d.tool_name // "") as $t
       | (if $t == "Edit" then [$ti] elif $t == "MultiEdit" then ($ti.edits // []) else [] end) as $es
       | ($es | map((.old_string // "") | cnt($a)) | add // 0) as $oa
@@ -156,45 +231,53 @@ parse_input() {
       | ($es | map((.new_string // "") | cnt($s)) | add // 0) as $ns
       | (if $t == "Write" then (($ti.content // "") | cnt($a)) else $na end) as $na2
       | (if $t == "Write" then (($ti.content // "") | cnt($s)) else $ns end) as $ns2
+      | (if $t == "Edit" and appendshaped($ti) then 1 else 0 end) as $app
       | def clean: if test("[\u0000-\u001f\u007f]") then "" else . end;
       [$t, (($ti.file_path // $ti.notebook_path // "") | tostring | clean), ($d.permission_mode // ""),
-         (($d.cwd // "") | tostring | clean), $oa, $na2, $os, $ns2] | map(tostring) | join("\u001f")' 2> /dev/null
+         (($d.cwd // "") | tostring | clean), $oa, $na2, $os, $ns2, $app] | map(tostring) | join("\u001f")' 2> /dev/null
   else
-    printf '%s' "$input" | python3 -c '
-import sys, json, re
+    printf '%s' "$input" | python3 -c "$STRIP_PY"'
+import sys, json
 A = re.compile(sys.argv[1]); S = re.compile(sys.argv[2])
 d = json.load(sys.stdin)
 ti = d.get("tool_input") or {}
 t = d.get("tool_name") or ""
 es = [ti] if t == "Edit" else (ti.get("edits") or [] if t == "MultiEdit" else [])
-def tot(rx, k): return sum(len(rx.findall(e.get(k) or "")) for e in es)
+def tot(rx, k): return sum(len(rx.findall(strip_comments(e.get(k) or ""))) for e in es)
 oa, na, os_, ns = tot(A, "old_string"), tot(A, "new_string"), tot(S, "old_string"), tot(S, "new_string")
 if t == "Write":
-    c = ti.get("content") or ""
+    c = strip_comments(ti.get("content") or "")
     na, ns = len(A.findall(c)), len(S.findall(c))
 def clean(v):
     v = str(v or "")
     return "" if re.search("[\x00-\x1f\x7f]", v) else v
+END = "<!-- track:end -->"
+app = 0
+if t == "Edit" and ti.get("replace_all") is not True:
+    o = ti.get("old_string") or ""; n = ti.get("new_string") or ""
+    if o in (END, END + "\n") and n.endswith(o):
+        pre = n[:len(n) - len(o)]
+        if not any(x in pre for x in (END, "<!-- track:pending ", "<!-- track:consumed ", " source=hook")): app = 1
 p = clean(ti.get("file_path") or ti.get("notebook_path"))
-print("\x1f".join([t, p, str(d.get("permission_mode") or ""), clean(d.get("cwd")), str(oa), str(na), str(os_), str(ns)]))
+print("\x1f".join([t, p, str(d.get("permission_mode") or ""), clean(d.get("cwd")), str(oa), str(na), str(os_), str(ns), str(app)]))
 ' "$ASSERT_RE" "$SKIP_RE" 2> /dev/null
   fi
 }
 
-count_file() { # $1 file, $2 regex -> match count on stdout
+count_file() { # $1 file, $2 regex -> match count of non-comment lines on stdout
   if [ "$have_jq" -eq 1 ]; then
-    jq -Rs --arg re "$2" '[match($re; "g")] | length' < "$1" 2> /dev/null
+    jq -Rs --arg re "$2" "$STRIP_JQ"'strip_comments | [match($re; "g")] | length' < "$1" 2> /dev/null
   else
-    python3 -c '
-import sys, re
-print(len(re.findall(sys.argv[1], open(sys.argv[2], errors="replace").read())))
+    python3 -c "$STRIP_PY"'
+import sys
+print(len(re.findall(sys.argv[1], strip_comments(open(sys.argv[2], errors="replace").read()))))
 ' "$2" "$1" 2> /dev/null
   fi
 }
 
 parsed="$(parse_input)" || exit 0
 [ -n "$parsed" ] || exit 0
-IFS=$'\037' read -r tool_name path perm_mode cwd old_a new_a old_s new_s <<< "$parsed"
+IFS=$'\037' read -r tool_name path perm_mode cwd old_a new_a old_s new_s app <<< "$parsed"
 [ -n "$path" ] || exit 0
 case "$path$cwd" in *[[:cntrl:]]*) exit 0 ;; esac # belt and braces: never log a control char
 [ "$perm_mode" = "plan" ] && exit 0
@@ -229,11 +312,18 @@ print(json.dumps(r))
   exit 0
 }
 
-# Auto-allow: Edit, exact byte-for-byte path of the active ledger, no ".." segment.
-case "$abs" in
-  */.oss-drafts/*)
-    if [ "$tool_name" = "Edit" ] && [ "$abs" = "$ledger" ]; then
-      case "$path" in *..*) exit 0 ;; esac
+# Normalise the path (collapse //, ./, ..; also compare physical roots). Outside the repo: no checkpoint.
+trk_relpath "$abs"
+rel="$trk_rel"
+[ -n "$rel" ] || exit 0
+
+# Auto-allow: an append-shaped Edit (app=1) of exactly the active ledger, with a clean raw path
+# (no "..", "." or empty segment). Any other ledger edit gets no decision and goes through
+# Claude Code's normal permission prompt.
+case "$rel" in
+  .oss-drafts/* | */.oss-drafts/*)
+    if [ "$tool_name" = "Edit" ] && [ "$app" = 1 ] && [ "$rel" = "$rel_ledger" ]; then
+      case "$path" in *..* | ./* | */./* | *//*) exit 0 ;; esac
       emit allow "agentic-contributor: append to the active decision ledger" ""
     fi
     exit 0
@@ -241,9 +331,6 @@ case "$abs" in
 esac
 
 [ "$fm_status" = "active" ] || exit 0
-
-rel="${abs#"$root"/}"
-[ "$rel" = "$abs" ] && exit 0
 
 # ── classify (first match wins): test -> dependency -> api -> scope ──────────
 base="${rel##*/}"
@@ -302,7 +389,7 @@ if is_test_path "$rel" && { [ "$tool_name" = "Edit" ] || [ "$tool_name" = "Multi
       old_a=0; old_s=0; new_a=0; new_s=0 # a new test file never triggers
     fi
   fi
-  case "$old_a$new_a$old_s$new_s" in '' | *[!0-9]*) exit 0 ;; esac
+  case "$old_a$new_a$old_s$new_s$app" in '' | *[!0-9]*) exit 0 ;; esac
   if [ "$new_a" -lt "$old_a" ] || [ "$new_s" -gt "$old_s" ]; then
     class="test"
     trig="the edit lowers assertions in a test file (asserts $old_a->$new_a, skips $old_s->$new_s)."
@@ -337,72 +424,77 @@ trk_mtime() { # $1 path -> epoch mtime on stdout; GNU stat first (BSD rejects -c
   case "$t" in '' | *[!0-9]*) return 1 ;; esac
   printf '%s' "$t"
 }
-trk_lock() { # $1 lock dir; returns 1 if still busy after ~2s. Caller sets the EXIT trap.
-  local lock="$1" tries=0 lt now stale="$1.stale.$$"
+trk_lock() { # $1 lock dir; returns 1 if still busy after ~2s. Caller sets the EXIT trap (trk_unlock).
+  local lock="$1" tries=0 lt now hp stale="$1.stale.$$" dead
   until mkdir "$lock" 2> /dev/null; do
-    # A lock older than ~10s is stale (a crashed hook). Rename it to a name unique to this
-    # process first, so a fresh lock that another process creates meanwhile is never removed by
-    # our rmdir; only the atomic rename can race, and it moves the stale directory at most once.
-    if lt="$(trk_mtime "$lock")" && now="$(date +%s 2> /dev/null)"; then
-      case "$now" in '' | *[!0-9]*) ;; *)
-        if [ $((now - lt)) -gt 10 ]; then
-          rmdir "$stale" 2> /dev/null
-          mv "$lock" "$stale" 2> /dev/null && rmdir "$stale" 2> /dev/null
+    # Stale = the holder pid (written right after mkdir) is dead, or, with no pid file yet, the lock
+    # is older than 5s. Rename it to a name unique to this process first, so a fresh lock that
+    # another process creates meanwhile is never removed; only the atomic rename can race, and
+    # it moves the stale directory at most once.
+    dead=0; hp=""
+    [ -f "$lock/pid" ] && { IFS= read -r hp < "$lock/pid" 2> /dev/null || true; }
+    case "$hp" in
+      '' | *[!0-9]*)
+        if lt="$(trk_mtime "$lock")" && now="$(date +%s 2> /dev/null)"; then
+          case "$now" in '' | *[!0-9]*) ;; *) [ $((now - lt)) -gt 5 ] && dead=1 ;; esac
         fi ;;
-      esac
+      *) kill -0 "$hp" 2> /dev/null || dead=1 ;;
+    esac
+    if [ "$dead" -eq 1 ]; then
+      rm -f "$stale/pid" 2> /dev/null; rmdir "$stale" 2> /dev/null
+      mv "$lock" "$stale" 2> /dev/null && { rm -f "$stale/pid" 2> /dev/null; rmdir "$stale" 2> /dev/null; }
+      tries=$((tries + 1))
+      [ "$tries" -ge 20 ] && return 1
+      continue # retry mkdir at once
     fi
     tries=$((tries + 1))
     [ "$tries" -ge 20 ] && return 1
     sleep 0.1 2> /dev/null || return 1
   done
+  printf '%s\n' "$$" > "$lock/pid" 2> /dev/null
   return 0
 }
+trk_unlock() { rm -f "$1/pid" 2> /dev/null; rmdir "$1" 2> /dev/null; }
 # --- end shared ---
 lock="$ledger.lock"
 trk_lock "$lock" || exit 0
-trap 'rmdir "$lock" 2> /dev/null' EXIT
+trap 'trk_unlock "$lock"' EXIT
 
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ 2> /dev/null)" || exit 0
 
 # ── ledger state: settled / over-logged / pending count / asked ──────────────
-state="$(TRACK_ID="$id" TRACK_NOW="$now" awk '
+state="$(TRACK_ID="$id" awk '
 function lastid(l,   q, res, found) {
   if (substr(l, length(l) - 3) != " -->") return "\001"
   l = substr(l, 1, length(l) - 4); found = 0; res = ""
   while ((q = index(l, " id=")) > 0) { l = substr(l, q + 4); res = l; found = 1 }
   return found ? res : "\001"
 }
-# Normalise at= to YYYY-MM-DDTHH:MM:SSZ (fractional seconds dropped). A missing, malformed or
-# future value sorts as "0" (oldest), so it can never outrank later markers: errors lean toward asking.
-function atof(l,   q, r) {
-  q = index(l, " at="); if (!q) return "0"
-  r = substr(l, q + 4); sub(/[ ].*/, "", r)
-  sub(/\.[0-9]+Z$/, "Z", r)
-  if (r !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/) return "0"
-  if (r > ENVIRON["TRACK_NOW"]) return "0"
-  return r
-}
-/^<!-- track:pending / { i = lastid($0); if (i != "\001") { n++; pid[n] = i; pat[n] = atof($0); a = atof($0); if (!(i in lp) || a > lp[i]) lp[i] = a } }
-/^<!-- track:consumed / { i = lastid($0); if (i != "\001") { a = atof($0); if (!(i in cons) || a > cons[i]) cons[i] = a } }
+# Not-applicable acknowledgements are matched by COUNT, never by timestamp: per id, P pending
+# lines, N not-applicable entries, C consumed markers. Same-second markers and copied at= values
+# therefore cannot change the outcome.
+/^<!-- track:pending / { i = lastid($0); if (i != "\001") P[i]++ }
+/^<!-- track:consumed / { i = lastid($0); if (i != "\001") C[i]++ }
 /^<!-- track:entry /   {
   i = lastid($0); if (i == "\001") next
-  if (index($0, " status=not-applicable ")) { a = atof($0); if (!(i in na) || a > na[i]) na[i] = a; next }
+  if (index($0, " status=not-applicable ")) { N[i]++; next }
   if (index($0, " status=decided ") || index($0, " status=skipped ")) settled[i] = 1
   else if (index($0, " status=logged-over-budget ")) over[i] = 1
   if (index($0, " asked=no ")) exempt[i] = 1
 }
 END {
   t = ENVIRON["TRACK_ID"]; asked = 0
-  # a not-applicable entry clears only pendings at or before its own time, wherever it sits in the file
-  for (k = 1; k <= n; k++) { i = pid[k]; if (!(i in na) || pat[k] > na[i]) pend[i]++ }
-  for (i in pend) if (pend[i] > 0) { asked++; if (i in exempt) asked-- }
-  # unconsumed acknowledgement: a not-applicable entry at or after the latest pending for the id, not yet used to pass an edit
-  ack = 0
-  if ((t in na) && (!(t in lp) || lp[t] <= na[t]) && !((t in cons) && cons[t] >= na[t])) ack = 1
-  print ((t in settled) ? 1 : 0), ((t in over) ? 1 : 0), ((t in pend) ? pend[t] : 0), asked, ack
+  # outstanding pendings = pendings not yet answered by a not-applicable entry
+  for (i in P) { q = P[i] - ((i in N) ? N[i] : 0); pend[i] = (q > 0) ? q : 0; if (pend[i] > 0 && !(i in exempt)) asked++ }
+  p = (t in P) ? P[t] : 0; nn = (t in N) ? N[t] : 0; c = (t in C) ? C[t] : 0
+  m = (p < nn) ? p : nn
+  # an unconsumed acknowledgement: more answered pendings than edits already let through
+  ack = (m > c) ? 1 : 0
+  # a decided/skipped entry settles an id only if the hook asked about it (it has a pending line)
+  print ((t in settled && p > 0) ? 1 : 0), ((t in over) ? 1 : 0), ((t in pend) ? pend[t] : 0), asked, ack, c
 }' "$ledger" 2> /dev/null)" || exit 0
-read -r settled over pend_n asked ack <<< "$state"
-case "$settled$over$pend_n$asked$ack" in '' | *[!0-9]*) exit 0 ;; esac
+read -r settled over pend_n asked ack cons_n <<< "$state"
+case "$settled$over$pend_n$asked$ack$cons_n" in '' | *[!0-9]*) exit 0 ;; esac
 
 [ "$settled" -eq 1 ] && exit 0
 [ "$over" -eq 1 ] && exit 0
@@ -422,6 +514,15 @@ if [ "$fm_budget" -eq 0 ] || { [ "$pend_n" -eq 0 ] && [ "$asked" -ge "$fm_budget
     "- logged-over-budget: $class — $rel ($now), not asked; budget $fm_budget spent"
   emit "" "" "[agentic-contributor · tracked session] Checkpoint budget $fm_budget/$fm_budget is spent. Logged $id ($class, $rel) to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish." \
     "agentic-contributor: checkpoint budget spent; $id logged to $rel_ledger without asking."
+fi
+
+# Cap: three acknowledged not-applicable edits for one id is enough. Log it instead of asking
+# again, so a repeated scripts-only edit cannot cause unbounded deny round-trips.
+if [ "$pend_n" -eq 0 ] && [ "$cons_n" -ge 3 ]; then
+  append "<!-- track:entry status=logged-over-budget source=hook asked=no reason=na-cap at=$now id=$id -->" \
+    "- logged-over-budget: $class — $rel ($now), not asked; $cons_n not-applicable acknowledgements already used"
+  emit "" "" "[agentic-contributor · tracked session] $id was acknowledged as not-applicable $cons_n times. Logged it to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish." \
+    "agentic-contributor: $id logged to $rel_ledger without asking (repeated not-applicable)."
 fi
 
 if [ "$pend_n" -ge 2 ]; then
@@ -461,5 +562,5 @@ fi
 nl=$'\n'
 reason="[agentic-contributor · tracked session] Decision checkpoint $k/$fm_budget before this $tool_name on $rel.${nl}Trigger: $trig${nl}Checkpoint id: $id"
 [ -n "$retry" ] && reason="$reason${nl}$retry"
-reason="$reason${nl}${nl}Do this, then retry the same edit unchanged:${nl}1. Ask the user with AskUserQuestion: ONE question, \"$question\", with 2-3 options (suggested: $opts). Each option gets a one-line trade-off. Put your recommendation first and mark it \"(Recommended)\". The last option is \"Skip — decide later\". Ask them to choose, not to approve or deny.$depnote${nl}2. Read $rel_ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### $id · <UTC now>${nl}<!-- track:entry status=<decided|skipped> source=checkpoint asked=<yes|no> at=<UTC now> id=$id -->${nl}- trigger: $class — $rel${nl}- files: $rel${nl}- options: A) … | B) … | C) Skip — decide later${nl}- chosen: <letter|Skip>${nl}- decided_by: <user-on-recommendation if they picked your recommendation | user otherwise>${nl}- reason: <the user's own words, verbatim, or TODO(you) if they gave none>${nl}   Use status=skipped (reason: TODO(you)) if they pick Skip.${nl}3. If AskUserQuestion is unavailable (non-interactive run or subagent): write the entry with status=skipped, chosen: none, decided_by: agent, reason: non-interactive.${nl}4. If the user's choice means not making this edit, do not retry. Follow their choice.${nl}Write \"decided_by: user…\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
+reason="$reason${nl}${nl}Do this, then retry the same edit unchanged:${nl}1. Ask the user with AskUserQuestion: ONE question, \"$question\", with 2-3 options (suggested: $opts). Each option gets a one-line trade-off. Put your recommendation first and mark it \"(Recommended)\". The last option is \"Skip — decide later\". Ask them to choose, not to approve or deny.$depnote${nl}2. Read $rel_ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### $id · <UTC now>${nl}<!-- track:entry status=<decided|skipped> source=checkpoint asked=yes at=<UTC now> id=$id -->${nl}- trigger: $class — $rel${nl}- files: $rel${nl}- options: A) … | B) … | C) Skip — decide later${nl}- chosen: <letter|Skip>${nl}- decided_by: <user-on-recommendation if they picked your recommendation | user otherwise>${nl}- reason: <the user's own words, verbatim, or TODO(you) if they gave none>${nl}   Use status=skipped (reason: TODO(you)) if they pick Skip; you did ask, so keep asked=yes.${nl}3. If AskUserQuestion is unavailable (non-interactive run or subagent): write the entry with status=skipped, asked=no (in the marker line), chosen: none, decided_by: agent, reason: non-interactive (does not use budget).${nl}4. If the user's choice means not making this edit, do not retry. Follow their choice.${nl}Write \"decided_by: user…\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
 emit deny "$reason" ""

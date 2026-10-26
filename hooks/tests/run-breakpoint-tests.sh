@@ -369,7 +369,7 @@ wait
 ex() { awk -v n="$2" '$0 == "# --- shared: " n " (keep identical in track-*.sh) ---" { p = 1 } p { print } p && $0 == "# --- end shared ---" { p = 0 }' "$1"; }
 names() { sed -n 's/^# --- shared: \(.*\) (keep identical in track-\*\.sh) ---$/\1/p' "$1"; }
 [ "$(names "$chook")" = "$(names "$hook")" ] && ok || bad "(c) shared block names differ: [$(names "$chook" | tr '\n' ,)] vs [$(names "$hook" | tr '\n' ,)]"
-for name in "session lookup" "list cleaning" "manifest map" "glob match" "lock helpers"; do
+for name in "session lookup" "list cleaning" "path normalize" "manifest map" "glob match" "lock helpers"; do
   a="$(ex "$chook" "$name")"
   b="$(ex "$hook" "$name")"
   { [ -n "$a" ] && [ "$a" = "$b" ]; } && ok || bad "(c) shared block '$name' differs between track-checkpoint.sh and track-breakpoint.sh"

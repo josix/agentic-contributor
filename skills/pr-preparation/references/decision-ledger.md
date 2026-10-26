@@ -38,6 +38,8 @@ records prompts, transcripts, keystrokes, or file contents.
 plugin: agentic-contributor
 scenario: prepare-pr
 mode: track
+body_format: 2            # no send block exists, so nothing is sendable
+sendable: false           # private ledger: never send or lint, whatever body_format says
 repo: <owner/repo|local>
 item: <issueN|task>
 task: "<one line, user's words>"
@@ -112,18 +114,26 @@ Rules:
 
 - Write `decided_by: user…` only if the user actually answered. Never invent a user choice.
 - `Skip` means `status=skipped`, `reason: TODO(you)`. The debrief lists it under Unknowns.
-- No AskUserQuestion available (headless run, subagent): `status=skipped`, `chosen: none`,
-  `decided_by: agent`, `reason: non-interactive`.
+- You asked the user (AskUserQuestion): `asked=yes`, whatever they chose (including `Skip`).
+- No AskUserQuestion available (headless run, subagent): `status=skipped`, `asked=no`, `chosen: none`,
+  `decided_by: agent`, `reason: non-interactive`. `asked=no` means it does not use budget.
 - Dependency false positive (the edit changes no dependency, only scripts, version, or metadata):
   `status=not-applicable`, `chosen: not-a-dependency-change`, `decided_by: agent`, `asked=no`. It
   does not settle the id (a later real dependency change still gets a checkpoint), does not count
-  toward the budget (it also clears the id's pending line). The hook lets that one acknowledged edit through and appends a `<!-- track:consumed at=<UTC> id=<id> -->` marker; the next edit to the same id is checkpointed again. The debrief shows it under "Agent's
+  toward the budget (each not-applicable entry answers one pending line). The hook matches by
+  **count, not time**: an entry is an unused acknowledgement while the number of not-applicable
+  entries for the id (capped by its pending lines) exceeds the number of
+  `<!-- track:consumed at=<UTC> id=<id> -->` markers. It lets that one acknowledged edit through and
+  appends a consumed marker; the next edit to the same id is checkpointed again. `at=` is not
+  compared, so same-second entries and copied timestamps behave the same. A not-applicable entry
+  written before any pending line acknowledges nothing. **Cap:** after 3 acknowledged edits for one id
+  the hook stops asking: it appends `status=logged-over-budget source=hook asked=no reason=na-cap`
+  and lets the edit through (an Unknown in the debrief). The debrief shows acknowledged edits under "Agent's
   implicit decisions".
 - Manual entries ("log this decision"): `id=manual:<UTC>`, `source=manual`, `asked=no`, trigger
   `manual`, status `decided`.
 - `at=` is the current UTC time as `YYYY-MM-DDTHH:MM:SSZ` (take it from `date -u +%Y-%m-%dT%H:%M:%SZ`).
-  The hook drops fractional seconds. A missing, malformed or future `at=` is read as the oldest
-  possible time, so a bad timestamp can only cause an extra checkpoint, never a skipped one.
+  `at=` is for humans: the hook never compares it, so a wrong value cannot change a decision.
 
 ### Drift entries
 
@@ -164,8 +174,9 @@ Never write `answered_by: user` unless the user actually answered; never grade o
 
 The hook only ever appends with `>>` at end of file (one atomic line write, no read-modify-write).
 It holds a lock directory (`<ledger>.lock`) while it reads the ledger, checks the budget and appends,
-so parallel edits cannot spend the same budget slot. A lock older than 10 seconds is treated as stale;
-if the lock stays busy for about 2 seconds the hook gives up silently (fail open).
+so parallel edits cannot spend the same budget slot. The holder writes its pid to `<ledger>.lock/pid`;
+a lock whose pid is dead is stale and is broken at once, and a lock with no pid file is stale after
+5 seconds. If a live holder keeps the lock busy for about 2 seconds the hook gives up silently (fail open).
 These land below the anchor, which is harmless because readers parse by machine line, not position.
 
 ```
@@ -199,9 +210,12 @@ matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
   and **`id=<id> -->` is the final token**, so ids with spaces still match as a literal suffix. The
   hook matches with awk `index()` against `ENVIRON["TRACK_ID"]` (no regex metacharacters).
 - **settled(id)**: a `track:entry` line with `status=decided` or `status=skipped` and the suffix
-  ` id=<id> -->`.
+  ` id=<id> -->`, **and** at least one `track:pending` line for the same id (a hand-written entry
+  with no pending line settles nothing).
 - **over_logged(id)**: a `track:entry` line with `status=logged-over-budget` and that suffix.
-- **pending(id)**: count of `track:pending` lines with that suffix.
+- **pending(id)**: count of `track:pending` lines with that suffix, minus the count of
+  `status=not-applicable` entries for the id (never below 0).
+- **acknowledged(id)**: min(pending lines, not-applicable entries) > count of `track:consumed` markers.
 - **asked** = |distinct ids over pending lines| − |distinct ids with a `track:entry … asked=no`
   line that also have a pending line|.
 - **drift_n** = count of `^<!-- track:drift ` lines; **drift_asked** = those containing ` asked=yes `.
@@ -284,9 +298,16 @@ behaves like `*`). A trailing `/` means prefix. Comparison is against the repo-r
 
 So that a checkpoint costs one interruption (the question) and not two, the hook returns
 `permissionDecision: allow` for exactly one case: tool **Edit** (never Write, MultiEdit, or
-NotebookEdit) whose `file_path`, made absolute, equals the active ledger path read from the
-pointer, byte for byte. Paths containing a `..` segment, non-normalized forms, symlinked ledger or
-`.oss-drafts/`, pointers outside `.oss-drafts/track-*.md`, and every other path get no allow.
+NotebookEdit) that **appends**: `old_string` is `<!-- track:end -->` (optionally followed by a
+newline), `replace_all` is not set, and `new_string` ends with `old_string`, with a prefix that
+contains no `<!-- track:end -->`, `<!-- track:pending `, `<!-- track:consumed ` or ` source=hook`.
+The `file_path` must name the active ledger from the pointer (after the hook normalizes the path
+and compares logical and physical repository roots), and the raw `file_path` must not contain a
+`..`, `.` or empty segment. Every other edit of the ledger (frontmatter changes such as widening
+`scope:` or `status: stopped`, rewrites of earlier entries, Write, MultiEdit) gets no decision, so
+Claude Code's normal permission prompt applies: those changes stay possible but are never silent.
+Symlinked ledger or `.oss-drafts/`, pointers outside `.oss-drafts/track-*.md`, and every other
+path get no allow.
 
 ## 9. Deny reason template (addressed to Claude)
 
@@ -298,8 +319,8 @@ Checkpoint id: <id>
 
 Do this, then retry the same edit unchanged:
 1. Ask the user with AskUserQuestion: ONE question, "<question>", with 2-3 options. Each option gets a one-line trade-off. Put your recommendation first and mark it "(Recommended)". The last option is "Skip — decide later". Ask them to choose, not to approve or deny.
-2. Read <rel_ledger>, then use Edit to replace the line `<!-- track:end -->` with the entry (section 4) followed by `<!-- track:end -->`.
-3. If AskUserQuestion is unavailable: write the entry with status=skipped, chosen: none, decided_by: agent, reason: non-interactive.
+2. Read <rel_ledger>, then use Edit to replace the line `<!-- track:end -->` with the entry (section 4, `asked=yes`) followed by `<!-- track:end -->`.
+3. If AskUserQuestion is unavailable: write the entry with status=skipped, asked=no, chosen: none, decided_by: agent, reason: non-interactive (does not use budget).
 4. If the user's choice means not making this edit, do not retry. Follow their choice.
 Write "decided_by: user…" only if the user actually answered. The ledger is private: never copy it into any sendable text.
 ```

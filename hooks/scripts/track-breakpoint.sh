@@ -92,6 +92,45 @@ trk_find_session() {
 }
 # --- end shared ---
 
+# --- shared: path normalize (keep identical in track-*.sh) ---
+# Lexical normalisation (collapse //, ./, ..), then a repo-relative path. trk_relpath sets trk_rel
+# ("" when the path is outside the repository). The cheap lexical comparison runs first; the
+# physical (pwd -P) comparison, which forks, runs only when it misses, so a symlinked
+# CLAUDE_PROJECT_DIR and a real-path file_path (or the reverse) still agree.
+trk_norm() { # $1 absolute path -> trk_np
+  local IFS=/ c out=""
+  for c in $1; do
+    case "$c" in '' | .) ;; ..) out="${out%/*}" ;; *) out="$out/$c" ;; esac
+  done
+  trk_np="${out:-/}"
+}
+trk_under() { # $1 normalized path, $2 normalized root -> trk_rel on success
+  case "$1" in "$2"/*) trk_rel="${1#"$2"/}"; return 0 ;; esac
+  return 1
+}
+trk_relpath() { # $1 absolute path -> trk_rel
+  local a r ra p suffix pa full
+  trk_rel=""
+  trk_norm "$1"; a="$trk_np"
+  trk_norm "$trk_root"; r="$trk_np"
+  trk_under "$a" "$r" && return 0
+  ra="$(cd "$trk_root" 2> /dev/null && pwd -P)" || ra=""
+  [ -n "$ra" ] && trk_under "$a" "$ra" && return 0
+  # physical path of the nearest existing ancestor (the file itself may not exist yet)
+  p="$a"; suffix=""
+  while :; do
+    pa="$(cd "${p:-/}" 2> /dev/null && pwd -P)" && break
+    [ -n "$p" ] || return 0
+    suffix="/${p##*/}$suffix"
+    p="${p%/*}"
+  done
+  full="${pa%/}$suffix"
+  trk_under "$full" "$r" && return 0
+  [ -n "$ra" ] && trk_under "$full" "$ra" && return 0
+  return 0
+}
+# --- end shared ---
+
 # ── FAST PATH: no session pointer -> exit before reading stdin (builtins only) ──
 trk_find_session || exit 0
 
@@ -320,33 +359,44 @@ trk_mtime() { # $1 path -> epoch mtime on stdout; GNU stat first (BSD rejects -c
   case "$t" in '' | *[!0-9]*) return 1 ;; esac
   printf '%s' "$t"
 }
-trk_lock() { # $1 lock dir; returns 1 if still busy after ~2s. Caller sets the EXIT trap.
-  local lock="$1" tries=0 lt now stale="$1.stale.$$"
+trk_lock() { # $1 lock dir; returns 1 if still busy after ~2s. Caller sets the EXIT trap (trk_unlock).
+  local lock="$1" tries=0 lt now hp stale="$1.stale.$$" dead
   until mkdir "$lock" 2> /dev/null; do
-    # A lock older than ~10s is stale (a crashed hook). Rename it to a name unique to this
-    # process first, so a fresh lock that another process creates meanwhile is never removed by
-    # our rmdir; only the atomic rename can race, and it moves the stale directory at most once.
-    if lt="$(trk_mtime "$lock")" && now="$(date +%s 2> /dev/null)"; then
-      case "$now" in '' | *[!0-9]*) ;; *)
-        if [ $((now - lt)) -gt 10 ]; then
-          rmdir "$stale" 2> /dev/null
-          mv "$lock" "$stale" 2> /dev/null && rmdir "$stale" 2> /dev/null
+    # Stale = the holder pid (written right after mkdir) is dead, or, with no pid file yet, the lock
+    # is older than 5s. Rename it to a name unique to this process first, so a fresh lock that
+    # another process creates meanwhile is never removed; only the atomic rename can race, and
+    # it moves the stale directory at most once.
+    dead=0; hp=""
+    [ -f "$lock/pid" ] && { IFS= read -r hp < "$lock/pid" 2> /dev/null || true; }
+    case "$hp" in
+      '' | *[!0-9]*)
+        if lt="$(trk_mtime "$lock")" && now="$(date +%s 2> /dev/null)"; then
+          case "$now" in '' | *[!0-9]*) ;; *) [ $((now - lt)) -gt 5 ] && dead=1 ;; esac
         fi ;;
-      esac
+      *) kill -0 "$hp" 2> /dev/null || dead=1 ;;
+    esac
+    if [ "$dead" -eq 1 ]; then
+      rm -f "$stale/pid" 2> /dev/null; rmdir "$stale" 2> /dev/null
+      mv "$lock" "$stale" 2> /dev/null && { rm -f "$stale/pid" 2> /dev/null; rmdir "$stale" 2> /dev/null; }
+      tries=$((tries + 1))
+      [ "$tries" -ge 20 ] && return 1
+      continue # retry mkdir at once
     fi
     tries=$((tries + 1))
     [ "$tries" -ge 20 ] && return 1
     sleep 0.1 2> /dev/null || return 1
   done
+  printf '%s\n' "$$" > "$lock/pid" 2> /dev/null
   return 0
 }
+trk_unlock() { rm -f "$1/pid" 2> /dev/null; rmdir "$1" 2> /dev/null; }
 # --- end shared ---
 take_lock() { # exits 0 (fail open) when the lock stays busy
   lock="$ledger.lock"
   trk_lock "$lock" || exit 0
-  trap 'rmdir "$lock" 2> /dev/null' EXIT
+  trap 'trk_unlock "$lock"' EXIT
 }
-release_lock() { rmdir "$lock" 2> /dev/null; trap - EXIT; }
+release_lock() { trk_unlock "$lock"; trap - EXIT; }
 
 # ledger_state: one awk pass over the ledger -> globals (see decision-ledger.md section 5)
 ledger_state() {
@@ -628,7 +678,7 @@ compact_state() { # $1 = current line count
   [ "$1" -gt "$STATE_MAX" ] || return 0
   trk_lock "$ledger.lock" || return 0
   lock="$ledger.lock"
-  trap 'rmdir "$lock" 2> /dev/null' EXIT
+  trap 'trk_unlock "$lock"' EXIT
   if [[ ! -L "$tmp" ]] && awk -F'\t' -v keep="$STATE_KEEP" '
 { ln[NR] = $0; k[NR] = $1; v[NR] = $2 }
 END {
@@ -663,8 +713,9 @@ post_tool_use() {
     abs="$cwd/$abs"
   fi
   case "$abs" in */.oss-drafts/*) exit 0 ;; esac
-  rel="${abs#"$root"/}"
-  [ "$rel" = "$abs" ] && exit 0
+  trk_relpath "$abs"
+  rel="$trk_rel"
+  [ -n "$rel" ] || exit 0
   case "$rel" in *[[:cntrl:]]*) exit 0 ;; esac
   printf 'e\t%s\n' "$rel" >> "$state" 2> /dev/null || exit 0
   drift_enabled || exit 0
