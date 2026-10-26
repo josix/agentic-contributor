@@ -54,13 +54,20 @@ session. One class per edit, first match wins: test, dependency, api, scope.
 The edit is paused and the agent is told to ask you one question with 2 to 3 options, each with a
 one-line trade-off, a recommendation first, and a final **Skip, decide later**. You choose; you are
 not asked to approve or deny. The agent records the choice and your words in the ledger and retries.
-A skipped checkpoint becomes an **Unknown** in the debrief. Once an id is settled it is never asked
-again.
+A skipped checkpoint becomes an **Unknown** in the debrief. Once a checkpoint id is settled it is
+never asked again. Ids are `<class>:<path>`, and test and dependency ids end in `#<change>`, a
+checksum of the lines the edit adds and removes (for example `dependency:package.json#073e0383`).
+So retrying the same edit after you chose passes silently, but adding a second dependency to the
+same `package.json`, or weakening the same test file in a different way, is a new decision and gets
+its own checkpoint.
 
 ## Fatigue budget
 
 - Default 3 questions per session, counting questions actually asked. Set it with `budget N`, or
   edit `budget:` in the ledger frontmatter.
+- Scope checkpoints have their own budget of the same size. Out-of-scope edits therefore never use
+  up the questions for test weakening, dependencies, and API paths; at most `2 × budget` questions
+  are asked per session.
 - Past the budget, triggers are still logged (`logged-over-budget`) but you are not asked, and the
   agent mentions it at the end.
 - `budget: 0` is log-only mode, recommended for headless or CI runs.
@@ -70,7 +77,7 @@ again.
 ## Scope and api_paths
 
 `scope` comes from what you give at start, else paths mentioned in the issue that exist in the
-repo, else empty. Globs use shell matching where `*` crosses `/` (so `**` equals `*`); a trailing
+repo (each as its directory, `dir/**`; a file at the repo root stays exact), else empty. Globs use shell matching where `*` crosses `/` (so `**` equals `*`); a trailing
 `/` means prefix. At a scope checkpoint one option is "proceed and add `<dir>/**` to scope", which
 edits `scope:` in the ledger frontmatter. `api_paths` uses the same syntax and is opt-in.
 
@@ -83,7 +90,7 @@ A private markdown file `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md`. Full
 ## Privacy
 
 The ledger is private notes. It is never a send block and never PR text. The hook writes only the
-class, path, counts, and timestamps. It never records prompts, transcripts, keystrokes, or file
+class, path, a checksum of the changed lines (never the lines), counts, and timestamps. It never records prompts, transcripts, keystrokes, or file
 contents. The ledger is agent-written, so a checkpoint answer is the agent's report of what you
 chose; the debrief marks it as evidence, not proof.
 

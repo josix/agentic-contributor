@@ -74,7 +74,9 @@ into a send block.
    linked worktrees where `.git` is a file).
 5. With an issue URL, dispatch `oss-researcher` with key `track-start` (title, body, repo paths
    mentioned). Scope: the user's globs (`scope_source: user`), else mentioned paths that exist in
-   the repo (a file is an exact path, a directory becomes `dir/**`; `scope_source: issue`), else
+   the repo, as directories: a directory becomes `dir/**`, a file becomes its directory's `dir/**`
+   (a file at the repo root stays an exact path), so neighbouring files the fix needs are in scope
+   (`scope_source: issue`), else
    `[]` (`none`, which turns the out-of-scope checkpoint off). Suggest adding matching test dirs.
    Budget: the user's `budget N`, else 3.
 6. Write the ledger (Write tool, `decision-ledger.md` sections 1 to 3), then the pointer in the git
@@ -92,7 +94,7 @@ empty pointer, which the hook treats as no session). List entries whose reason i
 hook-skipped items. Offer the debrief in one line.
 
 **Status:** task, age, base, branch (warn on mismatch with the current branch), scope, budget used
-(asked / budget), and a table of entries. No auto-close of abandoned sessions; show the age.
+(asked / budget, shown separately for scope checkpoints and for the other classes), and a table of entries. No auto-close of abandoned sessions; show the age.
 
 **Log:** append a manual entry with Edit per `decision-ledger.md` section 4 (`id=manual:<UTC>`).
 

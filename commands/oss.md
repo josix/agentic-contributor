@@ -40,6 +40,8 @@ All scenario outputs are saved to `.oss-drafts/` in the user's current working d
 
 **Directory:** `.oss-drafts/` (relative to the user's cwd when `/oss` is invoked)
 
+**Exception, tracked sessions:** the track-mode decision ledger always lives in the repository root's `.oss-drafts/` (`<git toplevel>/.oss-drafts/`, from `git rev-parse --show-toplevel`), whatever the cwd, because the checkpoint hook only accepts a ledger there (`skills/pr-preparation/references/decision-ledger.md` section 1).
+
 **Naming:** `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`
 
 - `owner/repo` slashes become `-` (e.g. `apache-airflow`)
