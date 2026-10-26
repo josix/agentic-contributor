@@ -138,6 +138,32 @@ trk_relpath() { # $1 absolute path -> trk_rel
 }
 # --- end shared ---
 
+# --- shared: pause check (keep identical in track-*.sh) ---
+# A session belongs to a repository, not to one Claude Code session, so it only acts while it
+# plausibly belongs to the current work. trk_pause_check "<ledger branch>" sets trk_paused to
+# "branch" when HEAD is not on that branch (not checked when it is empty or HEAD, i.e. started
+# detached), "age" when the pointer was written more than OSS_TRACK_MAX_AGE_HOURS ago (default 24,
+# 0 = no limit; `/oss track resume` rewrites it), else "". One fork (find) only on the age check.
+trk_pause_check() {
+  local head_line=""
+  trk_paused=""
+  trk_max_age="${OSS_TRACK_MAX_AGE_HOURS:-24}"
+  case "$trk_max_age" in '' | *[!0-9]*) trk_max_age=24 ;; esac
+  if [ -n "$1" ] && [ "$1" != HEAD ]; then
+    IFS= read -r head_line < "$trk_gitdir/HEAD" 2> /dev/null || true
+    case "$head_line" in
+      "ref: refs/heads/"?*) [ "${head_line#ref: refs/heads/}" = "$1" ] || trk_paused=branch ;;
+      *) trk_paused=branch ;; # detached HEAD while the session was started on a branch
+    esac
+  fi
+  if [ -z "$trk_paused" ] && [ "$trk_max_age" -gt 0 ] \
+    && [ -n "$(find "$trk_ptr" -mmin "+$((trk_max_age * 60))" 2> /dev/null)" ]; then
+    trk_paused=age
+  fi
+  return 0
+}
+# --- end shared ---
+
 # ── FAST PATH: no session pointer -> exit before reading stdin (builtins only) ──
 trk_find_session || exit 0
 
@@ -160,7 +186,7 @@ state="${ledger%.md}.state"
 [[ -L "$state" ]] && exit 0
 
 # Frontmatter (builtin reads, no fork).
-fm_plugin=""; fm_mode=""; fm_status=""; fm_scope=""; fm_budget=""; fm_base=""
+fm_plugin=""; fm_mode=""; fm_status=""; fm_scope=""; fm_budget=""; fm_base=""; fm_branch=""
 fm_dl=""; fm_df=""; fm_dmax=""; fm_emax=""; fm_eint=""; fm_dsrc=""
 fm_predict=""; fm_pmax=""; fm_ucommits=""; fm_punk=""
 n=0
@@ -178,6 +204,7 @@ while IFS= read -r line; do
     "status: "*) v="${line#status: }"; fm_status="${v%%[[:space:]]*}" ;;
     "budget: "*) v="${line#budget: }"; fm_budget="${v%%[[:space:]]*}" ;;
     "base_commit: "*) v="${line#base_commit: }"; fm_base="${v%%[[:space:]]*}" ;;
+    "branch: "*) v="${line#branch: }"; fm_branch="${v%%[[:space:]]*}" ;;
     "drift_lines: "*) v="${line#drift_lines: }"; fm_dl="${v%%[[:space:]]*}" ;;
     "drift_files: "*) v="${line#drift_files: }"; fm_df="${v%%[[:space:]]*}" ;;
     "drift_max: "*) v="${line#drift_max: }"; fm_dmax="${v%%[[:space:]]*}" ;;
@@ -198,6 +225,10 @@ done < "$ledger"
 if [ "$ev" = UserPromptSubmit ]; then
   case "$fm_predict" in true | on | auto) ;; *) exit 0 ;; esac
 fi
+# Paused (other branch, or the pointer is too old): no drift, explain-back or predict note. The
+# checkpoint hook tells the user once; this hook stays silent.
+trk_pause_check "$fm_branch"
+[ -z "$trk_paused" ] || exit 0
 
 # --- shared: list cleaning (keep identical in track-*.sh) ---
 clean_list() { # strip comment, brackets, quotes
@@ -998,8 +1029,9 @@ stop_event() {
   q_now=$((pend_n + drift_asked + predict_n))
 
   # (a) drift, once per newly crossed threshold or module; paused once the base moved or vanished.
-  # Skipped when a question already interrupted since the last stop (spacing).
-  if [ "$had_state" -eq 1 ] && [ "$q_now" -gt "$q_mark" ]; then
+  # Skipped when a question already interrupted since the last stop (spacing). With no state file
+  # yet, q_mark is 0, so a checkpoint asked this turn (its edit denied, never logged) still counts.
+  if [ "$q_now" -gt "$q_mark" ]; then
     :
   elif { [ "$base_rc" = 1 ] || [ "$base_rc" = 3 ]; } && [ "$paused" -eq 0 ] && drift_enabled; then
     if [ "$base_rc" = 1 ]; then why=base-moved; else why=base-missing; fi

@@ -10,7 +10,8 @@ The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostTo
     The hook is registered by the plugin, not by `/oss`, so it checks every `Bash` call in every
     Claude Code session while `agentic-contributor` is enabled, including work that has nothing to
     do with `/oss`. In those sessions `git push`, `gh pr create`, and the other commands below are
-    denied too. To push or open a PR from Claude Code, run the command yourself in a terminal, or
+    denied too, and so are write tools on any GitHub MCP server (for example
+    `mcp__github__create_pull_request`). To push or open a PR from Claude Code, run the command yourself in a terminal, or
     disable the plugin via `/plugin` and restart the session (hooks are registered at session
     start); re-enable it the same way.
 
@@ -22,7 +23,7 @@ The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostTo
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|mcp__plugin_agentic-contributor_github__.*",
+        "matcher": "Bash|mcp__.*[Gg][Ii][Tt][Hh][Uu][Bb].*__.*",
         "hooks": [
           {
             "type": "command",
@@ -68,7 +69,7 @@ The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostTo
 }
 ```
 
-**Matcher:** `Bash|mcp__plugin_agentic-contributor_github__.*` — matches all Bash tool calls and all GitHub MCP tool calls namespaced to this plugin.
+**Matcher:** `Bash|mcp__.*[Gg][Ii][Tt][Hh][Uu][Bb].*__.*` — matches all Bash tool calls and every GitHub MCP tool call: this plugin's own server and any other MCP server with "github" in its name (for example `mcp__github__*`), so a separately installed GitHub server cannot be used to post.
 
 **Timeout:** 30 seconds. Typical commands finish in well under 1 second (bash string matching plus a few `awk` passes, no network calls). A command that contains none of the trigger words `gh`, `git`, `curl`, or `wget` (checked case-insensitively after deleting quotes, backslashes, and newlines, so `g\it` or `"g"it` still count) is allowed immediately. Segments without a trigger word are skipped one by one, so a 400-line script that runs `git` on every line still finishes in a few seconds. The guard fails closed on very large input rather than running into the timeout (which would allow the command): a command of more than 64 KiB, one with more than 2000 shell separators (`;`, `|`, `&`, parentheses, backticks, newlines, counted before parsing), or one with more than 500 segments that contain a trigger word as a whole word (`height` or `github` do not count), is denied with "command too large to analyse safely; split it into smaller commands (or write a script with the Write tool and run it)". Any analysis still running after 10 seconds is denied the same way, because a timeout would allow the command, so the guard never relies on it. The 30-second timeout leaves headroom for slow machines.
 
@@ -104,7 +105,7 @@ Known gaps are recorded as `known-bypass` rows in `hooks/tests/guard-cases.tsv`.
 
 ### MCP Tools — default DENY, read allowlist
 
-The plugin's GitHub MCP namespace is **default-deny**. The script takes the tool-name suffix after the last `__` and allows it only when it names a read tool:
+Every GitHub MCP server is **default-deny**: this plugin's own and any other server whose name contains `github` in any case. The script takes the tool-name suffix after the last `__` and allows it only when it names a read tool:
 
 ```
 get_*  |  list_*  |  search_*  |  issue_read  |  pull_request_read
@@ -169,7 +170,7 @@ Everything not matched by a deny pattern:
 
 **Matcher:** `Edit|Write|MultiEdit|NotebookEdit`. **Timeout:** 5 seconds. Bash is not watched (`npm install`, `rm` are not caught).
 
-**Opt-in.** The session pointer is `<gitdir>/agentic-contributor/track-active`, in the git dir of the repository containing `$CLAUDE_PROJECT_DIR` (else the hook's working directory). The hook finds it by walking up to the first `.git`; a `.git` file (linked worktree, submodule) is followed through its `gitdir:` line. Without that pointer the hook exits before reading stdin, prints nothing, and spawns no subprocess (builtins only), so large edit payloads cost nothing. Tracked sessions require git: outside a git repository the hook is inactive. A `.oss-drafts/.track-active` file or ledger committed to a repository is ignored, because git never clones the git dir. Kill switch: `OSS_TRACK_DISABLE=1`. Also silent when the ledger says `status: stopped`, in `permission_mode: plan`, when the edited file is outside the repository root, or when the pointer is invalid (it must name `.oss-drafts/track-<name>.md` inside the root, no `..`, no symlinks).
+**Opt-in.** The session pointer is `<gitdir>/agentic-contributor/track-active`, in the git dir of the repository containing `$CLAUDE_PROJECT_DIR` (else the hook's working directory). The hook finds it by walking up to the first `.git`; a `.git` file (linked worktree, submodule) is followed through its `gitdir:` line. Without that pointer the hook exits before reading stdin, prints nothing, and spawns no subprocess (builtins only), so large edit payloads cost nothing. Tracked sessions require git: outside a git repository the hook is inactive. A `.oss-drafts/.track-active` file or ledger committed to a repository is ignored, because git never clones the git dir. Kill switch: `OSS_TRACK_DISABLE=1`. Paused (no question, no ledger write, a one-time notice) when the checked-out branch differs from the ledger's `branch` or the pointer is older than `OSS_TRACK_MAX_AGE_HOURS` (default 24, `0` = off); `/oss track resume` re-arms it. Also silent when the ledger says `status: stopped`, in `permission_mode: plan`, when the edited file is outside the repository root, or when the pointer is invalid (it must name `.oss-drafts/track-<name>.md` inside the root, no `..`, no symlinks).
 
 **JSON parsing:** `jq` → `python3` → silent allow (no grep fallback; this hook fails open).
 
@@ -203,12 +204,12 @@ Harness: `bash hooks/tests/run-track-tests.sh` (bash 3.2 compatible; builds a fi
 
 ## `track-breakpoint.sh` (advisory)
 
-A separate, advisory hook for tracked sessions only. Like `track-checkpoint.sh` it is not the safety guard, fails open (any internal error means no output and exit 0), prints nothing and starts no subprocess when no session is active (builtins only), needs `jq` or `python3` (else silent), honours `OSS_TRACK_DISABLE=1` and `permission_mode: plan` (PostToolUse and Stop are silent in plan mode; the UserPromptSubmit predict note still runs, see decision-ledger.md section 15), and never reverts, stashes, or edits code. It reads `hook_event_name` and handles three events:
+A separate, advisory hook for tracked sessions only. Like `track-checkpoint.sh` it is not the safety guard, fails open (any internal error means no output and exit 0), prints nothing and starts no subprocess when no session is active (builtins only), needs `jq` or `python3` (else silent), stays silent while the session is paused (other branch, or pointer older than `OSS_TRACK_MAX_AGE_HOURS`; the checkpoint hook gives the one-time notice), honours `OSS_TRACK_DISABLE=1` and `permission_mode: plan` (PostToolUse and Stop are silent in plan mode; the UserPromptSubmit predict note still runs, see decision-ledger.md section 15), and never reverts, stashes, or edits code. It reads `hook_event_name` and handles three events:
 
 | Event | What it does | Output |
 |---|---|---|
 | `PostToolUse` (`Edit\|Write\|MultiEdit\|NotebookEdit`) | appends the edited path to the session state file `<ledger>.state` (ledger writes are never logged). Runs a drift check only when the path is new to the session or every 5th edit; skips the check inside a subagent (`agent_id` present) | `hookSpecificOutput.additionalContext` with a "choose: keep / separate PR / drop / skip" alert. Over the drift cap or with `budget: 0` the marker is recorded silently (no output). A new alert waits for a later turn when a question (including a predict question) already interrupted this one. Context, never a block |
-| `Stop` | exits first when `stop_hook_active` is true. Otherwise runs the drift check once (skipped when a checkpoint, drift or predict question already interrupted since the last stop, and deferred when the agent's last message already asks the user), then at most one explain-back question, only when the agent edited code since its previous stop (a chat-only turn is never interrupted; deferred edits wait for the next turn with edits) and about a change of at least 5 lines (`EXPLAIN_MIN_LINES`) | `{"decision":"block","reason":...}` with the instructions, at most one block per stop; drift takes precedence. A top-level `systemMessage` (alone, or with the block) is shown to the user only, the agent does not see it: it summarises drift logged without asking (with `budget: 0` or a spent cap nothing is asked) |
+| `Stop` | exits first when `stop_hook_active` is true. Otherwise runs the drift check once (skipped when a checkpoint, drift or predict question already interrupted since the last stop, including on the session's first stop before any state file exists, and deferred when the agent's last message already asks the user), then at most one explain-back question, only when the agent edited code since its previous stop (a chat-only turn is never interrupted; deferred edits wait for the next turn with edits) and about a change of at least 5 lines (`EXPLAIN_MIN_LINES`) | `{"decision":"block","reason":...}` with the instructions, at most one block per stop; drift takes precedence. A top-level `systemMessage` (alone, or with the block) is shown to the user only, the agent does not see it: it summarises drift logged without asking (with `budget: 0` or a spent cap nothing is asked) |
 | `UserPromptSubmit` | with `predict: true`, or `predict: auto` when the fixed rules (newcomer, skipped explain-back, many prior unknowns; off after two "no idea") compute on, `budget > 0`, an active session, fewer than `predict_max` (default 4) `predict:<n>` ledger entries, and a prompt that is not empty, not a slash command (`/name ` or `/name`; a path like `/src/a.c:4` is text) and not trivial (24 UTF-8 bytes or fewer, no `?`, no diagnosis or planning keyword), adds the predict-then-reveal instruction. No git. Plan mode still predicts. Writes: in `auto`, a `track:predict-auto` switch marker under the ledger lock (busy lock = skip, fail open), logged when auto is evaluated; and a `p<TAB><sid>` line in the state file after the first full note (later prompts get a short reminder) | `hookSpecificOutput.additionalContext` (`hookEventName: "UserPromptSubmit"`), never a block. The text shows `(auto: <reason>)` in auto mode. The instruction is scoped with "only if this prompt asks you to diagnose a problem or propose a plan"; the agent records a `predict:<n>` entry itself (`outcome: pending`, then a separate `track:outcome` block at the reveal). A predict entry counts toward the explain-back watermark |
 
 Caps (separate pools, in the ledger frontmatter): checkpoints `budget` 3, drift `drift_max` 2, breakpoint questions `explain_max` 4 at least `explain_interval_min` 20 minutes apart. `budget: 0` is quiet mode. Drift thresholds are `drift_lines` 400 and `drift_files` 10 (strictly greater; the alert labels each limit with its source, `default` when it is at its default value), plus out-of-scope modules that no checkpoint covered (a `logged-over-budget` log does not count as covered).

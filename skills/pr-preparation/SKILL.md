@@ -43,7 +43,8 @@ contributor get there; the contributor writes the reasoning.
 Lifecycle: **track** (while the agent codes) then **debrief** then **draft**.
 
 - `mode: track`: the request is "track this task", "start tracking", "/oss track", "stop tracking",
-  "track status", or "log this decision". Sub-actions `start` (default), `stop`, `status`, `log`;
+  "track status", "resume tracking", or "log this decision". Sub-actions `start` (default), `stop`,
+  `status`, `resume`, `log`;
   run Procedure 0. It produces a private ledger and **no PR text**.
 - `mode: debrief` (entry mode): the request is "help me understand what I changed", "debrief my
   change", or "what did the agent change". Load `change-debrief`, write only its private file
@@ -130,7 +131,16 @@ drift and explain items, and the count of explain answers. Offer the debrief in 
 `drift_max`, plus logged), breakpoint questions (asked / `explain_max`, time of the last), the
 current `git diff --numstat <base_commit>` size against the limits, `predict: on/off/auto` (for
 auto: the current state and reason, for example `auto (on: newcomer)`, plus the recorded switches)
-and `<used>/<predict_max>`, and a table of entries. No auto-close of abandoned sessions; show the age.
+and `<used>/<predict_max>`, and a table of entries. Say whether the hook is **paused** and why: the
+current branch differs from the ledger's `branch` (unless that is `HEAD`), or the pointer was
+written more than 24 hours ago (`OSS_TRACK_MAX_AGE_HOURS`, `0` = no limit; check with
+`find "$ptr" -mmin +1440`). A paused session asks nothing, records nothing, and sends no drift,
+explain-back or predict notes. Offer `resume` or `stop`.
+
+**Resume:** for an age pause, Write the pointer again with the same one line (this restarts the
+24-hour window) and remove `"$(git rev-parse --git-dir)/agentic-contributor/track-paused-notified"`
+with `rm -f`. For a branch pause, tell the user to switch back to the ledger's branch; if they
+want to track on the current branch instead, Edit the ledger's `branch:` to it.
 
 **Predict on|off|auto:** `/oss track predict on|off|auto` edits `predict:` in the active ledger
 frontmatter (`on` = `true`, `off` = `false`; a frontmatter Edit, so Claude Code shows its normal permission prompt; only appends at

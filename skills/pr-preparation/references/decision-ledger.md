@@ -367,6 +367,11 @@ behaves like `*`). A trailing `/` means prefix. Comparison is against the repo-r
   3+3+2+4+4 = 16 questions per session; typical 0 to 3. `budget: 0` is quiet mode for all of them.
 - Silent with no session (no git-dir pointer, or not a git repository), `status: stopped`, `OSS_TRACK_DISABLE=1`, `permission_mode: plan` (except the predict note, section 15), an
   invalid pointer, or any internal error (the hook is advisory and fails open).
+- **Paused** when HEAD is not on the ledger's `branch` (skipped when `branch: HEAD`) or the pointer
+  is older than `OSS_TRACK_MAX_AGE_HOURS` (default 24, `0` = off). A would-be checkpoint then gets
+  no decision, no ledger write, and a one-time `systemMessage` (marker
+  `<gitdir>/agentic-contributor/track-paused-notified`, re-armed when the pointer is rewritten).
+  `resume` rewrites the pointer and removes the marker.
 
 ## 8. Auto-allow of the ledger Edit
 

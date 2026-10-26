@@ -158,3 +158,13 @@ silent	explain0-pending	Stop	-	m advanced
 silent	chat-turn	Stop	-	edits kept
 consume	tiny-hunk	Stop	-	-
 consume	tiny-untracked	Stop	-	-
+# pause: on another branch, or with a pointer older than OSS_TRACK_MAX_AGE_HOURS, nothing is sent or recorded
+noop	other-branch	Post	src/app.js	-
+noop	other-branch	Stop	-	-
+noop	old-ptr	Post	src/app.js	-
+noop	old-ptr	Stop	-	-
+drift-ctx	old-ptr-noage	Post	src/app.js	1 crossed=lines
+noop	predict-old-ptr	Prompt	-	-
+# spacing on the first stop: with no state file yet, a checkpoint asked this turn still blocks the drift question
+silent	pending-nostate	Stop	-	-
+drift-block	big-lines	Stop	-	1

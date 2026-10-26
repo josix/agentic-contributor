@@ -510,3 +510,14 @@ allow	Bash	git diff --stat HEAD
 allow	Bash	git ls-files --others --exclude-standard
 allow	Bash	git diff --stat main...HEAD && git status --porcelain && git ls-files --others --exclude-standard
 allow	Bash	git diff --stat $(git merge-base HEAD main)
+# Other GitHub MCP servers get the same default-deny rule (any case of "github" in the server name)
+deny	mcp__github__add_issue_comment	-
+deny	mcp__github__create_pull_request	-
+deny	mcp__github__merge_pull_request	-
+deny	mcp__claude_ai_GitHub__issue_write	-
+deny	mcp__plugin_other_github__push_files	-
+allow	mcp__github__issue_read	-
+allow	mcp__github__get_me	-
+allow	mcp__claude_ai_GitHub__list_pull_requests	-
+allow	mcp__slack__send_message	-
+allow	mcp__foo__github_sync	-

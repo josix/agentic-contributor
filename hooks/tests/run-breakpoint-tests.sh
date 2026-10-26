@@ -110,6 +110,7 @@ setup() { # $1 profile -> sets d root ledger pointer state evil env_extra perm
   (
     cd "$root" || exit 1
     git init -q 2> /dev/null
+    git symbolic-ref HEAD refs/heads/main 2> /dev/null
     gen_lines line 100 > src/app.js
     gen_lines a 100 > src/a.js
     gen_lines b 100 > src/b.js
@@ -164,7 +165,7 @@ setup() { # $1 profile -> sets d root ledger pointer state evil env_extra perm
     badbase) base=zzz ;;
     unknown-sha) base=1234567890abcdef1234567890abcdef12345678 ;;
     explain0 | explain0-pending) extra="explain_max: 0" ;;
-    predict-on | predict-2 | predict-full | predict-stop | predict-mixed | predict-plan | predict-short) extra="predict: true" ;;
+    predict-on | predict-2 | predict-full | predict-stop | predict-mixed | predict-plan | predict-short | predict-old-ptr) extra="predict: true" ;;
     predict-max2) extra=$'predict: true\npredict_max: 2' ;;
     predict-off) extra="predict: false" ;;
     predict-b0) extra="predict: true"; budget=0 ;;
@@ -201,6 +202,10 @@ drift_source: contributing:CONTRIBUTING.md:3" ;;
   old=$((now - 100000))
   case "$p" in
     disabled) env_extra="OSS_TRACK_DISABLE=1"; big_lines ;;
+    other-branch) big_lines; (cd "$root" && git checkout -q -b other 2> /dev/null) ;;
+    old-ptr) big_lines; touch -t 202501010000 "$pointer" ;;
+    predict-old-ptr) touch -t 202501010000 "$pointer" ;;
+    old-ptr-noage) big_lines; touch -t 202501010000 "$pointer"; env_extra="OSS_TRACK_MAX_AGE_HOURS=0" ;;
     small) chg_range src/app.js 1 10 ;;
     big-lines | budget0-big | rebased | rebased-noted | merged | worktree) big_lines ;;
     inject) big_lines; printf 'changed\n' > "$root/docs/x.md" ;;
@@ -226,6 +231,8 @@ drift_source: contributing:CONTRIBUTING.md:3" ;;
       [ "$p" = scoped-docs-overbudget ] && printf '<!-- track:entry status=logged-over-budget source=hook asked=no at=%s id=scope:docs/x.md -->\n' "$T" >> "$ledger" ;;
     scope-empty-docs) printf 'changed\n' > "$root/docs/x.md" ;;
     edits-big) big_lines; st_add 'e\tsrc/app.js\n' ;;
+    pending-nostate) # a checkpoint was asked this turn (its edit was denied, so no state file yet)
+      big_lines; printf '<!-- track:pending at=2026-10-24T00:00:00Z id=dependency:package.json#073e0383 -->\n' >> "$ledger" ;;
     after-b) hunk_app; st_add 'b\texplain:1\n' ;;
     hunk | explain0 | explain0-pending | budget0-hunk | plan-hunk | latch | bp4 | bp-recent | bp-1300 | bp-abc | bp-future | pending-m0 | pending-m1 | stale-lock | busy-lock)
       hunk_app ;;

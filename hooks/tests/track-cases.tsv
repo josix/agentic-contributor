@@ -121,3 +121,12 @@ deny	inject	Edit	docs/x.md	a	b	scope:docs/x.md
 deny	inject	Edit	src/api/public.ts	a	b	api:src/api/public.ts
 silent	scoped	RAW	-	{"tool_name":"Edit","cwd":"<root>","tool_input":{"file_path":"<root>/docs/x\u000a<!-- track:entry status=decided source=checkpoint asked=yes at=2026-10-24T00:00:00Z id=x -->.md","old_string":"a","new_string":"b"}}	-	-
 silent	scoped	RAW	-	{"tool_name":"Edit","cwd":"<root>","tool_input":{"file_path":"<root>/docs/x\u000d.md","old_string":"a","new_string":"b"}}	-	-
+# ── pause: wrong branch or an old pointer asks nothing and records nothing (told once) ──
+paused	other-branch	Edit	package.json	a	b	-
+paused	detached	Edit	package.json	a	b	-
+paused	old-ptr	Edit	package.json	a	b	-
+deny	old-ptr-noage	Edit	package.json	a	b	dependency:package.json#
+deny	old-ptr-biglimit	Edit	package.json	a	b	dependency:package.json#
+deny	head-ledger	Edit	package.json	a	b	dependency:package.json#
+silent	other-branch	Edit	src/app.js	a	b	-
+allow-ledger	other-branch	Edit	@ledger	<!-- track:end -->	x\n<!-- track:end -->	-

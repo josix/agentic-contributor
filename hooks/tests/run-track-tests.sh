@@ -85,7 +85,7 @@ setup() { # $1 profile -> sets d root ledger pointer env_extra
   env_extra=""
   perm=default
   mkdir -p "$root/src/api" "$root/docs" "$root/tests" "$root/sub" "$root/notebooks" "$root/.oss-drafts"
-  (cd "$root" && git init -q 2> /dev/null)
+  (cd "$root" && git init -q 2> /dev/null && git symbolic-ref HEAD refs/heads/main 2> /dev/null)
   gitdir="$root/.git"
   if [ "$p" = worktree ] || [ "$p" = worktree-abs ]; then # .git is a file, as in a linked worktree
     mv "$root/.git" "$d/realgit"
@@ -200,6 +200,14 @@ setup() { # $1 profile -> sets d root ledger pointer env_extra
     pending1) pend "$PKG" ;;
     pending2) pend "$PKG"; pend "$PKG" ;;
     disabled) env_extra="OSS_TRACK_DISABLE=1" ;;
+    other-branch) printf 'ref: refs/heads/other\n' > "$gitdir/HEAD" ;;
+    detached) printf '1111111111111111111111111111111111111111\n' > "$gitdir/HEAD" ;;
+    head-ledger) # started detached (branch: HEAD): the branch check is off
+      awk '{ sub(/^branch: main$/, "branch: HEAD") } 1' "$ledger" > "$ledger.new" && mv "$ledger.new" "$ledger"
+      printf 'ref: refs/heads/other\n' > "$gitdir/HEAD" ;;
+    old-ptr) touch -t 202501010000 "$pointer" ;;
+    old-ptr-noage) touch -t 202501010000 "$pointer"; env_extra="OSS_TRACK_MAX_AGE_HOURS=0" ;;
+    old-ptr-biglimit) touch -t 202501010000 "$pointer"; env_extra="OSS_TRACK_MAX_AGE_HOURS=1000000" ;;
     plan) perm=plan ;;
   esac
 }
@@ -302,6 +310,14 @@ while IFS="$tab" read -r expect profile tool ptoken a1 a2 want || [ -n "${expect
           printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("No ledger entry with id=")' > /dev/null 2>&1 \
             || { bad "$label missing retry line"; good=0; }
           [ "$(grep -c "track:pending.* id=$want -->\$" "$ledger")" -eq 2 ] || { bad "$label expected 2 pending lines"; good=0; }
+        fi ;;
+      paused) # tells the user once, asks nothing, records nothing; the next edit is silent
+        if [ -n "$(decision_of)" ] || [ "$before" != "$after" ] \
+          || ! printf '%s' "$out" | jq -e '(.systemMessage | contains("paused")) and (.hookSpecificOutput.additionalContext // "" | length == 0)' > /dev/null 2>&1; then
+          bad "$label expected paused notice, got: $out"; good=0
+        else
+          run_hook "$json"
+          [ -z "$out" ] && [ "$(lsize "$ledger")" = "$before" ] || { bad "$label paused notice repeated: $out"; good=0; }
         fi ;;
       allow-logged)
         if [ -n "$(decision_of)" ] || ! printf '%s' "$out" | jq -e '(.hookSpecificOutput.additionalContext | length > 0) and (.systemMessage | length > 0)' > /dev/null 2>&1 \
