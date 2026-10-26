@@ -264,7 +264,7 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
 Before writing any file: ensure the exclude file from `git rev-parse --git-path info/exclude` excludes `.oss-drafts/` as
 described in the convention block above.
 
-Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path, except the track-session pointer `<gitdir>/agentic-contributor/track-active` (track start, resume, and the stop fallback that writes an empty pointer). Edit is allowed only on the active track ledger.
+Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path, except the track-session pointer `<gitdir>/agentic-contributor/track-active` (track start, resume, and the stop fallback that writes an empty pointer). Edit is allowed only on the active track ledger (the frontmatter pre-approves `Edit` under `.oss-drafts/` relative to the working directory, so from a subdirectory the ledger edit gets a normal permission prompt).
 
 ### Claim → Engage Branch
 
