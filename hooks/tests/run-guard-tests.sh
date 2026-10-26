@@ -70,6 +70,36 @@ while IFS="$tab" read -r expect tool cmd || [ -n "${expect:-}" ]; do
   fi
 done < "$cases"
 
+# ── extra checks: size / segment cap must fail closed before the hook timeout ──
+tmpd="$(mktemp -d "${TMPDIR:-/tmp}/guard-tests.XXXXXX")"
+trap 'rm -rf "$tmpd"' EXIT
+
+run_guard_file() { # $1 = file holding the command; sets rc and elapsed seconds
+  jq -n --rawfile c "$1" '{tool_name:"Bash", tool_input:{command:$c}}' > "$tmpd/in.json"
+  t0=$(date +%s)
+  "$runner" "$guard" < "$tmpd/in.json" >/dev/null 2>&1
+  rc=$?
+  elapsed=$(( $(date +%s) - t0 ))
+}
+
+# 2500 harmless git segments then a mutating gh api: must be denied, quickly.
+awk 'BEGIN { for (i = 0; i < 2500; i++) print "git status"; print "gh api -X POST repos/o/r/issues" }' > "$tmpd/big.txt"
+run_guard_file "$tmpd/big.txt"
+if [ "$rc" -eq 2 ] && [ "$elapsed" -le 25 ]; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); printf 'FAIL big command: expected rc 2 within 25s, got rc %d in %ds\n' "$rc" "$elapsed"
+fi
+
+# A 400-line git script must still be allowed.
+awk 'BEGIN { for (i = 0; i < 400; i++) print "git status" }' > "$tmpd/ok.txt"
+run_guard_file "$tmpd/ok.txt"
+if [ "$rc" -eq 0 ]; then
+  pass=$((pass + 1)); printf 'info: 400-line git script allowed in %ds\n' "$elapsed"
+else
+  fail=$((fail + 1)); printf 'FAIL 400-line git script: expected rc 0, got rc %d\n' "$rc"
+fi
+
 total=$((pass + fail))
 echo "guard tests ($runner): $pass/$total passed ($known known bypasses documented, see docs/reference/hooks.md)"
 [ "$fail" -eq 0 ]

@@ -58,7 +58,9 @@ repo: <owner/repo>
 item: <issueN|prN|status|find|norms|setup|issue-bug|issue-feature|pr-new|debrief>
 generated_at: <ISO-8601 UTC>
 status: draft
-body_format: 2            # draft tier only; omit on report tier. 1 or absent = legacy (whole body sendable)
+body_format: 2            # draft-tier scenarios (clarify, claim, engage, review-reply, report, prepare-pr). Omit it for
+                          # report-tier files (status, find, norms, setup; not the `report` scenario), which are never sent.
+sendable: false           # only the private debrief file: never send, regardless of body_format
 mode: <brief|lint|debrief|draft>  # review-reply: brief|lint; prepare-pr: debrief|draft|lint
 policy: {...}             # find + scenarios 5-10 (and norms): the policy block, see Step 3; includes fetched_at
 routed_from: <scenario>   # only when a PR-intent request was rerouted to report (issue-first)
@@ -84,7 +86,7 @@ Only text between the markers is sendable; everything else is for the user only:
 
 - Any `TODO(you):` left inside a send block means "not ready"; the execution plugin must refuse to
   send while it remains.
-- A file with no `body_format` (or `1`) is legacy: the whole body is sendable.
+- A file with no `body_format` (or `1`) is legacy: the whole body is sendable. `body_format: 2` with no send block means nothing is sendable; `sendable: false` means never send.
 - Files with several independent messages (e.g. one reply per review comment) use one marker pair
   per message, in order.
 - Report-tier files (status, find, norms, setup) have no send block.
@@ -224,7 +226,7 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
   The send block is a problem-first scaffold where Why this approach, What changed, and Unknowns &
   assumptions are `TODO(you)`; the plugin fills only factual parts and never lists commands that
   passed under "How it's tested". Debrief mode (`mode: debrief`) writes only a separate private file
-  `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md` with no send block, never formatted as
+  `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md` with `body_format: 2`, `sendable: false` and no send block, never formatted as
   paste-ready PR text; a transcript is read only when the user points to one. Lint mode checks the
   user's filled-in send block with AP1-AP9. Policy use: disclosure text when `disclosure: required`;
   advise (never rewrite) on AI co-author trailers when `coauthor_trailer_forbidden: true`.
@@ -300,7 +302,7 @@ notes are in the file and are never sent, show the file path, and add this notic
 
 Then ask the user to review and modify the file, and confirm whether they want any changes.
 
-**prepare-pr debrief mode** writes a private notes file with no send block: show the file path and a
+**prepare-pr debrief mode** writes a private notes file with `sendable: false` and no send block: show the file path and a
 short summary in chat, say it is private and not PR text, and skip the "ready to send" framing.
 
 ### Hard rule
@@ -327,12 +329,12 @@ The `guard-outbound.sh` PreToolUse hook is always active. It DENIES:
 - `gh api` calls with POST/PUT/PATCH/DELETE methods (`-X`, `--method`, `-XPOST`, `--method=POST`), `--input`,
   or `-f`/`-F`/`--field`/`--raw-field` flags (except an explicit `-X GET` or a read-only `gh api graphql` query
   with no `mutation` and no `=@file`).
-- `curl`/`wget` with mutation flags (`-X POST`, `-d`, `--data`, `-F`, etc.).
+- `curl`/`wget` with mutation flags (curl `-X POST`, `-d` without `-G`, `-F`, etc.; wget `--method POST`, `--post-data`, `--post-file`).
 - **Every** `mcp__plugin_agentic-contributor_github__` tool that is not on the read allowlist. The
-  MCP namespace is default-deny: only tools named `get_*`, `list_*`, `search_*`, or `*_read`
-  (e.g. `get_file_contents`, `list_issues`, `search_code`, `issue_read`, `pull_request_read`) are
+  MCP namespace is default-deny: only tools named `get_*`, `list_*`, `search_*`, plus the named read tools `issue_read` and
+  `pull_request_read` (e.g. `get_file_contents`, `list_issues`, `search_code`) are
   allowed, and even those are denied if the name contains `write`, `create`, `delete`, `submit`,
-  or `fork`. `issue_write`, `add_issue_comment`, `push_files`, `merge_pull_request`,
+  or `fork`. `mark_all_notifications_read`, `issue_write`, `add_issue_comment`, `push_files`, `merge_pull_request`,
   `create_pull_request`, and any tool added upstream later are denied.
 
 Read-only operations — `gh pr view`, `gh issue list`, `gh release list`, `gh project list`, `gh api`

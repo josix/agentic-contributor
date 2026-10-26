@@ -188,7 +188,7 @@ Missing evidence is always marked with `TODO:` placeholders; required fields are
 **Trigger phrases:** "help me understand what I changed", "debrief my change", "what did the agent change".
 
 **What it provides:**
-- A private, read-only debrief of a local change, saved to `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md` with no send block, never formatted as PR text.
+- A private, read-only debrief of a local change, saved to `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md` with `body_format: 2`, `sendable: false` and no send block, never formatted as PR text.
 - Changes grouped by purpose with `file:line`; each traced to the issue, a commit message, or an agent transcript (opt-in only); untraceable changes flagged "unexplained, possibly out of scope".
 - The agent's implicit decisions, impact (callers, API/config, compatibility, test coverage), every statement marked evidenced or inferred.
 - 2-3 explain-back questions and an Unknowns list that seeds the PR description and the `review-reply` brief.

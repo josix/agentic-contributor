@@ -97,7 +97,7 @@ Never call any tool that posts, comments, creates, pushes, or mutates GitHub sta
 
 ### Guardrail Reminder
 
-The `guard-outbound.sh` `PreToolUse` hook is always active. It denies: `git push` (also via an inline `git -c alias.x=push` alias), `gh` write subcommands (`pr`/`issue`/`release`/`repo`/`gist`/`project`/`ssh-key`/`gpg-key`/`cache` and more), `gh api` write calls, `curl`/`wget` mutation flags, and every GitHub MCP tool that is not on the read allowlist (`get_*`, `list_*`, `search_*`, `*_read`). See the [Hooks Reference](hooks.md).
+The `guard-outbound.sh` `PreToolUse` hook is always active. It denies: `git push` (also via an inline `git -c alias.x=push` alias), `gh` write subcommands (`pr`/`issue`/`release`/`repo`/`gist`/`project`/`ssh-key`/`gpg-key`/`cache` and more), `gh api` write calls, `curl`/`wget` mutation flags, and every GitHub MCP tool that is not on the read allowlist (`get_*`, `list_*`, `search_*`, `issue_read`, `pull_request_read`). See the [Hooks Reference](hooks.md).
 
 Allowed: `gh pr view`, `gh issue list`, `gh release list`, plain GET `gh api` calls, `git clone`, `git status`, `git log`, and all `mcp__plugin_agentic-contributor_github__` read tools.
 

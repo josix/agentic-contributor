@@ -27,7 +27,7 @@ the ten scenarios below, then route to the correct skill and subagent.
 | 7 | **engage** | "give feedback on a PR", "help with someone's PR", "comment on PR", "review an in-progress PR", "there's a linked PR" | `smart-questions` | `oss-researcher` | DRAFT feedback comment saved to `.oss-drafts/` |
 | 8 | **review-reply** | "respond to review", "reply to review comments", "maintainer left feedback on my PR", "how do I respond to this review"; lint mode: "check my reply", "lint my reply", "review my draft reply" | `smart-questions` | `oss-researcher` (skipped in lint mode unless commit data is needed) | Per-comment understanding brief + `TODO(you)` placeholders (brief mode) or a Lint section for your own reply (lint mode), saved to `.oss-drafts/` |
 | 9 | **report** | "report a bug", "file an issue", "draft a bug report", "draft a feature request", "propose a feature", "write up a new issue" | `issue-drafting` | `oss-researcher` | DRAFT new issue (bug/feature) saved to `.oss-drafts/` |
-| 10 | **prepare-pr** | "prepare a PR", "get my PR ready", "draft a PR description", "open a PR for", "submit a fix for", "I have a patch", "send a PR"; debrief mode: "help me understand what I changed", "debrief my change", "what did the agent change" | `pr-preparation` (+ `change-debrief` in debrief mode, `contributor-readiness`) | `oss-researcher` (PR template, duplicate PRs, issue body) plus local read-only git by the orchestrator | Size check + problem-first PR description scaffold with `TODO(you)` sections (draft mode), or a private change debrief with no PR text (`mode: debrief`), saved to `.oss-drafts/` |
+| 10 | **prepare-pr** | "prepare a PR", "get my PR ready", "draft a PR description", "open a PR for", "submit a fix for", "I have a patch", "send a PR"; debrief mode: "help me understand what I changed", "debrief my change", "what did the agent change"; lint mode: "lint my PR description", "check my PR description" | `pr-preparation` (+ `change-debrief` in debrief mode, `contributor-readiness`) | `oss-researcher` (PR template, duplicate PRs, issue body) plus local read-only git by the orchestrator | Size check + problem-first PR description scaffold with `TODO(you)` sections (draft mode), or a private change debrief with no PR text (`mode: debrief`), saved to `.oss-drafts/` |
 
 ## Classification Rules
 
@@ -45,6 +45,11 @@ To classify the user's intent:
 5. **Debrief signals** ("help me understand what I changed", "debrief my change", "what did the
    agent change") route to scenario 10 with `mode: debrief`. This is an entry mode of `prepare-pr`,
    not an 11th scenario.
+6. **Review/lint disambiguation:** the user's own reply to review comments ("my reply", "my draft
+   reply", "my response to the review") routes to review-reply lint. The user's own PR text ("my PR
+   description", "lint my PR", "check my PR before I open it") routes to prepare-pr lint. Someone
+   else's PR ("review this PR", "help me review PR #N", no "my") routes to engage. If still
+   ambiguous ("review my draft"), ask the one clarifying question with exactly these three options.
 
 ### Claim → Engage Branch
 

@@ -37,7 +37,7 @@ Read tools used by `oss-researcher`:
 | `list_releases` | Release and tag history |
 | `search_repositories` | Repository metadata |
 
-The guardrail hook (`guard-outbound.sh`) treats this plugin's GitHub MCP tools as default-deny. Only read tools are allowed: names (after the last `__`) starting with `get_`, `list_`, or `search_`, or ending in `_read` (such as `issue_read` and `pull_request_read`), and even those are denied if the name contains `write`, `create`, `delete`, `submit`, or `fork`. Every other tool, such as `issue_write`, `add_issue_comment`, `push_files`, or `merge_pull_request`, is denied. See [Hooks Reference](../reference/hooks.md#mcp-tools-default-deny-read-allowlist).
+The guardrail hook (`guard-outbound.sh`) treats this plugin's GitHub MCP tools as default-deny. Only read tools are allowed: names (after the last `__`) starting with `get_`, `list_`, or `search_`, or exactly the named read tools `issue_read` and `pull_request_read`, and even those are denied if the name contains `write`, `create`, `delete`, `submit`, or `fork`. Every other tool, such as `issue_write`, `add_issue_comment`, `push_files`, or `merge_pull_request`, is denied. See [Hooks Reference](../reference/hooks.md#mcp-tools-default-deny-read-allowlist).
 
 ### Token Setup
 

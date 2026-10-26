@@ -28,9 +28,9 @@ The denial message states:
 
 | Pattern | Decision |
 |---|---|
-| Read tools: suffix (after the last `__`) matching `get_*`, `list_*`, `search_*`, or `*_read`, e.g. `get_me`, `get_file_contents`, `list_issues`, `search_code`, `issue_read`, `pull_request_read` | ALLOW |
+| Read tools: suffix (after the last `__`) matching `get_*`, `list_*`, `search_*`, or one of the two named read tools `issue_read` and `pull_request_read`, e.g. `get_me`, `get_file_contents`, `list_issues`, `search_code` | ALLOW |
 | A read-prefixed suffix that also contains `write`, `create`, `delete`, `submit`, or `fork` | DENY |
-| **Every other** `mcp__plugin_agentic-contributor_github__*` tool (default-deny), e.g. `issue_write`, `pull_request_review_write`, `add_issue_comment`, `add_comment_to_pending_review`, `create_pull_request`, `create_branch`, `create_or_update_file`, `delete_file`, `push_files`, `merge_pull_request`, `update_pull_request`, `fork_repository`, `sub_issue_write`, `assign_copilot_to_issue`, `request_copilot_review`, and any tool added upstream later | DENY |
+| **Every other** `mcp__plugin_agentic-contributor_github__*` tool (default-deny), e.g. `issue_write`, `pull_request_review_write`, `add_issue_comment`, `add_comment_to_pending_review`, `mark_all_notifications_read`, `create_pull_request`, `create_branch`, `create_or_update_file`, `delete_file`, `push_files`, `merge_pull_request`, `update_pull_request`, `fork_repository`, `sub_issue_write`, `assign_copilot_to_issue`, `request_copilot_review`, and any tool added upstream later | DENY |
 
 ### Bash Commands
 
