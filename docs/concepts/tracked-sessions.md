@@ -29,7 +29,10 @@ approving a diff is not.
   `<gitdir>/agentic-contributor/track-active` (the git dir from `git rev-parse --git-dir`, never the
   worktree), and tells you the triggers, the budget, and how to stop. Tracked sessions require git. Restart Claude Code if the plugin was just enabled.
 - **status** shows the task, age, base, branch (with a warning on mismatch), scope, budget used,
-  and the entries. Sessions are never auto-closed; the age is shown instead.
+  and the entries, and whether the session is paused.
+- **resume** re-arms a session paused by age (it rewrites the pointer, which restarts the 24-hour
+  window). A session paused by a branch change resumes when you switch back, or after `resume`
+  moves it to the current branch.
 - **log** appends a manual entry. In plain chat, "log this decision" means the same thing on a
   best-effort basis (it does not survive context compaction).
 - **stop** marks the ledger stopped, removes the pointer, lists entries that still need your
@@ -98,6 +101,21 @@ chose; the debrief marks it as evidence, not proof.
 
 Without AskUserQuestion (headless run, subagent), the entry is recorded as skipped with reason
 `non-interactive`, and it becomes an Unknown in the debrief.
+
+## Pausing
+
+A session belongs to a repository, not to one Claude Code session, so the hook pauses itself when
+the session probably isn't the work at hand:
+
+- the checked-out branch differs from the ledger's `branch` (not checked when the session was
+  started on a detached HEAD), or
+- the pointer was written more than 24 hours ago. Set `OSS_TRACK_MAX_AGE_HOURS` to change the limit,
+  or `0` to turn it off.
+
+While paused, the hook asks nothing and writes nothing to the ledger. The first edit that would
+have been a checkpoint shows you a one-line notice; later ones are silent until you resume.
+Sessions are never stopped automatically. Two Claude Code sessions on the same branch at the same
+time still share one tracked session.
 
 ## Stopping and disabling
 

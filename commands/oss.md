@@ -130,7 +130,7 @@ Invoke the `oss-scenario-routing` skill to classify the intent from `$ARGUMENTS`
 - Debrief signals ("help me understand what I changed", "debrief my change", "what did the agent
   change") route to `prepare-pr` with `mode: debrief`; this is not an 11th scenario.
 - Track signals ("track …", "start tracking", "stop tracking", "track status", "log this decision")
-  route to `prepare-pr` with `mode: track` (sub-action start/stop/status/log); not an 11th scenario.
+  route to `prepare-pr` with `mode: track` (sub-action start/stop/status/resume/log); not an 11th scenario.
 - After classification, proceed immediately — do not ask additional questions at this stage.
 
 ---

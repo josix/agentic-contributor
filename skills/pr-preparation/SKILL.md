@@ -42,7 +42,8 @@ contributor get there; the contributor writes the reasoning.
 Lifecycle: **track** (while the agent codes) then **debrief** then **draft**.
 
 - `mode: track`: the request is "track this task", "start tracking", "/oss track", "stop tracking",
-  "track status", or "log this decision". Sub-actions `start` (default), `stop`, `status`, `log`;
+  "track status", "resume tracking", or "log this decision". Sub-actions `start` (default), `stop`,
+  `status`, `resume`, `log`;
   run Procedure 0. It produces a private ledger and **no PR text**.
 - `mode: debrief` (entry mode): the request is "help me understand what I changed", "debrief my
   change", or "what did the agent change". Load `change-debrief`, write only its private file
@@ -95,7 +96,16 @@ empty pointer, which the hook treats as no session). List entries whose reason i
 hook-skipped items. Offer the debrief in one line.
 
 **Status:** task, age, base, branch (warn on mismatch with the current branch), scope, budget used
-(asked / budget, shown separately for scope checkpoints and for the other classes), and a table of entries. No auto-close of abandoned sessions; show the age.
+(asked / budget, shown separately for scope checkpoints and for the other classes), and a table of entries. Say whether the
+hook is **paused** and why: the current branch differs from the ledger's `branch` (unless that is
+`HEAD`), or the pointer was written more than 24 hours ago (`OSS_TRACK_MAX_AGE_HOURS`, `0` = no
+limit; check with `find "$ptr" -mmin +1440`). A paused session asks nothing and records nothing.
+Offer `resume` or `stop`.
+
+**Resume:** for an age pause, Write the pointer again with the same one line (this restarts the
+24-hour window) and remove `"$(git rev-parse --git-dir)/agentic-contributor/track-paused-notified"`
+with `rm -f`. For a branch pause, tell the user to switch back to the ledger's branch; if they
+want to track on the current branch instead, Edit the ledger's `branch:` to it.
 
 **Log:** append a manual entry with Edit per `decision-ledger.md` section 4 (`id=manual:<UTC>`).
 

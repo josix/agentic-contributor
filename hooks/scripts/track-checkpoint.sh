@@ -136,7 +136,7 @@ ledger="$trk_ledger"
 rel_ledger="$trk_rel_ledger"
 
 # Frontmatter (builtin reads, no fork).
-fm_plugin=""; fm_mode=""; fm_status=""; fm_scope=""; fm_api=""; fm_budget=""
+fm_plugin=""; fm_mode=""; fm_status=""; fm_scope=""; fm_api=""; fm_budget=""; fm_branch=""
 n=0
 while IFS= read -r line; do
   n=$((n + 1))
@@ -151,6 +151,7 @@ while IFS= read -r line; do
     "mode: "*) v="${line#mode: }"; fm_mode="${v%%[[:space:]]*}" ;;
     "status: "*) v="${line#status: }"; fm_status="${v%%[[:space:]]*}" ;;
     "budget: "*) v="${line#budget: }"; fm_budget="${v%%[[:space:]]*}" ;;
+    "branch: "*) v="${line#branch: }"; fm_branch="${v%%[[:space:]]*}" ;;
     "scope: "*) fm_scope="${line#scope: }" ;;
     "api_paths: "*) fm_api="${line#api_paths: }" ;;
   esac
@@ -505,6 +506,41 @@ if [ -z "$class" ] && [ -n "$fm_scope" ] && ! glob_match "$rel" "$fm_scope"; the
 fi
 [ -z "$class" ] && exit 0
 id="$class:$key"
+
+# ── pause: a session is not tied to one Claude Code session, so it only asks while it plausibly
+# belongs to the current work. It pauses when HEAD is on a different branch than the ledger's
+# `branch:` (skipped when that is HEAD, i.e. started detached), or when the pointer was written
+# more than OSS_TRACK_MAX_AGE_HOURS ago (default 24; 0 turns the age limit off). `/oss track resume`
+# rewrites the pointer. A paused session asks nothing and writes nothing to the ledger; the user is
+# told once per pointer write (marker newer than the pointer). Ledger values are never echoed.
+paused=""
+if [ -n "$fm_branch" ] && [ "$fm_branch" != HEAD ]; then
+  head_line=""
+  IFS= read -r head_line < "$trk_gitdir/HEAD" 2> /dev/null || true
+  case "$head_line" in
+    "ref: refs/heads/"?*) [ "${head_line#ref: refs/heads/}" = "$fm_branch" ] || paused=branch ;;
+    *) paused=branch ;; # detached HEAD while the session was started on a branch
+  esac
+fi
+if [ -z "$paused" ]; then
+  max_age="${OSS_TRACK_MAX_AGE_HOURS:-24}"
+  case "$max_age" in '' | *[!0-9]*) max_age=24 ;; esac
+  if [ "$max_age" -gt 0 ] && [ -n "$(find "$trk_ptr" -mmin "+$((max_age * 60))" 2> /dev/null)" ]; then
+    paused=age
+  fi
+fi
+if [ -n "$paused" ]; then
+  marker="$trk_gitdir/agentic-contributor/track-paused-notified"
+  [[ -f "$marker" ]] && ! [[ "$trk_ptr" -nt "$marker" ]] && exit 0
+  : > "$marker" 2> /dev/null || exit 0
+  if [ "$paused" = branch ]; then
+    why="it was started on a different branch than the one checked out now"
+  else
+    why="it was started (or last resumed) more than ${max_age}h ago"
+  fi
+  msg="[agentic-contributor] A tracked session in this repository is paused because $why, so this edit was not checkpointed and nothing was recorded. To keep tracking, switch back to its branch or run /oss track resume; to end it, run /oss track stop."
+  emit "" "" "" "$msg"
+fi
 
 # ── lock: reading state, checking the budget and appending a pending marker are one step,
 # so parallel edits cannot both spend the same budget slot. Fail open if the lock is busy.

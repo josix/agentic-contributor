@@ -233,6 +233,11 @@ behaves like `*`). A trailing `/` means prefix. Comparison is against the repo-r
   same file.
 - Silent with no session (no git-dir pointer, or not a git repository), `status: stopped`, `OSS_TRACK_DISABLE=1`, `permission_mode: plan`, an
   invalid pointer, or any internal error (the hook is advisory and fails open).
+- **Paused** when HEAD is not on the ledger's `branch` (skipped when `branch: HEAD`) or the pointer
+  is older than `OSS_TRACK_MAX_AGE_HOURS` (default 24, `0` = off). A would-be checkpoint then gets
+  no decision, no ledger write, and a one-time `systemMessage` (marker
+  `<gitdir>/agentic-contributor/track-paused-notified`, re-armed when the pointer is rewritten).
+  `resume` rewrites the pointer and removes the marker.
 
 ## 8. Auto-allow of the ledger Edit
 
