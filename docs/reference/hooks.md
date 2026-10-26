@@ -6,6 +6,14 @@ The draft-only `PreToolUse` guardrail: registration, matcher, and the full deny/
 
 The `agentic-contributor` plugin registers one hook type: a `PreToolUse` hook that runs before every `Bash` call and every GitHub MCP tool call. It enforces the draft-only contract by denying outbound and mutating actions before they execute.
 
+!!! warning "The guard applies to every session where the plugin is enabled"
+    The hook is registered by the plugin, not by `/oss`, so it checks every `Bash` call in every
+    Claude Code session while `agentic-contributor` is enabled, including work that has nothing to
+    do with `/oss`. In those sessions `git push`, `gh pr create`, and the other commands below are
+    denied too. To push or open a PR from Claude Code, run the command yourself in a terminal, or
+    disable the plugin via `/plugin` and restart the session (hooks are registered at session
+    start); re-enable it the same way.
+
 ## Registration (`hooks/hooks.json`)
 
 ```json
@@ -89,7 +97,7 @@ There is no generic `*_read` rule: `mark_all_notifications_read` mutates, so onl
 | `gh release create/edit/delete/delete-asset/upload` | `gh release create v1.0` |
 | `gh repo create/fork/delete/edit/sync/rename/archive/unarchive`, `gh repo deploy-key add/delete`, `gh repo autolink create/delete` | `gh repo fork apache/airflow` |
 | `gh gist create/edit/delete/rename` | `gh gist create file.txt` |
-| `gh label create/edit/delete/clone`, `gh workflow run/enable/disable`, `gh run rerun/cancel/delete`, `gh secret set/delete`, `gh variable set/delete`, `gh alias set/delete/import`, `gh codespace create/delete/edit/stop/rebuild` | `gh workflow run ci.yml` |
+| `gh label create/edit/delete/clone`, `gh workflow run/enable/disable`, `gh run rerun/cancel/delete`, `gh secret set/delete`, `gh variable set/delete`, `gh alias set/delete/import`, `gh codespace create/delete/edit/stop/rebuild`, `gh agent-task` (aliases `agent-tasks`, `agent`, `agents`) with any subcommand other than `list`/`view` (`create` starts a Copilot coding-agent task that opens a PR) | `gh workflow run ci.yml`, `gh agent-task create "…"` |
 | `gh project create/edit/delete/close/copy/link/unlink/mark-template/item-add/item-create/item-edit/item-delete/item-archive/field-create/field-delete`, `gh ssh-key add/delete`, `gh gpg-key add/delete`, `gh cache delete` | `gh project item-add 1 --url …` |
 | any `gh` form above or `gh api` with `-R`/`--repo`, a wrapper prefix, or a path-qualified binary | `gh -R owner/repo pr create`, `./gh pr create` |
 | `gh api` with `-X POST/PUT/PATCH/DELETE` (also `-XPOST`, `-X=POST`, any case) | `gh api repos/… -X POST -f …` |

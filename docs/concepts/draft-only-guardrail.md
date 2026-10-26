@@ -42,7 +42,7 @@ The denial message states:
 | `gh release create / edit / delete / delete-asset / upload` | DENY |
 | `gh repo create / fork / delete / edit / sync / rename / archive / unarchive`, `gh repo deploy-key add / delete`, `gh repo autolink create / delete` | DENY |
 | `gh gist create / edit / delete / rename` | DENY |
-| `gh label create / edit / delete / clone`, `gh workflow run / enable / disable`, `gh run rerun / cancel / delete`, `gh secret` and `gh variable set / delete`, `gh alias set / delete / import`, `gh codespace create / delete / edit / stop / rebuild` (also with `-R`/`--repo`) | DENY |
+| `gh label create / edit / delete / clone`, `gh workflow run / enable / disable`, `gh run rerun / cancel / delete`, `gh secret` and `gh variable set / delete`, `gh alias set / delete / import`, `gh codespace create / delete / edit / stop / rebuild`, `gh agent-task create` and any other non-`list`/`view` agent-task subcommand (also with `-R`/`--repo`) | DENY |
 | `gh project create / edit / delete / close / copy / link / unlink / mark-template / item-add / item-create / item-edit / item-delete / item-archive / field-create / field-delete`, `gh ssh-key add / delete`, `gh gpg-key add / delete`, `gh cache delete` | DENY |
 | `gh api` with `-X POST/PUT/PATCH/DELETE` or `--method POST/PUT/PATCH/DELETE` (including `-XPOST`, `--method=POST`) | DENY |
 | `gh api` with `-f` / `-F` / `--field` / `--raw-field` (except explicit `-X GET` or a read-only GraphQL query) | DENY |

@@ -77,7 +77,7 @@ The draft includes a suggested title (following the repo's convention), suggeste
 
 ### Scenario 10 — prepare-pr
 
-`pr-preparation` (with `change-debrief` as its entry mode) helps you understand and own a local change and send a PR maintainers prioritise. Local git reads only (`git diff`, `git log`, `git merge-base`, `git remote -v`); the plugin never pushes, opens a PR, edits code, or runs tests.
+`pr-preparation` (with `change-debrief` as its entry mode) helps you understand and own a local change and send a PR maintainers prioritise. Local git reads only (`git diff`, `git status`, `git ls-files`, `git log`, `git merge-base`, `git remote -v`), and uncommitted and untracked work counts as part of the change; the plugin never pushes, opens a PR, edits code, or runs tests.
 
 - **Debrief (`mode: debrief`)**: changes grouped by purpose with `file:line`, each traced to an issue, commit, or an opt-in agent transcript; untraceable changes flagged "unexplained, possibly out of scope"; implicit agent decisions; impact and test coverage; evidenced vs inferred; 2-3 explain-back questions; an Unknowns list. Saved as a private `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md`, never PR text.
 - **Draft (`mode: draft`)**: size and shape verdict (default 400 lines / 10 files unless CONTRIBUTING says otherwise), then a problem-first scaffold in an `oss:send` block. Why this approach, What changed, and Unknowns & assumptions are `TODO(you)`; "How it's tested" names tests, never passed commands. Disclosure text when policy requires it; AI co-author trailers flagged when forbidden (advice only).

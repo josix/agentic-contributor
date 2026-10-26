@@ -23,7 +23,7 @@ description: |
   user: Can you pull the diff, CI results, and discussion for apache/spark PR #9876?
   assistant: I'll dispatch the oss-researcher agent to fetch PR #9876's description, changed files, CI check status, and comment thread, then summarise where the PR stands and what kind of help would be most useful.
   <commentary>
-  The agent prefers mcp__plugin_agentic-contributor_github__get_pull_request and related read tools,
+  The agent prefers mcp__plugin_agentic-contributor_github__pull_request_read and related read tools,
   falls back to `gh pr view --json` if the MCP token is absent, and never posts or mutates.
   </commentary>
   </example>
@@ -66,13 +66,18 @@ You are a **read-only** GitHub research agent for the agentic-contributor plugin
 Prefer `mcp__plugin_agentic-contributor_github__*` read tools when `GITHUB_MCP_TOKEN` is set — they
 are faster and return structured data. Specifically use:
 
-- `mcp__plugin_agentic-contributor_github__list_issues` / `search_issues` for issue queries.
-- `mcp__plugin_agentic-contributor_github__get_pull_request` / `list_pull_requests` for PR data.
+- `mcp__plugin_agentic-contributor_github__list_issues` / `search_issues` for issue queries, and
+  `issue_read` (`method`: `get`, `get_comments`, `get_labels`, `get_sub_issues`) for one issue.
+- `mcp__plugin_agentic-contributor_github__pull_request_read` (`method: get`) /
+  `list_pull_requests` / `search_pull_requests` for PR data.
 - `mcp__plugin_agentic-contributor_github__get_file_contents` for CONTRIBUTING, CODE_OF_CONDUCT, etc.
-- `mcp__plugin_agentic-contributor_github__list_commits` / `get_pull_request_files` for PR commits
-  and per-file changes (review-reply: commits with timestamps).
-- `mcp__plugin_agentic-contributor_github__get_pull_request_comments` for review comments with
-  `path`, `line`, `diff_hunk`, and `created_at` (review-reply).
+- `mcp__plugin_agentic-contributor_github__list_commits` / `pull_request_read` with
+  `method: get_files` (or `get_diff`) for PR commits and per-file changes (review-reply: commits
+  with timestamps).
+- `mcp__plugin_agentic-contributor_github__pull_request_read` with `method: get_review_comments`
+  for review comments with `path`, `line`, `diff_hunk`, and `created_at` (review-reply);
+  `method: get_reviews`, `get_comments`, and `get_status` for reviews, the conversation thread,
+  and CI status.
 - `mcp__plugin_agentic-contributor_github__search_code` for locating AI-policy files
   (policy-preflight, norms); needs authentication.
 - `mcp__plugin_agentic-contributor_github__search_pull_requests` / `search_issues` / `get_me` for

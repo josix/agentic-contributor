@@ -157,7 +157,7 @@ The orchestrator saves the draft to `.oss-drafts/report-<owner>-<repo>-issue-bug
 /oss help me understand what I changed in apache/datafusion
 ```
 
-`prepare-pr` helps you understand and own a local change and send the kind of PR maintainers prioritise. The plugin only reads your local git state (`git diff`, `git log`, `git merge-base`, `git remote -v`); it never pushes, opens a PR, edits your code, or runs your tests.
+`prepare-pr` helps you understand and own a local change and send the kind of PR maintainers prioritise. The plugin only reads your local git state (`git diff`, `git status`, `git ls-files`, `git log`, `git merge-base`, `git remote -v`), including edits you have not committed yet; it never pushes, opens a PR, edits your code, or runs your tests.
 
 - **Change debrief (`mode: debrief`)** — the `change-debrief` skill groups your changes by purpose with `file:line`, traces each to the issue, a commit message, or an agent transcript (only if you point to one), flags anything untraceable as "unexplained, possibly out of scope", lists the agent's implicit decisions, covers impact and test coverage, marks every statement evidenced or inferred, and ends with 2-3 explain-back questions and an Unknowns list. It is saved to a private `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md` and is never paste-ready PR text.
 - **Size and shape check** — flags more than 400 changed lines or 10 files (unless CONTRIBUTING says otherwise), mixed concerns, and lockfile noise, and suggests a split.

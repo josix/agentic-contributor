@@ -27,8 +27,9 @@ contributor get there; the contributor writes the reasoning.
    > This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
 3. The plugin **never pushes, never opens a PR, never edits code, and never runs tests**. Opening
    the PR is owned by the execution plugin. NEVER call any tool that posts, creates, or pushes.
-4. Local git is read-only: `git diff`, `git diff --stat`, `git log`, `git merge-base`,
-   `git remote -v`. Nothing else.
+4. Local git is read-only: `git diff`, `git diff --stat`, `git status --porcelain`,
+   `git ls-files --others --exclude-standard`, `git log`, `git merge-base`, `git remote -v`.
+   Nothing else.
 5. Readiness and policy findings are **advisory**: they never block or delay the draft.
 
 ## Modes
@@ -55,12 +56,17 @@ contributor get there; the contributor writes the reasoning.
 5. **Duplicate open PRs.** `oss-researcher` searches open PRs for the same issue number or the same
    changed files; list the top 3 to 5 with links.
 6. **Local context.** `git remote -v` must match `owner/repo`; if it does not, or the base branch is
-   ambiguous, ask the one allowed clarifying question about the base. Record `base`, `head`, and
-   `diff_stats` (files, insertions, deletions) in frontmatter.
+   ambiguous, ask the one allowed clarifying question about the base. Run `git status --porcelain`:
+   uncommitted (`git diff HEAD`) and untracked (`git ls-files --others --exclude-standard`) work
+   is part of the change. Record `base`, `head`, and `diff_stats` (files, insertions, deletions,
+   counting committed + uncommitted + untracked) in frontmatter, and say in Private notes when
+   uncommitted or untracked files were included, since they must be committed before the PR.
 
 ## Procedure 2: Size and Shape Check
 
-From `git diff --stat <base>...HEAD`:
+From `git diff --stat <base>...HEAD`, or, when Procedure 1 found uncommitted work,
+`git diff --stat <base>` (working tree against the base, so committed and uncommitted changes are
+counted once) plus the untracked files:
 
 - Flag more than **400 changed lines or more than 10 files**, unless CONTRIBUTING states other
   thresholds (use those and cite them).
@@ -104,7 +110,8 @@ The plugin fills only factual parts (linked issue, test file names, disclosure m
 - `policy.coauthor_trailer_forbidden: true`: run `git log --format=%B <base>..HEAD` and flag
   `Co-authored-by:` lines with AI names and "Generated with" footers in Private notes, with the
   commit hash. **Advise only**: never rewrite commits.
-- `disclosure: recommended` or unknown: mention it in Private notes; do not insert disclosure text.
+- `disclosure: recommended`, `none-found`, or `unknown`: mention it in Private notes (for `unknown`,
+  say the policy could not be checked); do not insert disclosure text.
 
 ## Procedure 6: Lint (mode: lint)
 

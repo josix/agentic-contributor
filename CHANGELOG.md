@@ -43,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **issue-drafting** output uses `body_format: 2` with an `oss:send` block around the issue body, a trailing `## Private notes (not sent)`, and `TODO(you):` placeholders so unfilled drafts are refused.
 - **Routing:** new rule 6 disambiguates review-reply lint, prepare-pr lint, and engage; row 10 lists lint-mode phrases.
 - Guard tests: 360 to 442 cases (new regression rows plus size-cap checks).
+- **Uncommitted work in debrief and prepare-pr:** `change-debrief` and `pr-preparation` may now run `git status --porcelain`, `git diff HEAD`, and `git ls-files --others --exclude-standard`, and include uncommitted and untracked changes in the debrief, the size check, and `diff_stats` (right after a coding-agent session the edits are often not committed yet). The draft says when uncommitted work was included.
+- **GitHub MCP tool names:** `oss-researcher` and the docs named tools the current GitHub MCP server does not have (`get_pull_request`, `get_pull_request_files`, `get_pull_request_comments`). They now use `pull_request_read` with a `method` (`get`, `get_diff`, `get_files`, `get_review_comments`, `get_reviews`, `get_comments`, `get_status`) and `issue_read`; the `gh` fallback is unchanged.
+- **Policy `unknown`:** `ai_policy` and `disclosure` gain an `unknown` value for "could not be checked". A failed preflight now sets `unknown` instead of `none-found`, so AP9 stays active and the user is told the policy could not be checked.
+- **Guard: `gh agent-task`** (aliases `agent-tasks`, `agent`, `agents`) is denied for every subcommand except `list` and `view`; `gh agent-task create` starts a Copilot coding-agent task that opens a PR.
+- **Routing:** rule 4 (PR intent) now lists "prepare a PR", matching `/oss`; the `/oss` description (shown in `/help`) mentions prepare-pr and debrief.
+- **Docs:** README and the hooks reference note that the guard applies to every session where the plugin is enabled, and how to disable it via `/plugin`.
+- Guard tests: 442 to 461 cases (`gh agent-task` and the new local git reads).
 
 ## [0.6.0] - 2026-10-21
 
