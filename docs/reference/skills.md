@@ -56,7 +56,7 @@ The 9 skills in the `agentic-contributor` plugin. Each skill is a domain-experti
 
 **What it provides:**
 
-1. **Login resolution** — your request (`as @login`), then `contributor.github_login` in `config/targets.yaml`, then the authenticated account (`get_me` / `gh api user`). The login used is shown and recorded as `readiness_login`.
+1. **Login resolution** — your request (`as @login`), then `contributor.github_login` in the plugin's `config/targets.yaml`, then the authenticated account (`get_me` / `gh api user`). The login used is shown and recorded as `readiness_login`.
 2. **Signals** — open PRs in the repo vs the project's cap, merged PRs, prior involvement and `author_association`, account age and activity elsewhere, vouch status, and whether you use the project. About 5 read-only calls, for your own login only.
 3. **Tier mapping** (after Andrew Lamb's review-priority ordering) — actual user, prior contributor, endorsed, established account, new to the project, shown as how maintainers are likely to see your PR today, with steps to move up.
 4. **Advisory output** — Private notes only, never inside an `oss:send` block, never blocking a draft. Warns at the open-PR cap or when unvouched where vouching is required. Wording is about how maintainers see the contribution, never about you.

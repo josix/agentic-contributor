@@ -34,7 +34,7 @@ The `issue-matching` skill asks up to 5 short questions before fetching data:
 
 Answer each question. The more specific your answers, the better the ranking.
 
-Optionally set `contributor.github_login` (and `contributor.uses`) in `config/targets.yaml` so the advisory readiness check uses your login. It is local-only; without it the authenticated `gh` account is used. Say "skip readiness" to turn the check off.
+Optionally set `contributor.github_login` (and `contributor.uses`) in the plugin's `config/targets.yaml` (`${CLAUDE_PLUGIN_ROOT}/config/targets.yaml`, not your project directory) so the advisory readiness check uses your login. It is local-only; without it the authenticated `gh` account is used. Say "skip readiness" to turn the check off.
 
 ### Step 3 — Watch the Research
 

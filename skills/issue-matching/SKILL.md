@@ -25,7 +25,7 @@ Ask the contributor these questions (as a short numbered list — not open-ended
    contributed before, or (c) neither. (Merges newcomer status and usage.)
 4. **Item type preference** — Issues only, PRs only, or both?
 5. **Target project(s)** — Which project(s)? (e.g., apache/airflow, apache/spark — or "from my
-   targets.yaml list")
+   targets.yaml list", read from `${CLAUDE_PLUGIN_ROOT}/config/targets.yaml`)
 
 Collect answers before running the match. Do not ask more than these 5 questions. The advisory
 `contributor-readiness` check (see `skills/contributor-readiness/SKILL.md`) runs alongside, unless

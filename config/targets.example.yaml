@@ -1,7 +1,9 @@
 # OSS Contribution Plugin — Target Projects Configuration
 #
-# Copy this file to targets.yaml to activate it:
+# Copy this file to targets.yaml, in this same config/ directory of the plugin, to activate it:
 #   cp config/targets.example.yaml config/targets.yaml
+# Skills read it as ${CLAUDE_PLUGIN_ROOT}/config/targets.yaml, never from your project directory.
+# Keep a backup: reinstalling or updating the plugin can replace this directory.
 #
 # Add or remove projects from the `projects` list. The /oss command will
 # use this list when no specific project is named in the arguments.
@@ -13,14 +15,13 @@
 # authenticated gh/MCP account instead.
 contributor:
   github_login: your-github-login   # overridden by "as @login" in a request
-  uses:                             # projects you use; boosts matching items in find
+  uses:                             # projects you use: readiness tier 1, boosts matching items in find
     - apache/airflow
 
 projects:
   - owner: apache
     repo: airflow
     description: "Apache Airflow — workflow orchestration platform (Python)"
-    uses: true   # optional: you use this project (readiness tier 1; ranks matching areas higher)
     labels_of_interest:
       - "good first issue"
       - "help wanted"

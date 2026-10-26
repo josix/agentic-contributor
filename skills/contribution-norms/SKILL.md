@@ -129,7 +129,7 @@ not found, with the reason>
 
 ## Policy Preflight (for other scenarios)
 
-A lightweight pre-step used by `find`, `clarify`, `claim`, `engage`, `review-reply`, and `report`
+A lightweight pre-step used by `find`, `clarify`, `claim`, `engage`, `review-reply`, `report`, and `prepare-pr`
 (not `status`, `norms`, or `setup`; `norms` computes the full detail). It returns only the `policy`
 block from `references/ai-policy-signals.md`, nothing else.
 
