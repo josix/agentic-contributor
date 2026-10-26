@@ -37,6 +37,8 @@ records prompts, transcripts, keystrokes, or file contents.
 plugin: agentic-contributor
 scenario: prepare-pr
 mode: track
+body_format: 2            # no send block exists, so nothing is sendable
+sendable: false           # private ledger: never send or lint, whatever body_format says
 repo: <owner/repo|local>
 item: <issueN|task>
 task: "<one line, user's words>"

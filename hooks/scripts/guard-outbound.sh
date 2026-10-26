@@ -57,8 +57,9 @@ deny() {
 # ── Check MCP tools (default-deny allowlist) ─────────────────────────────────
 # The plugin's GitHub MCP namespace is DEFAULT-DENY: only read tools pass.
 # Read tools are recognised by name (the suffix after the last '__'):
-#   get_* | list_* | search_* | *_read   (e.g. get_me, list_issues, search_code,
-#   issue_read, pull_request_read). Everything else -- issue_write, push_files,
+#   get_* | list_* | search_*, plus the two named read tools issue_read and
+#   pull_request_read (e.g. get_me, list_issues, search_code). A generic *_read
+#   suffix is NOT allowed (mark_all_notifications_read mutates). Everything else -- issue_write, push_files,
 #   merge_pull_request, fork_repository, create_*, update_*, delete_*, *_write,
 #   add_*, assign_*, request_*, and any tool added upstream later -- is denied.
 if [[ "$tool_name" == mcp__plugin_agentic-contributor_github__* ]]; then
@@ -67,7 +68,7 @@ if [[ "$tool_name" == mcp__plugin_agentic-contributor_github__* ]]; then
     *[!a-z0-9_]*|'') deny "$tool_name" ;;
     # belt and braces: a write verb anywhere in the name denies even with a read prefix
     *write*|*create*|*delete*|*submit*|*fork*) deny "$tool_name" ;;
-    get_?*|list_?*|search_?*|?*_read) exit 0 ;;
+    get_?*|list_?*|search_?*|issue_read|pull_request_read) exit 0 ;;
   esac
   deny "$tool_name"
 fi
@@ -387,6 +388,11 @@ check_gh_api() {
 # rules, never instead of them, so it can only add denials.
 NORM_RM=$'\001'
 GIT_INLINE_ALIAS=""
+# Fail closed on huge inputs instead of hitting the hook timeout (fail-open).
+GUARD_MAX_BYTES=262144
+GUARD_MAX_SEGS=500
+seg_checked=0
+GUARD_TOO_BIG_MSG="command too large to analyse safely; split it into smaller commands"
 
 # True when redirection token $1 carries no target of its own (target is next word).
 rd_is_bare() {
@@ -408,25 +414,40 @@ nt_skip_rd() {
   done
 }
 
-# Skip the options of wrapper $1 (env, sudo, xargs, ...) starting at p.
+# Skip the options of wrapper $1 (env, sudo, xargs, ...) starting at p, then the
+# wrapper's leading positional word where it has one (timeout DURATION, ...).
 nt_skip_wrapper_opts() {
-  local argopts="" o
+  local argopts="" o posskip=0
   case "$1" in
     env) argopts=" -u -C -S --unset --chdir --split-string " ;;
     exec) argopts=" -a " ;;
     time) argopts=" -f -o --format --output " ;;
     sudo) argopts=" -u -g -h -p -C -D -r -t -U -R -T --user --group --host --prompt --close-from --chdir --role --type --other-user --chroot " ;;
     xargs) argopts=" -a -d -E -I -L -n -P -s --arg-file --delimiter --eof --max-args --max-lines --max-procs --max-chars " ;;
+    timeout) argopts=" -k -s --kill-after --signal "; posskip=1 ;;
+    nice) argopts=" -n --adjustment " ;;
+    ionice) argopts=" -c -n -p -P -u --class --classdata --pid --pgid --uid " ;;
+    stdbuf) argopts=" -i -o -e --input --output --error " ;;
+    caffeinate) argopts=" -t -w " ;;
+    doas) argopts=" -u -C " ;;
+    watch) argopts=" -n --interval " ;;
+    flock) argopts=" -w --wait --timeout -E --conflict-exit-code "; posskip=1 ;;
+    chrt|taskset) posskip=1 ;;
   esac
   while :; do
     nt_skip_rd
     [[ $p -ge $n ]] && return 0
     o="${all[$p]}"
-    if [[ "$o" == "--" ]]; then p=$((p + 1)); return 0; fi
-    [[ "$o" == -?* ]] || return 0
+    if [[ "$o" == "--" ]]; then p=$((p + 1)); break; fi
+    [[ "$o" == -?* ]] || break
     p=$((p + 1))
     if [[ "$argopts" == *" $o "* ]]; then p=$((p + 1)); fi
   done
+  if [[ $posskip -eq 1 ]]; then
+    nt_skip_rd
+    [[ $p -lt $n ]] && p=$((p + 1))
+  fi
+  return 0
 }
 
 # Flag an inline `-c alias.<name>=<value>` whose value pushes/sends or runs a
@@ -477,8 +498,12 @@ normalize_segment() {
     base="${w##*/}"
     case "$base" in
       '{'|'!'|then|do|else|elif|if|while|until) p=$((p + 1)) ;;
-      env|command|exec|builtin|nohup|time|sudo|xargs)
+      env|command|exec|builtin|nohup|time|sudo|xargs|timeout|nice|ionice|stdbuf|setsid|caffeinate|doas|watch|unbuffer|flock|chrt|taskset)
         p=$((p + 1)); nt_skip_wrapper_opts "$base" ;;
+      coproc)
+        p=$((p + 1))
+        # coproc NAME { cmd; }: the NAME word precedes the brace
+        [[ $((p + 1)) -lt $n && "${all[$((p + 1))]}" == "{" ]] && p=$((p + 1)) ;;
       *) break ;;
     esac
   done
@@ -486,6 +511,11 @@ normalize_segment() {
   p=$((p + 1))
   [[ "$base" == git ]] && nt_skip_git_globals
   NT[0]="$base"; NA[0]="$base"
+  # dashed git binary (/usr/libexec/git-core/git-push): treat as `git push`
+  if [[ "$base" == git-?* ]]; then
+    NT[0]=git; NA[0]=git; base=git
+    NT[1]="${w##*/}"; NT[1]="${NT[1]#git-}"; NA[1]="${NT[1]}"
+  fi
   k=$p
   while [[ $k -lt $n ]]; do
     t="${all[$k]}"; k=$((k + 1))
@@ -544,15 +574,21 @@ curl_mutating_method() {
 
 # curl: any payload / upload / config-file / non-read method option denies.
 check_curl_norm() {
-  local raw="$1" i=1 n=${#NT[@]} t rest c val
+  local raw="$1" i=1 n=${#NT[@]} t rest c val has_data=0 get=0
   while [[ $i -lt $n ]]; do
     t="${NT[$i]}"; i=$((i + 1))
+    # curl >= 8.3: --expand-<option> is the same option with variable expansion
+    [[ "$t" == --expand-?* ]] && t="--${t#--expand-}"
     case "$t" in
       --) break ;;
       --request|--request=*)
         if [[ "$t" == --request ]]; then val="${NT[$i]:-}"; i=$((i + 1)); else val="${t#*=}"; fi
         curl_mutating_method "$val" && deny "curl non-read method: $raw" ;;
-      --data|--data=*|--data-*|--json|--json=*|--form|--form=*|--form-*|--upload-file|--upload-file=*|--config|--config=*)
+      --get) get=1 ;;
+      --data|--data-*)
+        has_data=1; i=$((i + 1)) ;;
+      --data=*) has_data=1 ;;
+      --json|--json=*|--form|--form=*|--form-*|--upload-file|--upload-file=*|--config|--config=*)
         deny "curl outbound mutation: $raw" ;;
       --*) ;;
       -?*)
@@ -560,7 +596,12 @@ check_curl_norm() {
         while [[ -n "$rest" ]]; do
           c="${rest:0:1}"; rest="${rest:1}"
           case "$c" in
-            d|F|T|K) deny "curl outbound mutation: $raw" ;;
+            F|T|K) deny "curl outbound mutation: $raw" ;;
+            G) get=1 ;;
+            d)
+              has_data=1
+              if [[ -z "$rest" ]]; then i=$((i + 1)); fi
+              rest="" ;;
             X)
               val="$rest"
               if [[ -z "$val" ]]; then val="${NT[$i]:-}"; i=$((i + 1)); fi
@@ -573,6 +614,8 @@ check_curl_norm() {
         done ;;
     esac
   done
+  # data options are query parameters under -G/--get, a POST body otherwise
+  [[ $has_data -eq 1 && $get -eq 0 ]] && deny "curl outbound mutation: $raw"
   return 0
 }
 
@@ -591,18 +634,35 @@ check_wget_norm() {
   return 0
 }
 
+# Canonicalise gh built-in aliases of NT[1..3] into g1/g2/g3 (caller locals):
+# cs -> codespace; new -> create; remove|rm -> delete.
+gh_canon_words() {
+  g1="${NT[1]:-}"; g2="${NT[2]:-}"; g3="${NT[3]:-}"
+  [[ "$g1" == cs ]] && g1=codespace
+  case "$g2" in new) g2=create ;; remove|rm) g2=delete ;; esac
+  case "$g3" in new) g3=create ;; remove|rm) g3=delete ;; esac
+}
+
 # Deny rules on the normalized segment (NT). $1 = original segment text.
 check_norm_rules() {
-  local raw="$1"
+  local raw="$1" k g1 g2 g3
   case "${NT[0]:-}" in
     git)
       [[ -n "$GIT_INLINE_ALIAS" ]] && deny "git -c $GIT_INLINE_ALIAS (inline alias): $raw"
       case "${NT[1]:-}" in
         push|send-email|send-pack) deny "git ${NT[1]}: $raw" ;;
         svn) [[ "${NT[2]:-}" == dcommit ]] && deny "git svn dcommit: $raw" ;;
+        subtree)
+          # subtree options may precede the subcommand: git subtree -P docs push ...
+          for ((k = 2; k < ${#NT[@]}; k++)); do
+            [[ "${NT[$k]}" == push ]] && deny "git subtree push: $raw"
+          done ;;
+        lfs) [[ "${NT[2]:-}" == push ]] && deny "git lfs push: $raw" ;;
+        p4) [[ "${NT[2]:-}" == submit ]] && deny "git p4 submit: $raw" ;;
       esac ;;
     gh)
-      if gh_is_write "${NT[1]:-}" "${NT[2]:-}" "${NT[3]:-}"; then deny "gh ${NT[1]:-} ${NT[2]:-} ${NT[3]:-}: $raw"; fi ;;
+      gh_canon_words
+      if gh_is_write "$g1" "$g2" "$g3"; then deny "gh $g1 $g2 $g3: $raw"; fi ;;
     curl) check_curl_norm "$raw" ;;
     wget) check_wget_norm "$raw" ;;
   esac
@@ -637,6 +697,8 @@ check_segment() {
   # Per-segment fast path: no trigger word -> no rule can deny this segment
   # (substitution bodies are walked separately by check_cmd_text).
   has_trigger "$seg" || return 0
+  seg_checked=$((seg_checked + 1))
+  [[ $seg_checked -gt $GUARD_MAX_SEGS ]] && deny "$GUARD_TOO_BIG_MSG"
   check_gh_api "$seg" "$full"
   [[ "$seg" =~ [^[:space:]] ]] || return 0
   normalize_segment "$seg" || deny "command segment could not be analysed: $seg"
@@ -677,6 +739,16 @@ if [[ "$tool_name" == "Bash" ]]; then
     exit 0
   fi
 
+  [[ ${#stripped} -gt $GUARD_MAX_BYTES ]] && deny "$GUARD_TOO_BIG_MSG"
+
+  # Help-only invocations never mutate: `git <push> --help`, `gh pr create --help`.
+  # Restricted to built-in gh groups (a gh shell alias given --help would run).
+  WS="[ "$'\t'"]"
+  HELP_RE="^${WS}*(git${WS}+(push|send-email|send-pack|svn|subtree|lfs|p4)|gh${WS}+(pr|issue|release|repo|gist|label|project|ssh-key|gpg-key|cache|workflow|run|secret|variable|alias|codespace)(${WS}+[a-z][a-z0-9-]*){1,2})${WS}+(--help|-h)${WS}*\$"
+  if [[ "$stripped" =~ $HELP_RE ]]; then
+    exit 0
+  fi
+
   # SEP matches "command position": start-of-string or a real shell separator
   # (;  |  &  &&  ||  $(  backtick  newline), optionally followed by whitespace.
   # This prevents plain-space-separated words (e.g. "echo git push") from matching.
@@ -691,27 +763,27 @@ if [[ "$tool_name" == "Bash" ]]; then
   fi
 
   # gh pr create / comment / review / edit / merge / close / reopen / lock / unlock / ready
-  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'pr'[[:space:]]+(create|comment|review|edit|merge|close|reopen|lock|unlock|ready|--fill)([[:space:]]|$) ]]; then
+  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'pr'[[:space:]]+(create|new|comment|review|edit|merge|close|reopen|lock|unlock|ready|--fill)([[:space:]]|$) ]]; then
     deny "gh pr mutating subcommand: $command_str"
   fi
 
   # gh issue create / comment / edit / close / reopen / lock / unlock
-  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'issue'[[:space:]]+(create|comment|edit|close|reopen|lock|unlock)([[:space:]]|$) ]]; then
+  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'issue'[[:space:]]+(create|new|comment|edit|close|reopen|lock|unlock)([[:space:]]|$) ]]; then
     deny "gh issue mutating subcommand: $command_str"
   fi
 
   # gh release create / edit / delete / upload
-  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'release'[[:space:]]+(create|edit|delete|upload)([[:space:]]|$) ]]; then
+  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'release'[[:space:]]+(create|new|edit|delete|upload)([[:space:]]|$) ]]; then
     deny "gh release mutating subcommand: $command_str"
   fi
 
   # gh repo create / fork / delete / edit
-  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'repo'[[:space:]]+(create|fork|delete|edit)([[:space:]]|$) ]]; then
+  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'repo'[[:space:]]+(create|new|fork|delete|edit)([[:space:]]|$) ]]; then
     deny "gh repo mutating subcommand: $command_str"
   fi
 
   # gh gist create (can post content publicly)
-  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'gist'[[:space:]]+'create'([[:space:]]|$) ]]; then
+  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'gist'[[:space:]]+(create|new)([[:space:]]|$) ]]; then
     deny "gh gist create: $command_str"
   fi
 
@@ -730,7 +802,8 @@ if [[ "$tool_name" == "Bash" ]]; then
   if [[ "$stripped" =~ $SEP'curl'[[:space:]] ]]; then
     if [[ "$stripped" =~ [[:space:]]-X[[:space:]]*(POST|PUT|PATCH|DELETE) ]] || \
        [[ "$stripped" =~ [[:space:]]--request[[:space:]]*(POST|PUT|PATCH|DELETE) ]] || \
-       [[ "$stripped" =~ [[:space:]](-d|--data|--data-raw)[[:space:]] ]] || \
+       { ! [[ "$stripped" =~ [[:space:]](-G|--get|-[A-Za-z]*G[A-Za-z]*)([[:space:]]|$) ]] &&
+         [[ "$stripped" =~ [[:space:]](-d|--data|--data-raw)[[:space:]] ]]; } || \
        [[ "$stripped" =~ [[:space:]](-F|--form)[[:space:]] ]]; then
       deny "curl outbound mutation: $command_str"
     fi
@@ -738,14 +811,13 @@ if [[ "$tool_name" == "Bash" ]]; then
 
   # wget with mutating methods or data payloads
   if [[ "$stripped" =~ $SEP'wget'[[:space:]] ]]; then
-    if [[ "$stripped" =~ [[:space:]]-X[[:space:]]*(POST|PUT|PATCH|DELETE) ]] || \
-       [[ "$stripped" =~ [[:space:]]--request[[:space:]]*(POST|PUT|PATCH|DELETE) ]] || \
-       [[ "$stripped" =~ [[:space:]](-d|--data|--data-raw)[[:space:]] ]] || \
-       [[ "$stripped" =~ [[:space:]](-F|--form)[[:space:]] ]] || \
-       [[ "$stripped" =~ [[:space:]]--method[[:space:]]+(POST|PUT|PATCH|DELETE) ]] || \
+    # wget's -X/-d/-F/--data/--form are NOT mutation options (exclude-dirs, debug, force-html)
+    if [[ "$stripped" =~ [[:space:]]--method[[:space:]]+(POST|PUT|PATCH|DELETE) ]] || \
        [[ "$stripped" =~ [[:space:]]--method=(POST|PUT|PATCH|DELETE) ]] || \
        [[ "$stripped" =~ [[:space:]]--post-data[[:space:]=] ]] || \
-       [[ "$stripped" =~ [[:space:]]--post-file[[:space:]=] ]]; then
+       [[ "$stripped" =~ [[:space:]]--post-file[[:space:]=] ]] || \
+       [[ "$stripped" =~ [[:space:]]--body-data[[:space:]=] ]] || \
+       [[ "$stripped" =~ [[:space:]]--body-file[[:space:]=] ]]; then
       deny "wget outbound mutation: $command_str"
     fi
   fi

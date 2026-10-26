@@ -87,7 +87,8 @@ body_format: 2
 | `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, `debrief`, or `task` (track ledgers) |
 | `generated_at` | ISO-8601 UTC timestamp |
 | `status` | Always `draft` — change to `sent` once the execution plugin posts it |
-| `body_format` | Draft tier, v0.4.0+: `2` means only the `oss:send` block is sendable. `private` (change debriefs) means nothing is sendable; consumers must refuse it. Absent or `1` means legacy (whole body sendable) |
+| `body_format` | Draft tier, v0.4.0+: `2` means only the `oss:send` block is sendable (zero send blocks = nothing sendable). Absent or `1` means legacy (whole body sendable) |
+| `sendable` | Only the private `prepare-pr` debrief file: `false` means never send, regardless of `body_format` |
 | `mode` | `review-reply`: `brief` (default) or `lint`. `prepare-pr`: `track`, `debrief`, `draft` (default), or `lint` |
 | `base`, `head`, `diff_stats` | v0.7.0+, `prepare-pr` only: the refs diffed and `{files, insertions, deletions}` |
 | `policy` | v0.5.0+, `find`, `norms`, and draft-tier scenarios: the project's detected AI-policy and contribution-limit block (see below) |
@@ -149,6 +150,7 @@ Draft-tier files (`body_format: 2`) split sendable text from private notes:
 - A `TODO(you):` inside a send block means the text is not ready; the execution plugin must refuse to send while it remains (and lint reports it as AP8).
 - Files with several independent messages (one reply per review comment) use one marker pair per message.
 - Files with no `body_format`, or `1`, are legacy: the whole body is sendable.
+- `body_format: 2` with no send block means nothing is sendable; `sendable: false` means never send.
 - Report-tier files have no send block.
 
 This is a handoff contract with the execution plugin; see [Two-Plugin System](two-plugin-system.md).
@@ -171,7 +173,7 @@ draft), then shows verbatim:
 > **DRAFT — saved to `<path>`. Review and edit this file before sending.**
 > This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
 
-Then it asks you to review and modify the file before confirming. For `review-reply`, the chat shows the understanding brief and `TODO(you)` placeholders; you write the reply yourself in the send block. For `prepare-pr`, the send block is a problem-first scaffold whose Why, What changed, and Unknowns sections are `TODO(you)`; debrief mode writes a private file with no send block.
+Then it asks you to review and modify the file before confirming. For `review-reply`, the chat shows the understanding brief and `TODO(you)` placeholders; you write the reply yourself in the send block. For `prepare-pr`, the send block is a problem-first scaffold whose Why, What changed, and Unknowns sections are `TODO(you)`; debrief mode writes a private file with `body_format: 2`, `sendable: false` and no send block.
 
 ## Gitignore-Ensure Behavior
 

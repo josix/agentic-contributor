@@ -74,8 +74,9 @@ The user may ask follow-ups about any group ("why not use X?"); answer citing co
 
 Save to `.oss-drafts/prepare-pr-<owner>-<repo>-debrief-<UTC>.md` with frontmatter
 `scenario: prepare-pr`, `mode: debrief`, `item: debrief`, `base`, `head`, `diff_stats`, `status:
-draft`, `body_format: private`. `private` is explicitly non-sendable: no consumer may post any
-part of the file, and there is no send block. Lead with: "Private notes. Not PR text. Do not paste."
+draft`, `body_format: 2`, `sendable: false`. No send block (`body_format: 2` with zero `oss:send`
+pairs means nothing is sendable; `sendable: false` means never send, whatever `body_format` says).
+Lead with: "Private notes. Not PR text. Do not paste."
 
 ```markdown
 # Change debrief (private)
