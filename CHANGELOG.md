@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 
-- Guard untouched (`guard-outbound.sh`, its harness and cases; 474/474 with the 0.10.0 allow cases). No scenario or skill count change.
+- Guard untouched (`guard-outbound.sh`, its harness and cases; 514/514 with the 0.10.0 allow cases and the 0.7.0 review fixes). No scenario or skill count change.
 - Hooks never revert, stash, or edit code. Limits: Bash-created untracked files are not counted, `SubagentStop` is not covered, and `Stop` does not run on interrupt.
 
 ## [0.8.0] - 2026-10-24
