@@ -127,6 +127,40 @@ else
   fail=$((fail + 1)); printf 'FAIL size-3: expected rc 0 within 10s, got rc %d in %ds\n' "$rc" "$elapsed"
 fi
 
+# ── no jq, no python3: the grep fallback must fail closed ──────────────────────
+# PATH is a directory of links to the system tools minus jq and python*. grep stops at the first
+# escaped quote, so `echo \"a\"; <write>` used to be read as `echo ` and allowed.
+nobin="$tmpd/nobin"
+mkdir -p "$nobin"
+for dir in /usr/bin /bin /usr/sbin /sbin; do
+  [ -d "$dir" ] || continue
+  for f in "$dir"/*; do
+    b="${f##*/}"
+    case "$b" in jq | python*) continue ;; esac
+    [ -x "$f" ] && [ ! -e "$nobin/$b" ] && ln -s "$f" "$nobin/$b" 2>/dev/null
+  done
+done
+if [ -n "$(PATH="$nobin" "$runner" -c 'command -v jq; command -v python3' 2>/dev/null)" ]; then
+  fail=$((fail + 1)); echo "FAIL fallback: jq or python3 still on the stripped PATH"
+else
+  fb() { # $1 want rc, $2 label, $3 raw JSON
+    printf '%s' "$3" | PATH="$nobin" "$runner" "$guard" >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -eq "$1" ]; then pass=$((pass + 1)); else
+      fail=$((fail + 1)); printf 'FAIL fallback %s: expected rc %d got rc %d\n' "$2" "$1" "$rc"; fi
+  }
+  fbj() { fb "$1" "$2" "$(jq -nc --arg t "$3" --arg c "$4" '{tool_name:$t, tool_input:{command:$c}}')"; }
+  fbj 2 "escaped quotes hide a write" Bash 'echo "a"; gh pr comment 1 -b x'
+  fbj 2 "multi-line command" Bash $'git status\ngh pr comment 1 -b x'
+  fbj 2 "plain write" Bash 'gh pr comment 1 -b x'
+  fbj 2 "git push" Bash 'git push origin main'
+  fbj 0 "plain read" Bash 'git status'
+  fbj 0 "read with flags" Bash 'gh pr list --state open --json number'
+  fb 2 "repeated command field" '{"tool_name":"Bash","tool_input":{"command":"git status","command":"gh pr comment 1 -b x"}}'
+  fb 0 "non-Bash tool" '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}'
+  fb 2 "GitHub MCP write" '{"tool_name":"mcp__github__issue_write","tool_input":{}}'
+fi
+
 total=$((pass + fail))
 echo "guard tests ($runner): $pass/$total passed ($known known bypasses documented, see docs/reference/hooks.md)"
 [ "$fail" -eq 0 ]

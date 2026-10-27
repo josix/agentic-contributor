@@ -5,6 +5,13 @@ All notable changes to the agentic-contributor plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-10-27
+
+### Fixed
+
+- Draft-only guard: with neither `jq` nor `python3` installed, the grep fallback read the command only up to its first escaped quote, so `echo \"a\"; <write command>` or a multi-line command whose write was on a later line was allowed. The fallback now fails closed: a command with any backslash escape or a repeated `command` field is denied with a message to install `jq` or `python3`. Harness: a no-jq/no-python3 block in `run-guard-tests.sh` (PATH stripped of both).
+- `prepare-pr` size check with uncommitted work diffed the working tree against the tip of the base branch, so after pulling the base, its new commits counted as reverse changes (inflating the 400-line / 10-file verdict and listing files you never touched). It now diffs against `git merge-base HEAD <base>`, as `change-debrief` already did.
+
 ## [0.10.0] - 2026-10-24
 
 ### Added

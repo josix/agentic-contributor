@@ -184,8 +184,10 @@ Never write `decided_by: user` or `answered_by: user` unless the user answered.
 ## Procedure 2: Size and Shape Check
 
 From `git diff --stat <base>...HEAD`, or, when Procedure 1 found uncommitted work,
-`git diff --stat <base>` (working tree against the base, so committed and uncommitted changes are
-counted once) plus the untracked files:
+`git diff --stat $(git merge-base HEAD <base>)` (working tree against the commit the branch started
+from, so committed and uncommitted changes are counted once) plus the untracked files. Never diff
+the working tree against `<base>` itself: if the base branch moved on after you branched (you
+pulled it), its new commits would be counted as reverse changes to files you never touched.
 
 - Flag more than **400 changed lines or more than 10 files**, unless CONTRIBUTING states other
   thresholds (use those and cite them). With a track ledger, use its `drift_lines` / `drift_files`

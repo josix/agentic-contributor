@@ -77,7 +77,7 @@ The `agentic-contributor` plugin registers two `PreToolUse` hooks plus a `PostTo
 
 The script reads the tool-use JSON from stdin, extracts `tool_name` and `tool_input.command`, then checks against deny patterns.
 
-**JSON parsing order:** `jq` → `python3` → `grep` (last resort). This ensures the script works even when `jq` is not installed, though `jq` is the recommended prerequisite.
+**JSON parsing order:** `jq` → `python3` → `grep` (last resort). The grep fallback cannot decode JSON escapes, so it fails closed: a shell command containing any backslash escape (an escaped quote, a newline) or more than one `command` field is denied, with a message to install `jq` or `python3`. Simple one-line commands still work without them; `jq` is the recommended prerequisite.
 
 **Exit codes:**
 - `0` = allow (read-only / safe operation)
