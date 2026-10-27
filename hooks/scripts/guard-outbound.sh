@@ -16,6 +16,7 @@ set -euo pipefail
 
 # ── Read all stdin ────────────────────────────────────────────────────────────
 input="$(cat)"
+unparsed=0
 
 # ── Extract tool_name and command ─────────────────────────────────────────────
 # Try jq first, fall back to python3, then grep.
@@ -40,9 +41,18 @@ except Exception:
     print('')
 " 2>/dev/null || true)"
 else
-  # Last resort: grep for quoted string values
-  tool_name="$(printf '%s' "$input" | grep -o '"tool_name"\s*:\s*"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"' || true)"
-  command_str="$(printf '%s' "$input" | grep -o '"command"\s*:\s*"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"' || true)"
+  # Last resort (no jq, no python3): grep cannot decode JSON escapes. It reads a string only up
+  # to the first quote, so an escaped quote would cut the command short and hide the rest of it.
+  # The command is trusted only when it has no backslash and appears exactly once; otherwise the
+  # call is denied below (fail closed).
+  tool_name="$(printf '%s' "$input" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"' || true)"
+  cmd_raw="$(printf '%s' "$input" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' || true)"
+  command_str="$(printf '%s' "$cmd_raw" | sed 's/^"command"[[:space:]]*:[[:space:]]*"//; s/"$//')"
+  if [ "$tool_name" = "Bash" ] || [ -n "$cmd_raw" ]; then
+    cmd_n="$(printf '%s' "$cmd_raw" | grep -c '' || true)"
+    case "$command_str" in *\\*) unparsed=1 ;; esac
+    [ "$cmd_n" = 1 ] || unparsed=1
+  fi
 fi
 
 # ── Helper: emit denial and exit 2 ───────────────────────────────────────────
@@ -54,6 +64,9 @@ deny() {
   exit 2
 }
 
+if [ "$unparsed" = 1 ]; then
+  deny "a shell command the guard cannot read without jq or python3 (escaped characters or a repeated command field). Install jq or python3."
+fi
 # ── Check MCP tools (default-deny allowlist) ─────────────────────────────────
 # Every GitHub MCP server is DEFAULT-DENY: only read tools pass. That covers
 # this plugin's own server and any other one whose server name contains

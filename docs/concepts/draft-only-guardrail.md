@@ -16,7 +16,7 @@ Advisory hooks (`track-checkpoint.sh`, `track-breakpoint.sh`) are not part of th
 
 The script:
 1. Reads the tool-use JSON from stdin.
-2. Extracts `tool_name` and `tool_input.command` (using `jq`, then `python3`, then `grep` as a fallback).
+2. Extracts `tool_name` and `tool_input.command` (using `jq`, then `python3`, then `grep` as a fallback; the grep fallback denies any command it cannot read exactly, such as one with escaped quotes or newlines).
 3. Checks the tool name and command against the deny patterns below.
 4. Exits `2` (deny) with a JSON message on stderr, or exits `0` (allow).
 
