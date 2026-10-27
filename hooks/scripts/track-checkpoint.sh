@@ -184,6 +184,7 @@ while IFS= read -r line; do
 done < "$ledger"
 [ "$fm_plugin" = "agentic-contributor" ] && [ "$fm_mode" = "track" ] || exit 0
 
+# --- shared: list cleaning (keep identical in track-*.sh) ---
 clean_list() { # strip comment, brackets, quotes
   local v="${1%%#*}"
   v="${v//\[/}"
@@ -191,6 +192,7 @@ clean_list() { # strip comment, brackets, quotes
   v="${v//\"/}"
   printf '%s' "$v"
 }
+# --- end shared ---
 fm_scope="$(clean_list "$fm_scope")"
 fm_api="$(clean_list "$fm_api")"
 case "$fm_budget" in '' | *[!0-9]*) fm_budget=3 ;; esac
@@ -239,7 +241,7 @@ command -v python3 > /dev/null 2>&1 && have_py=1
 
 # parse_input: prints US-separated tool, path, permission_mode, cwd and app (1 only for an
 # append-shaped Edit: old_string is the ledger sentinel, new_string is old_string plus a prefix that
-# holds no sentinel, pending/consumed marker or source=hook). Assertion counts are NOT computed here:
+# holds no sentinel, pending/consumed/drift/breakpoint marker or source=hook). Assertion counts are NOT computed here:
 # they are only needed for test paths (count_input / count_file below).
 # A path or cwd containing a control character (newline, CR, US, ...) is printed as empty,
 # so it can neither shift the fields nor forge ledger marker lines: the hook then fails open.
@@ -251,7 +253,7 @@ parse_input() {
         ($ti.old_string // "") as $o | ($ti.new_string // "") as $n
         | (($ti.replace_all // false) != true) and ($o == endmark or $o == endmark + "\n") and ($n | endswith($o))
         and (($n[0:(($n | length) - ($o | length))]) as $pre
-          | ($pre | contains(endmark) or contains("<!-- track:pending ") or contains("<!-- track:consumed ") or contains(" source=hook")) | not);
+          | ($pre | contains(endmark) or contains("<!-- track:pending ") or contains("<!-- track:consumed ") or contains("<!-- track:drift") or contains("<!-- track:breakpoint") or contains("<!-- track:predict-auto") or contains(" source=hook")) | not);
       . as $d | ($d.tool_input // {}) as $ti | ($d.tool_name // "") as $t
       | (if $t == "Edit" and appendshaped($ti) then 1 else 0 end) as $app
       | def clean: if test("[\u0000-\u001f\u007f]") then "" else . end;
@@ -272,7 +274,7 @@ if t == "Edit" and ti.get("replace_all") is not True:
     o = ti.get("old_string") or ""; n = ti.get("new_string") or ""
     if o in (END, END + "\n") and n.endswith(o):
         pre = n[:len(n) - len(o)]
-        if not any(x in pre for x in (END, "<!-- track:pending ", "<!-- track:consumed ", " source=hook")): app = 1
+        if not any(x in pre for x in (END, "<!-- track:pending ", "<!-- track:consumed ", "<!-- track:drift", "<!-- track:breakpoint", "<!-- track:predict-auto", " source=hook")): app = 1
 p = clean(ti.get("file_path") or ti.get("notebook_path"))
 print("\x1f".join([t, p, str(d.get("permission_mode") or ""), clean(d.get("cwd")), str(app)]))
 ' 2> /dev/null
@@ -453,6 +455,7 @@ re_testdir='(^|/)(tests?|__tests__|specs?|testing)/'
 re_testfile='^test_.*\.py$|_test\.(py|go|rb|exs?|dart)$|\.(test|spec)\.(m?[jt]sx?|cjs)$|(Tests?|IT)\.(java|kt|scala|cs)$|_spec\.rb$|Tests?\.swift$'
 is_test_path() { [[ $1 =~ $re_testdir ]] || [[ ${1##*/} =~ $re_testfile ]]; }
 
+# --- shared: manifest map (keep identical in track-*.sh) ---
 manifest_for() { # echoes the manifest basename if $1 is a dependency file, else nothing
   case "$1" in
     yarn.lock | package-lock.json | pnpm-lock.yaml | npm-shrinkwrap.json | bun.lockb) echo package.json ;;
@@ -471,7 +474,9 @@ manifest_for() { # echoes the manifest basename if $1 is a dependency file, else
       *.gemspec | *.csproj) echo "$1" ;;
   esac
 }
+# --- end shared ---
 
+# --- shared: glob match (keep identical in track-*.sh) ---
 glob_match() { # $1 rel, $2 comma list
   local g list="$2" IFS=,
   for g in $list; do
@@ -484,6 +489,7 @@ glob_match() { # $1 rel, $2 comma list
   done
   return 1
 }
+# --- end shared ---
 
 class=""
 key="$rel"
@@ -670,6 +676,17 @@ if [ "$ack" -eq 1 ]; then
   exit 0
 fi
 
+pool=Decision # scope checkpoints have their own budget pool (see the awk above)
+[ "$class" = scope ] && pool=Scope
+
+# budget 0 is quiet mode: never ask or retry, even with a pending marker
+if [ "$fm_budget" -eq 0 ] || { [ "$pend_n" -eq 0 ] && [ "$asked" -ge "$fm_budget" ]; }; then
+  append "<!-- track:entry status=logged-over-budget source=hook asked=no at=$now id=$id -->" \
+    "- logged-over-budget: $class — $rel ($now), not asked; budget $fm_budget spent"
+  emit "" "" "[agentic-contributor · tracked session] $pool checkpoint budget $fm_budget/$fm_budget is spent. Logged $id ($class, $rel) to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish." \
+    "agentic-contributor: $pool checkpoint budget spent; $id logged to $rel_ledger without asking."
+fi
+
 # Cap: three acknowledged not-applicable edits for one id is enough. Log it instead of asking
 # again, so a repeated scripts-only edit cannot cause unbounded deny round-trips.
 if [ "$pend_n" -eq 0 ] && [ "$cons_n" -ge 3 ]; then
@@ -684,15 +701,6 @@ if [ "$pend_n" -ge 2 ]; then
     "- skipped (no ledger entry recorded after 2 checkpoint prompts): $class — $rel"
   emit "" "" "[agentic-contributor · tracked session] No ledger entry for $id after 2 checkpoint prompts. The hook recorded it as skipped and allowed this edit. Tell the user that this decision was not recorded." \
     "agentic-contributor: checkpoint $id was not answered after 2 prompts; recorded as skipped in $rel_ledger."
-fi
-
-pool=Decision # scope checkpoints have their own budget pool (see the awk above)
-[ "$class" = scope ] && pool=Scope
-if [ "$pend_n" -eq 0 ] && [ "$asked" -ge "$fm_budget" ]; then
-  append "<!-- track:entry status=logged-over-budget source=hook asked=no at=$now id=$id -->" \
-    "- logged-over-budget: $class — $rel ($now), not asked; budget $fm_budget spent"
-  emit "" "" "[agentic-contributor · tracked session] $pool checkpoint budget $fm_budget/$fm_budget is spent. Logged $id ($class, $rel) to $rel_ledger as logged-over-budget without asking. It will appear as an Unknown in the debrief. Continue, and mention it to the user when you finish." \
-    "agentic-contributor: $pool checkpoint budget spent; $id logged to $rel_ledger without asking."
 fi
 
 retry=""
@@ -725,5 +733,5 @@ fi
 nl=$'\n'
 reason="[agentic-contributor · tracked session] $pool checkpoint $k/$fm_budget before this $tool_name on $rel.${nl}Trigger: $trig${nl}Checkpoint id: $id"
 [ -n "$retry" ] && reason="$reason${nl}$retry"
-reason="$reason${nl}${nl}Do this, then retry the same edit unchanged:${nl}1. Ask the user with AskUserQuestion: ONE question, \"$question\", with 2-3 options (suggested: $opts). Each option gets a one-line trade-off. Put your recommendation first and mark it \"(Recommended)\". The last option is \"Skip — decide later\". Ask them to choose, not to approve or deny.$depnote${nl}2. Read $rel_ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### $id · <UTC now>${nl}<!-- track:entry status=<decided|skipped> source=checkpoint asked=yes at=<UTC now> id=$id -->${nl}- trigger: $class — $rel${nl}- files: $rel${nl}- options: A) … | B) … | C) Skip — decide later${nl}- chosen: <letter|Skip>${nl}- decided_by: <user-on-recommendation if they picked your recommendation | user otherwise>${nl}- reason: <the user's own words, verbatim, or TODO(you) if they gave none>${nl}   Use status=skipped (reason: TODO(you)) if they pick Skip; you did ask, so keep asked=yes.${nl}3. If AskUserQuestion is unavailable (non-interactive run or subagent): write the entry with status=skipped, asked=no (in the marker line), chosen: none, decided_by: agent, reason: non-interactive (does not use budget).${nl}4. If the user's choice means not making this edit, do not retry. Follow their choice.${nl}Write \"decided_by: user…\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
+reason="$reason${nl}${nl}Do this, then retry the same edit unchanged:${nl}1. Ask the user with AskUserQuestion: ONE question, \"$question\", with 2-3 options (suggested: $opts). Each option gets a one-line trade-off. Put your recommendation first and mark it \"(Recommended)\". The last option is \"Skip — decide later\". Ask them to choose, not to approve or deny.$depnote${nl}2. Read $ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### $id · <UTC now>${nl}<!-- track:entry status=<decided|skipped> source=checkpoint asked=yes at=<UTC now> id=$id -->${nl}- trigger: $class — $rel${nl}- files: $rel${nl}- options: A) … | B) … | C) Skip — decide later${nl}- chosen: <letter|Skip>${nl}- decided_by: <user-on-recommendation if they picked your recommendation | user otherwise>${nl}- reason: <the user's own words, verbatim, or TODO(you) if they gave none>${nl}   Use status=skipped (reason: TODO(you)) if they pick Skip; you did ask, so keep asked=yes.${nl}3. If AskUserQuestion is unavailable (non-interactive run or subagent): write the entry with status=skipped, asked=no (in the marker line), chosen: none, decided_by: agent, reason: non-interactive (does not use budget).${nl}4. If the user's choice means not making this edit, do not retry. Follow their choice.${nl}Write \"decided_by: user…\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
 emit deny "$reason" ""

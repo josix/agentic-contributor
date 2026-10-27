@@ -31,6 +31,12 @@ silent	active	Edit	@ledger	status: active	status: stopped	-
 silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:end -->\nx	-
 silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:pending at=x id=y -->\n<!-- track:end -->	-
 silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:entry status=decided source=hook asked=yes at=x id=y -->\n<!-- track:end -->	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:drift at=x lines=1 files=1 crossed=lines modules=- asked=yes id=drift:9 -->\n<!-- track:end -->	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:drift-paused at=x reason=base-moved -->\n<!-- track:end -->	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:breakpoint at=x epoch=1 sid=s target=a:1 id=explain:9 -->\n<!-- track:end -->	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:predict-auto at=x state=off reason=two-no-idea -->\n<!-- track:end -->	-
+allow-ledger	active	Edit	@ledger	<!-- track:end -->	<!-- track:outcome at=x id=predict:1 -->\n- outcome: matched\n<!-- track:end -->	-
+allow-ledger	active	Edit	@ledger	<!-- track:end -->	<!-- track:entry status=decided source=drift asked=yes at=x id=drift:1 -->\n- chosen: A\n<!-- track:end -->	-
 allow-ledger	active	Edit	@ledger	<!-- track:end -->\n	 x\n<!-- track:end -->\n	-
 silent	active	MultiEdit	@ledger	<!-- track:end -->	x\n<!-- track:end -->	-
 # ── dependency ──
@@ -75,6 +81,7 @@ deny	spent-scope	Edit	package.json	a	b	dependency:package.json#073e0383
 deny	spent-scope	Edit	tests/test_foo.py	assert a	pass	test:tests/test_foo.py#
 allow-logged	spent-scope	Edit	docs/x.md	a	b	scope:docs/x.md
 allow-logged	budget0	Edit	package.json	a	b	dependency:package.json#073e0383
+allow-logged	budget0-pending	Edit	package.json	a	b	dependency:package.json#073e0383
 deny	exempt	Edit	package.json	a	b	dependency:package.json#073e0383
 silent-consume	na-dep-layout	Edit	package.json	a	b	-
 silent-consume	na-dep-later	Edit	package.json	a	b	-

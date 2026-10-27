@@ -1,7 +1,8 @@
 # Decision Ledger (track mode)
 
-Single source of truth for the track ledger. `hooks/scripts/track-checkpoint.sh` implements the
-"Grep/awk contract" below; `pr-preparation` (Procedure 0), `change-debrief`, and the docs cite this
+Single source of truth for the track ledger. `hooks/scripts/track-checkpoint.sh` (PreToolUse
+checkpoints) and `hooks/scripts/track-breakpoint.sh` (PostToolUse scope-drift alerts, Stop
+breakpoint questions) implement the "Grep/awk contract" below; `pr-preparation` (Procedure 0), `change-debrief`, and the docs cite this
 file instead of restating the format.
 
 The ledger is **private notes only**. It is never a send block, never PR text, and never pasted
@@ -51,6 +52,16 @@ scope: ["src/cli/**", "tests/cli/**"]
 scope_source: user|issue|none
 api_paths: []
 budget: 3
+drift_lines: 400
+drift_files: 10
+drift_source: default
+drift_max: 2
+explain_max: 4
+explain_interval_min: 20
+predict: auto
+predict_max: 4
+user_commits: <n | -1>
+prior_unknowns: <n>
 generated_at: <ISO-8601 UTC>
 ---
 ```
@@ -59,7 +70,26 @@ generated_at: <ISO-8601 UTC>
   and add a `stopped_at: <ISO-8601 UTC>` line.
 - `scope` / `api_paths`: flow list, double-quoted items, may be `[]`. No commas, quotes, or brace
   sets inside a glob. The hook strips `[` `]` `"` and splits on `,`.
-- `budget`: non-negative integer. A non-integer means 3. `0` means log-only (nothing is asked).
+- `budget`: non-negative integer. A non-integer means 3. `0` means log-only (nothing is asked) and
+  is also **quiet mode** for the whole session: no checkpoint, drift, or breakpoint question is
+  asked (drift is still logged with `asked=no`; breakpoint questions are off).
+- `drift_lines` (default 400): more than N changed lines since `base_commit` raises a drift alert;
+  `0` = that threshold is off. `drift_files` (default 10): more than N changed files; `0` = off.
+  `drift_source`: `default`, `contributing:<path>:<line>` (an explicit number found in a local
+  CONTRIBUTING file at track start), or `user`. `drift_max` (default 2): drift alerts actually
+  asked; `0` = log only. `explain_max` (default 4): breakpoint questions per session; `0` = off.
+  `explain_interval_min` (default 20): minimum minutes between breakpoint questions; `0` = no time
+  limit. A value that is not a non-negative integer takes its default, and a v0.8.0 ledger without
+  these keys works with the defaults. `base_commit` must match `^[0-9a-f]{7,64}$`, otherwise drift
+  and breakpoint questions are silent.
+- `predict`: `auto` (written for new sessions), `true` or `false` (`on` / `off` are accepted
+  aliases) controls predict-then-reveal (section 15). `predict_max` (default 4): predict entries per
+  session, answered or skipped; `0` = off. `user_commits` (integer, `-1` = unknown) and
+  `prior_unknowns` (integer) are facts recorded once at track start and only read by `auto`.
+  `prior_unknowns` counts the Unknowns the user left in the previous stopped ledger of the same
+  repo: `logged-over-budget` entries plus `status=skipped` entries, excluding non-interactive skips
+  (`reason=non-interactive`), drift skips (`source=drift`) and predict skips (`source=predict`). A
+  ledger without a `predict` key (v0.8.0 / v0.9.0) works with predict off.
 - The frontmatter is mutable (for example `scope:` is widened at a scope checkpoint); entries are
   append-only.
 - The hook arms only when the frontmatter has `plugin: agentic-contributor` and `mode: track`.
@@ -70,7 +100,7 @@ generated_at: <ISO-8601 UTC>
 # Decision ledger (private)
 Private notes. Not PR text. Do not paste. Entries are appended as they happen; do not rewrite them.
 
-Task: <task> · Issue: <url|none> · Base: <short sha> on <branch> · Scope: <globs|none (out-of-scope checkpoint off)> · Budget: <n>
+Task: <task> · Issue: <url|none> · Base: <short sha> on <branch> · Scope: <globs|none (out-of-scope checkpoint off)> · Budget: <n> · Drift: <L> lines / <F> files (<source>), <drift_max> alerts · Breakpoint questions: <explain_max>, ≥<interval> min apart
 
 ## Decisions
 <!-- track:end -->
@@ -117,6 +147,73 @@ Rules:
 - `at=` is the current UTC time as `YYYY-MM-DDTHH:MM:SSZ` (take it from `date -u +%Y-%m-%dT%H:%M:%SZ`).
   `at=` is for humans: the hook never compares it, so a wrong value cannot change a decision.
 
+### Drift entries
+
+Written by Claude when a drift alert (section 12) asks the user:
+
+```markdown
+### drift:<k> · <UTC>
+<!-- track:entry status=<decided|skipped> source=drift asked=<yes|no> at=<UTC> id=drift:<k> -->
+- trigger: drift — <n> lines / <n> files[; modules: <m>, …]
+- files: <files the question named, at most 10>
+- options: A) Keep in this change | B) Set aside for a separate PR | C) Drop | D) Skip — decide later
+- chosen: <A|B|C|Skip|none>
+- decided_by: <user|user-on-recommendation|agent>
+- reason: <user's words verbatim | TODO(you) | non-interactive>
+- follow-up: <B only: one line naming the set-aside work and its files>
+```
+
+### Explain entries
+
+Written by Claude after a breakpoint question (section 13):
+
+```markdown
+### explain:<k> · <UTC>
+<!-- track:entry status=<answered|skipped> source=breakpoint asked=<yes|no>[ reason=non-interactive] at=<UTC> id=explain:<k> -->
+- trigger: explain — <rel>:<line>
+- files: <rel>
+- question: <the question exactly as asked>
+- chosen: <typed|not-requested|skip|none>
+- reason: <user's typed words verbatim | not requested by the user | TODO(you) | non-interactive>
+- answered_by: <user|agent>
+```
+
+`status=answered` applies to explain entries only. The token ` reason=non-interactive ` in the machine
+line is required for non-interactive explain entries (the hook latch reads it); `id=` stays last.
+Never write `answered_by: user` unless the user actually answered; never grade or edit the answer.
+
+### Predict entries
+
+Written by Claude when predict mode is on and the user is asked for a prediction (section 15):
+
+```markdown
+### predict:<n> · <UTC>
+<!-- track:entry status=<answered|skipped> source=predict asked=yes at=<UTC> id=predict:<n> -->
+- phase: <diagnosis|plan>
+- prediction: <user's typed words verbatim | no idea>
+- outcome: pending
+- answered_by: user
+```
+
+The entry is written right after the answer (so it counts toward `predict_max` and the watermark at
+ask time, even if the turn ends before the reveal), with `- outcome: pending`. At the reveal the agent
+appends, by the same sentinel append (an append at `<!-- track:end -->`, auto-allowed per section 8), and never edits the entry above:
+
+```markdown
+### predict:<n> outcome
+<!-- track:outcome at=<UTC> id=predict:<n> -->
+- outcome: <one line: matched / partly / differed, with file:line>
+```
+
+`track:outcome` is not an entry and does not count toward predict_n. `change-debrief` reads the outcome
+block when present and falls back to the inline outcome line.
+
+Option A ("No idea — go ahead") is recorded as exactly `prediction: no idea` (status=answered).
+Skipped (option B, "Skip predictions for this session") uses `status=skipped`, `prediction: none`,
+and also sets `predict: false` in the frontmatter for the rest of the session (a normal permission prompt). Never write a predict entry when
+the question could not be asked. Predictions are private learning notes: never scored, never in send
+blocks or PR text.
+
 ### Hook-written lines
 
 The hook only ever appends with `>>` at end of file (one atomic line write, no read-modify-write).
@@ -133,6 +230,23 @@ These land below the anchor, which is harmless because readers parse by machine 
 <!-- track:entry status=skipped source=hook asked=yes reason=no-ledger-entry at=<UTC> id=<id> -->
 - skipped (no ledger entry recorded after 2 checkpoint prompts): <class> — <rel>
 ```
+
+Written by `track-breakpoint.sh` (same lock, same single-append rule; it never writes `track:pending`):
+
+```
+<!-- track:drift at=<UTC> lines=<n> files=<n> crossed=<lines|files|lines,files|-> modules=<enc,enc|-> asked=<yes|no> id=drift:<k> -->
+- drift alert drift:<k>: <n> changed lines (limit <L>), <n> files (limit <F>)[, out-of-scope modules: <m>, …]; <asked|logged only (drift cap spent)|logged only (budget 0)>
+<!-- track:breakpoint at=<UTC> epoch=<unix s> sid=<session_id|-> target=<enc rel>:<line> id=explain:<k> -->
+- breakpoint question explain:<k>: <rel>:<line> (<n>-line change)
+<!-- track:drift-paused at=<UTC> reason=base-moved -->
+- drift and explain-back paused: the base commit moved (rebase, reset, or merge); restart tracking to re-baseline
+```
+
+`track:drift-paused` is written at most once per ledger (it is the "said once" state). A control
+character in a git-reported file name is replaced with `?` before it reaches a bullet or the output.
+
+`enc` percent-encodes `%` as `%25`, space as `%20`, and `,` as `%2C`. `sid` is kept only if it
+matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
 
 ## 5. Grep/awk contract (invariants every writer keeps)
 
@@ -151,6 +265,22 @@ These land below the anchor, which is harmless because readers parse by machine 
 - **asked** = |distinct ids over pending lines| − |distinct ids with a `track:entry … asked=no`
   line that also have a pending line|, counted per budget pool (section 7): for a `scope:` id only
   `scope:` ids count, for any other id only non-`scope:` ids count.
+- **drift_n** = count of `^<!-- track:drift ` lines; **drift_asked** = those containing ` asked=yes `.
+  Next drift id = `drift:<drift_n+1>`. **alerted** = union of the `crossed=` and `modules=` items
+  over all `track:drift` lines (asked or logged), so a threshold or module alerts once.
+- **bp_n** = count of `^<!-- track:breakpoint ` lines; **bp_last** = the maximum `epoch=`. A missing,
+  non-numeric, or future epoch counts as 0 (oldest), so errors lean toward asking; the count cap
+  still bounds them. Next id = `explain:<bp_n+1>`.
+- **latch(sid)**: a breakpoint line with `sid=<sid>` whose id also has a `track:entry` line with
+  `source=breakpoint` containing ` reason=non-interactive ` and the suffix ` id=<id> -->`.
+- **covered(rel)**: a `track:entry` or `track:pending` line whose final id is
+  `<test|dependency|api|scope>:<rel>`, optionally followed by a `#<change>` suffix (section 6),
+  except `status=logged-over-budget` entries (not asked).
+- **predict_n** = count of `track:entry` lines whose final id is `predict:<n>`. Next id =
+  `predict:<predict_n+1>`.
+- **questions(q)** = (count of `track:pending` lines) + drift_asked + predict_n, used for the explain
+  watermark, so a prediction question and an explain-back are never asked in the same turn.
+  Drift and explain never write `track:pending`, so the checkpoint `asked` arithmetic is unchanged.
 - The hook never writes old/new strings or file content into the ledger. It writes only the class,
   the edited file's repo-relative path, a checksum of the changed lines (the id suffix, section 6),
   counts, and timestamps; a path or cwd containing a control
@@ -238,7 +368,11 @@ behaves like `*`). A trailing `/` means prefix. Comparison is against the repo-r
 - A settled id is never asked again. An over-logged id is silent. Test and dependency ids name the
   change (section 6), so this covers retries of the same edit, not later, different changes to the
   same file.
-- Silent with no session (no git-dir pointer, or not a git repository), `status: stopped`, `OSS_TRACK_DISABLE=1`, `permission_mode: plan`, an
+- Separate caps (v0.9.0): checkpoints keep `budget` (3) per pool, with scope checkpoints in their
+  own pool; drift has `drift_max` (2); breakpoint questions have `explain_max` (4), at least
+  `explain_interval_min` (20) minutes apart; predictions have `predict_max` (4). Worst case
+  3+3+2+4+4 = 16 questions per session; typical 0 to 3. `budget: 0` is quiet mode for all of them.
+- Silent with no session (no git-dir pointer, or not a git repository), `status: stopped`, `OSS_TRACK_DISABLE=1`, `permission_mode: plan` (except the predict note, section 15), an
   invalid pointer, or any internal error (the hook is advisory and fails open).
 - **Paused** when HEAD is not on the ledger's `branch` (skipped when `branch: HEAD`) or the pointer
   is older than `OSS_TRACK_MAX_AGE_HOURS` (default 24, `0` = off). A would-be checkpoint then gets
@@ -252,7 +386,8 @@ So that a checkpoint costs one interruption (the question) and not two, the hook
 `permissionDecision: allow` for exactly one case: tool **Edit** (never Write, MultiEdit, or
 NotebookEdit) that **appends**: `old_string` is `<!-- track:end -->` (optionally followed by a
 newline), `replace_all` is not set, and `new_string` ends with `old_string`, with a prefix that
-contains no `<!-- track:end -->`, `<!-- track:pending `, `<!-- track:consumed ` or ` source=hook`.
+contains no `<!-- track:end -->`, `<!-- track:pending `, `<!-- track:consumed `, `<!-- track:drift` (also
+`track:drift-paused`), `<!-- track:breakpoint`, `<!-- track:predict-auto` or ` source=hook`.
 The `file_path` must name the active ledger from the pointer (after the hook normalizes the path
 and compares logical and physical repository roots), and the raw `file_path` must not contain a
 `..`, `.` or empty segment. Every other edit of the ledger (frontmatter changes such as widening
@@ -289,3 +424,213 @@ ancestor of HEAD. Decided entries become `[evidenced: ledger <id>]`; skipped,
 `logged-over-budget`, and hook-skipped entries become Unknowns; `reason: TODO(you)` becomes an
 explain-back prompt. The PR scaffold keeps its send block `TODO(you)` and only lists decisions as
 hints in Private notes.
+
+Additions in v0.9.0:
+
+- `explain:<k>` with `status=answered`, `chosen: typed` becomes `[evidenced: ledger explain:<k>]`
+  ("you said: ..."). It is the strongest Why source because it is in the user's words.
+- `chosen: not-requested`: that group is labelled "unexplained, possibly out of scope (you said you
+  did not ask for it)".
+- A skipped explain entry, or a breakpoint marker with no entry, becomes the Unknown
+  "not explained: <rel>:<line> (ledger explain:<k>)".
+- Drift A: evidence "you chose to keep ...". Drift B: listed under Follow-ups (`follow-up:` line).
+  Drift C whose files are still in the final diff: Unknown "dropped per ledger drift:<k> but still
+  in the diff: ...". A skipped drift entry, a `track:drift` marker without an entry, or an
+  `asked=no` marker: Unknown.
+- A `track:drift-paused` line: Unknown "scope drift and explain-back were paused after the base
+  commit moved; changes since then were not checked".
+
+## 11. Session state file
+
+`<root>/.oss-drafts/<ledger basename without .md>.state`. Plain text, one record per line,
+tab-separated, append-only except for compaction. Only `track-breakpoint.sh` writes it; `/oss track stop` deletes it. It
+holds the record types below: repo-relative paths of edited files (`e`), Claude Code `session_id`s
+(`p`), and counters and markers (`m`, `s`, `b`, `d`, `t`); never file contents, prompts or ledger text. It is disposable: rate-limit and audit state lives
+in the ledger, so deleting it cannot lift a cap. A missing, malformed, or symlinked state file means
+"no edits" (silent; a symlink disables both features).
+
+```
+e<TAB><rel>      PostToolUse: a successful Edit/Write/MultiEdit/NotebookEdit outside .oss-drafts/
+d                PostToolUse: a drift check ran (throttle point)
+m<TAB><q>        Stop: question watermark (questions(q) at this stop); also a turn boundary
+t                turn boundary only: UserPromptSubmit (a new prompt), or a Stop with stop_hook_active
+p<TAB><sid>      UserPromptSubmit: the full predict note was sent to this session_id
+b<TAB><id|none>  Stop: breakpoint consumed (explain:<k> asked, none = no target, compacted)
+s<TAB><n>        Stop: number of asked=no drift markers already summarised to the user
+```
+
+"Edits since the last breakpoint" = `e` lines after the last `b` line. "Edits this turn" = `e`
+lines after the last `m` or `t` line. Every Stop that can ask writes an `m`; a Stop with
+`stop_hook_active` (another Stop hook, or this one, is holding the turn) writes a `t` under the ledger
+lock, so edits made while a stop was held belong to the turn that just ended; a prompt writes a `t`
+(lockless, no fork, even with predict off), so edits before an interrupt (no Stop runs) do too. A `t`
+is never written when the state file does not exist, and compaction drops `t` lines (it runs only
+right after an `e` is appended or right before an `m` is). Paths under `.oss-drafts/`
+are never logged, so ledger writes never re-arm a breakpoint. The last `m` and `s` values win.
+
+**Compaction.** Above 400 lines the hook (under the ledger lock; skipped if busy) folds all but the
+newest 100 lines into a prefix: the last `m` and `s`, every distinct `p` line, one `e` per distinct path edited before the
+last dropped `b` (the session-wide set used for untracked-file counting), `b<TAB>compacted`, one
+`e` per distinct path after it, and one `d` if any was dropped. Nothing reads line counts, so only
+the "edits since the last `d`" throttle can be undercounted, which at most postpones one check. An
+`e` line appended by a parallel PostToolUse during the rewrite may be lost (harmless).
+
+## 12. Scope drift
+
+- **Events**: PostToolUse (throttled: a git check runs only when the edited path is new to the
+  session's edit log, or after 5 edits since the last check) and Stop (once per turn end, which also
+  catches Bash edits to tracked files; files created by Bash are not counted, because counting every untracked file would turn pre-existing scratch files into drift without a recorded baseline). Inside a subagent (`agent_id` present) PostToolUse logs the edit but
+  defers the check to the main thread's Stop, without writing a `d` throttle line.
+- **Base moved**: before measuring, the hook checks `git merge-base --is-ancestor <base_commit>
+  HEAD` and `git rev-list --merges <base_commit>..HEAD`. If the base is no longer an ancestor, or a
+  merge commit landed since it (a rebase, reset, or `git pull` with a merge), the diff would count
+  upstream changes as drift: drift and explain-back pause, `track:drift-paused` is written once, and
+  the user is told "base moved — drift paused; restart tracking (/oss track stop + start) to
+  re-baseline" (PostToolUse: `additionalContext` plus `systemMessage`; Stop: `systemMessage` only).
+  A fast-forward pull is not detected. If git works but the base commit no longer exists (garbage
+  collected, shallow clone) the pause reason is `base-missing` and the user is told "base commit not
+  found (garbage-collected or shallow clone) — drift and explain-back paused; restart tracking to
+  re-baseline". Any other git failure fails open (silent).
+- **Size**: changed lines = added + deleted from `git diff -M --numstat <base_commit>` (base vs
+  working tree, renames detected, so a pure rename is 0 lines) plus the line count of untracked text
+  files created with Edit/Write (capped at 20000 lines each; untracked binary or empty files, found
+  with one `grep -lI`, count as files with 0 lines and are never explain targets). Lock files count
+  as files but not lines; binary files count as files with 0 lines; `.oss-drafts/` is excluded.
+  Scope and module paths come from a second, rename-free diff so both sides of a rename are literal. Thresholds
+  are strictly greater than `drift_lines` / `drift_files`.
+- **Modules**: changed paths outside `scope` that no checkpoint covers (covered(rel); an over-budget log does not count), grouped by
+  the first two directory segments or `(root)`. Off when `scope: []`. Each module alerts once. The
+  alert text lists at most 10 modules (`… (+N more)`); the marker keeps the full list.
+- **Delivery**: PostToolUse gives `hookSpecificOutput.additionalContext` (never a block, so the
+  agent does not treat the edit as failed and revert). Stop gives `{"decision":"block"}`, and drift
+  takes precedence over explain-back at the same stop. **Spacing**: no new drift question is asked
+  in a turn that already had a checkpoint or drift question (PostToolUse defers; Stop skips the
+  drift check) when the question count exceeds the state `m` watermark. Stop also defers the drift
+  check, without recording it, when the agent's last message already asks the user. Stop advances `m`
+  on every stop (the state file is created if needed), including one that holds for a drift question
+  (`m` is written before the block), even when explain-back is off. If the agent ignores PostToolUse
+  context, `emit_json post` can switch to a block (one-line change).
+- **Cap**: `drift_max` asked alerts; over the cap, or with `budget: 0`, the marker is written with
+  `asked=no` (log only) and nothing is injected after the edit. At the next Stop the user gets one
+  `systemMessage` summarising the new `asked=no` markers (counted against the state `s` line), and
+  the debrief lists them. That summary is user-facing: the agent does not see it, and with
+  `budget: 0` nothing is asked at all. The `track:drift` marker is the
+  alerted state, so a missing Claude entry never causes a repeat. Simultaneous crossings are merged
+  into one alert.
+- **Git safety**: every git call runs with `GIT_OPTIONAL_LOCKS=0 GIT_LITERAL_PATHSPECS=1 git -C
+  <root> -c core.quotepath=off ... --no-ext-diff`, plus `--no-renames` (scope and module paths) or `-M` (size totals and the explain-back
+  target), and never inside the ledger lock.
+  Hooks never revert, stash, reset, or edit code.
+
+## 13. Explain-back at breakpoints
+
+At Stop, when code edits happened since the last breakpoint, the hook blocks once and asks Claude
+to put ONE skippable question about a specific `file:line` to the user and record the verbatim
+answer. All of these must hold: session active; not plan mode; `stop_hook_active` false;
+`budget>0` and `explain_max>0`; at least one edit since the last `b`; at least one edit since the
+previous turn boundary (an `e` line after the last `m` or `t`, section 11, so a chat-only turn is never
+interrupted, even after a held stop or an interrupt); no checkpoint or drift
+question since the previous stop (the `m` watermark); the last assistant message is not already asking
+(its last non-blank line, ignoring trailing markdown emphasis, quotes and brackets, ends in `?` or
+full-width `？`, or it ends in a list of options whose lead-in line does); bp_n < `explain_max`; now - bp_last >= `explain_interval_min` x 60; the non-interactive latch
+is not set for this `session_id`; a target exists. When a rate limit or deferral applies the edits
+are kept, so a later stop that also follows edits can still ask.
+
+- **Target**: the largest hunk (max of old/new line count, from `git diff -U0`) among files edited
+  since the last breakpoint, excluding dependency files, covered files (an over-budget log does not cover), and `.oss-drafts/`;
+  untracked created files count as one hunk at line 1. A hunk (or untracked file) smaller than
+  `EXPLAIN_MIN_LINES` (5 lines, a constant in the hook) is never a target. Files no earlier question targeted are
+  preferred. With no target the hook appends `b<TAB>none` and stays silent.
+- **Loop safety**: (1) `stop_hook_active:true` exits before any parsing, git or question (it only
+  appends the `t` turn boundary); (2) the ledger marker and
+  `b<TAB>explain:<k>` are written before the block is emitted; (3) the ledger count and interval
+  caps. At most one block per stop.
+- **Non-interactive (`-p`)**: the hook cannot detect it. The first block makes Claude record a
+  `reason=non-interactive` entry and end the turn; the next stop has `stop_hook_active:true`. The
+  latch then silences explain-back for the rest of that `session_id`. Cost: one extra continuation.
+- **Channel**: AskUserQuestion with free-text "Other" as the answer, plus "Skip" and "I didn't ask
+  for this change". Answers are never graded.
+
+## 14. Drift and explain templates (addressed to Claude)
+
+Drift (PostToolUse context; at Stop the first line continues "... <short sha>. Handle it before ending your turn:"):
+
+```
+[agentic-contributor · tracked session] Scope drift alert <a>/<drift_max>: the change has grown since the session base <short sha>.
+Size: <lines> changed lines (limit <L>, <source>), <files> files (limit <F>, <source>). Crossed: <lines, files | none>.
+Out-of-scope modules with changes no checkpoint covered: <m> (<files>); ...   (line omitted if none)
+Largest files: <rel> (<n>), ... (top 5)
+Drift id: drift:<k>
+
+This is advisory: nothing was blocked. Before your next edit:
+1. Ask the user with AskUserQuestion (header "Scope drift"): ONE question naming the files concerned (at most 10). Options, each with a one-line trade-off, your recommendation first marked "(Recommended)": A) Keep it in this change | B) Set it aside for a separate PR | C) Drop it | D) Skip — decide later
+2. Read <rel_ledger>, then use Edit to replace the line `<!-- track:end -->` with the drift entry (section 4) followed by `<!-- track:end -->`. For B write a one-line follow-up. Use status=skipped, reason: TODO(you) for D.
+3. If AskUserQuestion is unavailable: status=skipped, asked=no, chosen: none, decided_by: agent, reason: non-interactive.
+4. Follow the choice. Never revert, stash, reset, check out, or move changes on your own. For B or C, stop extending that work and tell the user which files hold it; undo edits only if the user explicitly asks, using Edit.
+Write "decided_by: user…" only if the user actually answered. The ledger is private: never copy it into any sendable text.
+```
+
+Drift logged only: no message to Claude. At Stop, a `systemMessage` to the user:
+`agentic-contributor: <n> scope-drift item(s) logged without asking (drift question cap spent or
+budget 0); they are in the ledger and the debrief.`
+
+`<source>` is a fixed label per limit (`default`, `set by the user`, `from the project's
+CONTRIBUTING file`, `from the ledger`), never the ledger's `drift_source` text. A limit equal to its
+default (400 lines, 10 files) is labelled `default`; the other takes the label from `drift_source`.
+
+Explain (Stop block reason):
+
+```
+[agentic-contributor · tracked session] Breakpoint question <k>/<explain_max> (explain-back). Before ending your turn:
+Target: <rel>:<line>. This is the largest change since the session base (<n> lines) that no checkpoint or earlier question covered.
+1. Read <rel> around line <line> and pick the one specific change there.
+2. Ask the user with AskUserQuestion (header "Explain"): ONE question, "In one sentence, why does <that specific change>? Type your answer under Other, or pick an option." Do not hint at the answer. Options: A) Skip — not sure (recorded as an Unknown) | B) I didn't ask for this change
+3. Read <rel_ledger>, then use Edit to replace the line `<!-- track:end -->` with the explain entry (section 4) followed by `<!-- track:end -->`. Typed answer: status=answered, chosen: typed, reason = their words verbatim. B: status=answered, chosen: not-requested. A: status=skipped, chosen: skip, reason: TODO(you).
+4. If AskUserQuestion is unavailable: do not ask. Write the entry with status=skipped asked=no reason=non-interactive, chosen: none, reason: non-interactive, answered_by: agent.
+5. Do not grade or correct the answer and make no code edits now. End your turn with one short line.
+Write "answered_by: user" only if the user actually answered. The ledger is private: never copy it into any sendable text.
+```
+
+## 15. Predict-then-reveal
+
+`predict: true` always asks, `false` never, `auto` (the default for new sessions) decides by the
+rules below; `track predict on|off|auto` and `--predict`, `--predict=on|off|auto`, `--no-predict`
+set it. `track-breakpoint.sh` handles `UserPromptSubmit`: no git, never a block. It emits
+`additionalContext` asking the agent, only for diagnosis or planning prompts, to ask the user's
+prediction first, reveal its own with a "Your prediction vs. what I found" comparison (file:line),
+and record a predict entry. It is silent when: no session; status not `active`; `predict` not
+`true` / `auto` (or `auto` computes off); `budget: 0`; predict_n >= `predict_max`; the prompt is
+empty, a slash command (`/name` followed by a space or end; a path such as `/src/a.c:4 ...` is text),
+or trivial (24 bytes or fewer in UTF-8, no `?`, no diagnosis or planning keyword, e.g. `thanks!`); or any
+parse error. Plan mode does not silence it (planning prompts are what it is for): the note says to
+write the entry as soon as plan mode ends. The full note is sent once per session (a `p<TAB><sid>`
+line in `<ledger>.state`); later prompts get a short reminder with the absolute path of this file (entry format in section 4). Consumers: `change-debrief` lists predict
+entries and auto switches in a private "Your predictions" subsection; `describe` never uses them.
+With no `predict` key, or a value other than `true` / `on` / `auto`, the hook exits after reading the
+frontmatter with builtins, before any JSON parse. A paused session (`track:drift-paused`, base
+moved) still predicts: the comparison is against the agent's own findings, never a diff against the
+base.
+
+**Auto rules** (fixed, read-only facts; evaluated on every eligible prompt):
+- ON if any (first match is the reason): `0 <= user_commits < 5` (`newcomer`); an explain entry
+  (`explain:<k>`) with `chosen: skip` (`explain-skipped`) or `chosen: not-requested`
+  (`explain-not-requested`); `prior_unknowns >= 3` (`prior-unknowns`). `user_commits: -1` (unknown)
+  alone does not turn it on.
+- OFF overrides ON, and is sticky: the last two predict entries both have a "no idea" prediction
+  (`two-no-idea`): lowercased and stripped of surrounding spaces, quotes and punctuation, the text is
+  exactly `no idea` or `no idea — go ahead` (any dash or comma; so `no idea`, `No idea.` and
+  `No idea — go ahead` count, `No idea, maybe lexer.c` is a guess and does not). Otherwise OFF (`no-signal`).
+- The injected text reads `Predict mode is on (auto: <reason>) (<used>/<predict_max> used)`.
+
+**Switch marker.** When the computed state differs from the last marker (none = off), the hook
+takes the ledger lock (section 6 lock, bounded retries; busy = skip the write, behave per the
+computed state), re-checks inside the lock so concurrent prompts write one marker, and appends:
+```
+<!-- track:predict-auto at=<UTC> state=<on|off> reason=<reason> -->
+- predict auto: <on|off> (<reason>)
+```
+The marker is logged when auto is evaluated (eligible prompts: active session, predict auto, budget
+above 0, not a slash or trivial prompt, cap not reached), not on every prompt: the state only matters
+when it would inject a note. Besides this marker, the only other write of the `UserPromptSubmit` hook
+is the `p<TAB><sid>` state line. Markers are not entries: they do not count
+toward predict_n or any budget.

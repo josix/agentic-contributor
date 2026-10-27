@@ -64,16 +64,59 @@ So retrying the same edit after you chose passes silently, but adding a second d
 same `package.json`, or weakening the same test file in a different way, is a new decision and gets
 its own checkpoint.
 
+## Scope-drift alerts
+
+A second advisory hook, `track-breakpoint.sh`, watches how big the change has become. After an edit
+(PostToolUse) and once at the end of each turn (Stop) it compares the working tree with the session
+base commit. It raises **one alert** when the change crosses:
+
+- more than `drift_lines` changed lines (default 400), or more than `drift_files` files (default 10).
+  Lock files count as files but not as lines; files the agent created count too.
+- a module (first two directory segments) outside `scope` that no checkpoint already asked about (an over-budget log does not count). This
+  mostly catches changes made outside Edit, such as formatters or generators, and Bash edits to
+  tracked files; files created by Bash are not counted.
+
+The agent is told to ask you what to do with the part that grew: **keep** it, **set it aside for a
+separate PR**, **drop** it, or **skip** (decide later). Your choice is recorded as `drift:<k>` in
+the ledger; a separate-PR choice adds a follow-up line that the debrief and the PR scaffold list.
+Mid-turn alerts are context for the agent (never a block, so it does not think the edit failed);
+at the end of a turn the alert holds the stop once (deferred while the agent's last message already asks you something). The hook never reverts, stashes, or edits code.
+
+Each threshold and each module alerts once. If your project's CONTRIBUTING file states an explicit
+size limit, `/oss track` start uses that number (recorded as `drift_source`); vague wording is never
+turned into a number. The alert labels each limit with its source; a limit still at its default
+value is labelled `default`. The check is throttled (new file or every 5th edit), so it adds little work.
+
+## Breakpoint questions (explain-back)
+
+When the agent stops after code edits, the hook may hold the stop **once** and ask you one question
+about a specific `file:line`: the largest change since the base that no checkpoint or earlier
+question covered, and at least 5 lines long (smaller changes are never asked about). You answer in your own words (the free-text "Other" option), skip, or say you did
+not ask for the change. Your answer is recorded verbatim as `explain:<k>`; it is never graded. The
+debrief and the PR scaffold use it as your own Why, and skipped ones become Unknowns.
+
+It asks only when all hold: the agent edited code in this turn (since your prompt or its previous
+stop; edits made while a stop was held, or before you interrupted, belong to that earlier turn, so a
+chat-only turn is never interrupted, and edits from a turn whose question was deferred wait for the
+next turn that edits again), edits since the last breakpoint, fewer than `explain_max` (4) asked,
+at least `explain_interval_min` (20) minutes since the last one, no checkpoint, drift or predict
+question since the previous stop, and the agent is not already waiting on you.
+
 ## Fatigue budget
 
-- Default 3 questions per session, counting questions actually asked. Set it with `budget N`, or
-  edit `budget:` in the ledger frontmatter.
-- Scope checkpoints have their own budget of the same size. Out-of-scope edits therefore never use
-  up the questions for test weakening, dependencies, and API paths; at most `2 × budget` questions
-  are asked per session.
-- Past the budget, triggers are still logged (`logged-over-budget`) but you are not asked, and the
-  agent mentions it at the end.
-- `budget: 0` is log-only mode, recommended for headless or CI runs.
+- Three separate pools: checkpoints **3** (`budget N`), drift alerts **2** (`drift_max`), breakpoint
+  questions **4** (`explain_max`, at least 20 minutes apart). Scope checkpoints have their own
+  checkpoint budget of the same size, so out-of-scope edits never use up the questions for test
+  weakening, dependencies, and API paths. The worst case is 16 questions in a session (3 + 3 + 2 + 4,
+  plus up to 4 predictions); a typical session sees 0 to 3. Edit the keys in the ledger frontmatter.
+- Past a cap, events are still logged (`logged-over-budget`, or `asked=no` for drift) but you are
+  not asked. A checkpoint past its budget is noted to the agent, which mentions it when it finishes;
+  drift logged without asking is summarised to you in a one-line notice at the end of the turn (the
+  agent does not see it); both appear in the debrief.
+- `budget: 0` is **quiet mode** for the whole session: no checkpoint, drift, or breakpoint question
+  is asked (drift is still logged). Recommended for headless or CI runs.
+- `drift_max: 0` logs drift only; `explain_max: 0` turns breakpoint questions off;
+  `drift_lines: 0` or `drift_files: 0` turns that threshold off.
 - Loop guard: if a checkpoint is retried twice without a ledger entry, the third attempt is not blocked
   (the hook adds context only and normal permission prompts apply) and recorded as skipped. The hook never blocks permanently.
 
@@ -93,14 +136,55 @@ A private markdown file `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md`. Full
 ## Privacy
 
 The ledger is private notes. It is never a send block and never PR text. The hook writes only the
-class, path, a checksum of the changed lines (never the lines), counts, and timestamps. It never records prompts, transcripts, keystrokes, or file
-contents. The ledger is agent-written, so a checkpoint answer is the agent's report of what you
+class, path, a checksum of the changed lines (never the lines), counts, and timestamps. It never
+records prompts, transcripts, keystrokes, or file contents. The session state file `<ledger>.state`
+holds only repo-relative paths of edited files, Claude Code session ids (to send the full predict
+note once per session), and a few counters and turn markers; `/oss track stop` deletes it, and
+deleting it cannot lift a cap (the caps live in the ledger). The ledger is agent-written, so a
+checkpoint answer is the agent's report of what you
 chose; the debrief marks it as evidence, not proof.
+
+## Predict mode (auto by default)
+
+Predict mode makes the agent ask for your guess before it shows its own. For a prompt that asks it
+to diagnose a problem or propose a plan, it asks one question ("Where do you think the problem is?"
+or "Which files or parts do you expect need to change?"), does the work, then adds a short "Your
+prediction vs. what I found" section that shows where you matched and where you differed, each with
+`file:line`. It never scores you. The exchange is recorded privately in the ledger (`predict:<n>`)
+and appears in the debrief under "Your predictions"; it never goes into PR text.
+
+New tracked sessions start with `predict: auto`. Fixed rules switch it:
+
+- On when you are new to the repo (fewer than 5 commits there with exactly your `git config user.email`), after you skipped or did
+  not request an explain-back answer in this session, or when your previous session ended with 3 or
+  more unknowns you left yourself (skips and over-budget items; not non-interactive, drift, or
+  predict skips).
+- Off after two "no idea" predictions in a row (sticky for the session). Picking "No idea — go ahead" records `prediction: no idea`; only an exact "no idea" (or "No idea — go ahead") counts, so "No idea, maybe lexer.c" does not.
+- Otherwise off. If your commit count cannot be read (shallow clone, no `user.email`), that alone does not turn it on.
+
+Every switch is logged in the ledger with its reason (`predict auto: on (newcomer)`), and the
+injected note says `(auto: <reason>)`. Force it with `--predict` / `--predict=on` (always),
+`--no-predict` / `--predict=off` (never) or `--predict=auto`; change it in a running session with
+`/oss track predict on|off|auto`. A ledger from before v0.10.0 has no `predict` key and stays off.
+
+- At most `predict_max` (default 4) per session; "Skip predictions for this session" turns it off
+  for the rest of the session.
+  `budget: 0` (quiet mode), slash commands and trivial prompts ("thanks!") keep it silent; plan mode does not.
+- A `UserPromptSubmit` hook adds the instruction to your prompt as context. It never blocks a prompt
+  and runs no git. Its writes are the auto switch marker (under the ledger lock; if the lock is
+  busy it skips the write; logged when auto is evaluated) and a one-line session note so the full
+  instruction is sent once and later prompts get a short reminder. With predict off or no session it prints nothing.
+- A prediction counts as a question for explain-back, so you are not asked both in one turn.
+- Headless runs and subagents cannot ask, so nothing is recorded.
+- `/oss track predict off` or `OSS_TRACK_DISABLE=1` turns it off.
 
 ## Headless runs and subagents
 
 Without AskUserQuestion (headless run, subagent), the entry is recorded as skipped with reason
-`non-interactive`, and it becomes an Unknown in the debrief.
+`non-interactive`, and it becomes an Unknown in the debrief. A breakpoint question costs at most one
+extra continuation in a `claude -p` run: after the agent records the non-interactive skip, a
+per-session latch keeps explain-back silent for the rest of that session, and the next stop is never
+held again. A subagent's edits are logged, and the main thread's Stop does the drift check.
 
 ## Pausing
 
@@ -112,7 +196,7 @@ the session probably isn't the work at hand:
 - the pointer was written more than 24 hours ago. Set `OSS_TRACK_MAX_AGE_HOURS` to change the limit,
   or `0` to turn it off.
 
-While paused, the hook asks nothing and writes nothing to the ledger. The first edit that would
+While paused, the hooks ask nothing and write nothing to the ledger: no checkpoints, no drift alerts, no explain-back questions, no predict notes. The first edit that would
 have been a checkpoint shows you a one-line notice; later ones are silent until you resume.
 Sessions are never stopped automatically. Two Claude Code sessions on the same branch at the same
 time still share one tracked session.
@@ -134,6 +218,29 @@ worktree or submodule has its own git dir and so its own session.
   hook is inactive.
 - "Log this decision" in plain chat is best effort.
 - The ledger is self-reported by the agent.
+- Files created by Bash are not counted toward drift size, `SubagentStop` is not covered, and
+  Stop does not run when you interrupt the agent.
+- Drift is measured against the session base commit. If the base stops being the base of `HEAD`
+  (a rebase, a reset, or a merge commit since the base, for example `git pull` without
+  `--rebase`), drift alerts and explain-back questions pause and you are told once: "base moved —
+  drift paused; restart tracking (`/oss track stop` + start) to re-baseline". A fast-forward pull
+  of upstream commits is not detected and still counts as drift; restart tracking after pulling.
+  Predict-then-reveal compares your guess with the agent's own findings, not with a diff against
+  the base, so it keeps running while drift is paused.
+  Git work runs only inside a session, throttled, and can take longer on huge repos.
+- After the drift question cap is spent, or with `budget: 0`, new drift (including each newly seen
+  out-of-scope module) is recorded silently and summarised once at the end of the turn and in the
+  debrief, never injected after every edit. The end-of-turn summary is a `systemMessage` shown to
+  you only; the agent does not see it. With `budget: 0` nothing is asked.
+- Binary and empty untracked files count as 0 lines, a pure rename counts as 0 lines, and an
+  untracked text file is counted up to 20 000 lines. If the base commit no longer exists (garbage
+  collected, or a shallow clone) drift and explain-back pause with a one-time "base commit not found"
+  notice; restart tracking to re-baseline. No drift question is asked in a turn that already asked
+  one; it waits for a later turn.
+- The "agent is already asking" check needs `last_assistant_message` in the Stop input, and the
+  subagent deferral needs `agent_id` in the PostToolUse input. On a Claude Code version that does
+  not send them, a breakpoint question may follow a question the agent just asked, and a
+  subagent's edits run the drift check themselves.
 - The hook is advisory and fails open; it is not a safety boundary. The draft-only guard is separate.
 
 ---

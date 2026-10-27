@@ -18,7 +18,7 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
 
 - The plugin never edits or reverts code, never runs tests, never pushes, never opens a PR, and
   never posts anything.
-- Local git reads only: `git diff <base>...HEAD`, `git diff HEAD`, `git diff <base>`, `git diff --stat`,
+- Local git reads only: `git diff <base>...HEAD`, `git diff HEAD`, `git diff <base>` (working tree), `git diff --stat`,
   `git status --porcelain`, `git ls-files --others --exclude-standard`, `git log`, `git merge-base`,
   `git remote -v`, `git rev-parse --abbrev-ref HEAD`, `git rev-parse --git-dir`, `git merge-base --is-ancestor`.
   Nothing else.
@@ -43,18 +43,24 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
    `.oss-drafts/track-*.md` whose `branch` equals the current branch and whose `base_commit` is an
    ancestor of HEAD (`git merge-base --is-ancestor`). Format: `skills/pr-preparation/references/decision-ledger.md`.
    If the user gives no base, mention the ledger's `base_commit` as the session start. The ledger is
-   private; never copy it into anything sendable.
+   private; never copy it into anything sendable. From v0.9.0 it can also hold scope-drift entries
+   (`drift:<k>`) and breakpoint answers (`explain:<k>`, your own words); read them per section 10
+   of the reference. From v0.10.0 it can hold predict entries (`predict:<n>`): see "Your
+   predictions" below.
 4. Base branch: `git merge-base HEAD <default-branch>`; confirm with `git remote -v` that the cwd
    matches the target `owner/repo`. If the remote or base is ambiguous, ask the one allowed
    clarifying question about the base.
 
 ## Procedure
 
-1. **Scope.** Run `git diff --stat <base>...HEAD`. When `git status --porcelain` is non-empty, use
-   `git diff --stat <base>` instead (working tree against the base: committed plus uncommitted in
-   one count) and add the untracked files. For large diffs (over roughly 400 lines or 10 files)
-   summarise the top-level groups first, say that you sampled the top files, and drill down on
-   request.
+1. **Scope.** Run `git diff --stat <base>...HEAD`. When `git status --porcelain` is non-empty (for
+   example an uncommitted tracked session), use `git diff --stat <base>` instead (working tree
+   against the base: committed plus staged plus unstaged in one count) and add the untracked files
+   (`git ls-files --others --exclude-standard`; read them directly). The diff under debrief is
+   committed plus working-tree plus untracked changes, including new files in the tracked session;
+   never report a ledger-referenced file as absent from the final diff until all three are checked.
+   For large diffs (over roughly 400 lines or 10 files) summarise the top-level groups first, say
+   that you sampled the top files, and drill down on request.
 2. **Group by purpose**, not by file. Each group has a one-line label and `file:line` citations.
    Put formatting-only, rename-only, lockfile and generated hunks in their own groups.
 3. **Trace the why** for each group to a source and show it: issue/task text, a commit message
@@ -62,7 +68,11 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
    labelled **"unexplained, possibly out of scope"**; never invent a justification.
 4. **Mark every statement** as `[evidenced: <citation>]` or `[inferred]`. A ledger entry is
    `[evidenced: ledger <id>]`, stronger than a commit message: prefer it when both exist. Inferred
-   reasons are never presented as fact.
+   reasons are never presented as fact. An answered `explain:<k>` entry (`chosen: typed`) is
+   `[evidenced: ledger explain:<k>]` and is quoted as "you said: ...": it is the strongest Why
+   source because it is in the user's words, preferred over commit messages. A group whose entry
+   says `chosen: not-requested` is labelled "unexplained, possibly out of scope (you said you did
+   not ask for it)".
 5. **Implicit decisions and assumptions** the agent made: approach chosen over alternatives, inputs
    assumed valid, incidental refactors or formatting. With a transcript, separate "you instructed"
    from "the agent decided". With a ledger, `decided_by` separates "you decided", "you chose the
@@ -72,11 +82,18 @@ to review it. It is the entry mode of `prepare-pr` (`mode: debrief`), not a sepa
    not run anything).
 7. **Explain-back:** 2 to 3 questions citing the diff (`file:line`) that the user answers in their
    own words as `TODO(you)`. In lint mode, flag unanswered ones. Ledger entries with reason
-   `TODO(you)` become explain-back prompts.
+   `TODO(you)` become explain-back prompts. Do not re-ask a hunk the user already answered at a
+   breakpoint; reuse skipped `explain:<k>` entries as prompts.
 8. **Unknowns & follow-ups:** a list of open items. `pr-preparation` seeds "Unknowns &
    assumptions" from it, and it can seed a `review-reply` brief. Ledger entries that were skipped,
    `logged-over-budget`, or hook-skipped go here as "not decided: <trigger> on <file> (ledger
    <id>)". Entries for files not in the diff get the note "recorded, file not in final diff".
+   Add "not explained: <rel>:<line> (ledger explain:<k>)" for skipped breakpoint questions or a
+   `track:breakpoint` marker with no entry. Drift entries: A (keep) is evidence "you chose to keep
+   ..."; B (separate PR) goes to follow-ups with its `follow-up:` line; C (drop) whose files are
+   still in the final diff is an Unknown "dropped per ledger drift:<k> but still in the diff:
+   ..."; a skipped drift entry, a `track:drift` marker with no entry, or an `asked=no` marker is an
+   Unknown.
 
 The user may ask follow-ups about any group ("why not use X?"); answer citing code, still read-only.
 
@@ -103,6 +120,10 @@ Inputs: diff <base>...<head>, <N> commits, uncommitted <none|N files (incl. M un
 
 ## Agent's implicit decisions and assumptions
 - <decision> [evidenced|inferred]
+
+## Your predictions (private; only when predict entries or auto switches exist)
+- auto switches: <on|off> (<reason>) at <UTC> — one line per `track:predict-auto` marker
+- <phase> — you predicted: "<prediction>" — outcome: <outcome with file:line, from the `### predict:<n> outcome` block; the entry's inline `outcome:` when there is no block; `pending` if neither was written>
 
 ## Explain-back (answer in your own words)
 1. <question citing file:line> TODO(you)

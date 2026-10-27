@@ -29,12 +29,13 @@ contributor get there; the contributor writes the reasoning.
    > This plugin will NOT post, comment, push, or send anything. Sending is handled by the separate execution/submission plugin.
 3. The plugin **never pushes, never opens a PR, never edits code, and never runs tests**. Opening
    the PR is owned by the execution plugin. NEVER call any tool that posts, creates, or pushes.
-   Track mode writes only `.oss-drafts/` files; the checkpoint hook never edits code.
+   Track mode writes only `.oss-drafts/` files; the track hooks (checkpoint, drift, breakpoint) never edit, revert, or stash code.
 4. Local git is read-only: `git diff`, `git diff --stat`, `git status --porcelain`,
    `git ls-files --others --exclude-standard`, `git log`, `git merge-base`,
    `git remote -v`, `git rev-parse HEAD`, `git rev-parse --abbrev-ref HEAD`,
    `git rev-parse --show-toplevel`, `git rev-parse --git-dir`, `git rev-parse --git-path info/exclude`, and
-   `git merge-base --is-ancestor`. Nothing else.
+   `git merge-base --is-ancestor`, and in track mode `git diff --numstat <base_commit>` and
+   `git status --porcelain`. Nothing else.
 5. Readiness and policy findings are **advisory**: they never block or delay the draft.
 
 ## Modes
@@ -65,7 +66,8 @@ into a send block.
 1. Resolve `<root>` (`git rev-parse --show-toplevel`) and the pointer path
    `ptr="$(git rev-parse --git-dir)/agentic-contributor/track-active"`. Outside a git repository,
    say that tracked sessions require git and stop. Record `branch` and `base_commit`
-   (`git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD`).
+   (`git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD`). If `git status --porcelain` is
+   non-empty, say that uncommitted changes count toward scope drift.
 2. If `$ptr` exists and its ledger is `status: active`, ask the one allowed question: stop the old
    session or keep it (never run two). A `.oss-drafts/.track-active` file in the worktree is not a
    session (it may have been committed by the repository); ignore it.
@@ -81,37 +83,83 @@ into a send block.
    (`scope_source: issue`), else
    `[]` (`none`, which turns the out-of-scope checkpoint off). Suggest adding matching test dirs.
    Budget: the user's `budget N`, else 3.
+   Drift and explain settings: write `drift_lines: 400`, `drift_files: 10`, `drift_source: default`,
+   `drift_max: 2`, `explain_max: 4`, `explain_interval_min: 20`. Read the first of `CONTRIBUTING.md`,
+   `.github/CONTRIBUTING.md`, `docs/CONTRIBUTING.md` (also `.rst`) that exists locally; only an
+   explicit number for PR size in lines or files (for example "PRs should not exceed 200 lines")
+   replaces `drift_lines` / `drift_files`, with `drift_source: contributing:<path>:<line>`. Vague
+   wording ("keep PRs small") is never turned into a number. A user-given limit sets
+   `drift_source: user`.
+   Predict settings: write `predict: auto` and `predict_max: 4` (auto is the default). `--predict`,
+   `--predict=on` or "with predictions" writes `predict: true`; `--predict=off` or `--no-predict`
+   writes `predict: false`; `--predict=auto` writes `auto`. Also record two facts, local reads only:
+   `user_commits: <n>`: if `git rev-parse --is-shallow-repository` prints `true`, or
+   `git config user.email` is empty, write `-1`. Otherwise run
+   `git rev-list --count -F --author="<$email>" HEAD` (the angle brackets make it an exact email
+   match; a bare email or a name is a substring and counts other people's commits, so the name is
+   not used). `-1` alone never turns predict on. `prior_unknowns: <n>` = the Unknowns the user left in the
+   most recent stopped `track-*.md` ledger in `.oss-drafts/` for the same repo (none: `0`): count
+   `logged-over-budget` entries plus `status=skipped` entries, but do not count skips that are not
+   the user's: `reason=non-interactive` / `reason: non-interactive` (headless or subagent),
+   `source=drift` (a set-aside scope choice), or `source=predict` (predictions skipped via option B).
 6. Write the ledger (Write tool, `decision-ledger.md` sections 1 to 3), then the pointer in the git
    dir: `mkdir -p "$(dirname "$ptr")"` and Write `$ptr` (one line, ledger path relative to root).
    The pointer never goes in the worktree.
 7. Tell the user in chat: the four triggers (test weakening, dependencies, opt-in `api_paths`,
-   out-of-scope edits), the budget, that a checkpoint is a choose-question with a Skip option,
+   out-of-scope edits), the budget, that a checkpoint is a choose-question with a Skip option, that
+   scope-drift alerts (more than `drift_lines` lines or `drift_files` files, or uncovered
+   out-of-scope modules; at most `drift_max`) ask keep / separate PR / drop / skip, that a
+   breakpoint question after a turn with code edits asks about one `file:line` (at most `explain_max`,
+   `explain_interval_min` minutes apart, skippable), that `budget: 0`, `explain_max: 0`, or
+   `drift_max: 0` quiets them, that predict mode (`auto` by default: on for a newcomer to the repo, after a skipped
+   explain-back, or after a session with many Unknowns, off after two "no idea" answers; force it
+   with `--predict` / `--no-predict` or `/oss track predict on|off|auto`) makes the agent ask for your
+   guess before it reveals a diagnosis or plan (at most `predict_max`, never scored, private),
    `/oss track stop`, that "log this decision" appends a manual entry (best effort in plain chat),
    `OSS_TRACK_DISABLE=1` as the kill switch, and to restart Claude Code if the plugin was just
    enabled.
 
 **Stop:** Edit the frontmatter (`status: stopped`, add `stopped_at`), then
 `rm -f "$(git rev-parse --git-dir)/agentic-contributor/track-active"` (if that fails, Write an
-empty pointer, which the hook treats as no session). List entries whose reason is `TODO(you)` and the skipped, over-budget, and
-hook-skipped items. Offer the debrief in one line.
+empty pointer, which the hook treats as no session), and `rm -f` the session state file (the
+ledger path with `.md` replaced by `.state`). List entries whose reason is `TODO(you)` and the
+skipped, over-budget, and hook-skipped items; also the drift follow-ups (choice B), unanswered
+drift and explain items, and the count of explain answers. Offer the debrief in one line.
 
 **Status:** task, age, base, branch (warn on mismatch with the current branch), scope, budget used
-(asked / budget, shown separately for scope checkpoints and for the other classes), and a table of entries. Say whether the
-hook is **paused** and why: the current branch differs from the ledger's `branch` (unless that is
-`HEAD`), or the pointer was written more than 24 hours ago (`OSS_TRACK_MAX_AGE_HOURS`, `0` = no
-limit; check with `find "$ptr" -mmin +1440`). A paused session asks nothing and records nothing.
-Offer `resume` or `stop`.
+(asked / budget, shown separately for scope checkpoints and for the other classes), drift (asked /
+`drift_max`, plus logged), breakpoint questions (asked / `explain_max`, time of the last), the
+current `git diff --numstat <base_commit>` size against the limits, `predict: on/off/auto` (for
+auto: the current state and reason, for example `auto (on: newcomer)`, plus the recorded switches)
+and `<used>/<predict_max>`, and a table of entries. Say whether the hook is **paused** and why: the
+current branch differs from the ledger's `branch` (unless that is `HEAD`), or the pointer was
+written more than 24 hours ago (`OSS_TRACK_MAX_AGE_HOURS`, `0` = no limit; check with
+`find "$ptr" -mmin +1440`). A paused session asks nothing, records nothing, and sends no drift,
+explain-back or predict notes. Offer `resume` or `stop`.
 
 **Resume:** for an age pause, Write the pointer again with the same one line (this restarts the
 24-hour window) and remove `"$(git rev-parse --git-dir)/agentic-contributor/track-paused-notified"`
 with `rm -f`. For a branch pause, tell the user to switch back to the ledger's branch; if they
 want to track on the current branch instead, Edit the ledger's `branch:` to it.
 
+**Predict on|off|auto:** `/oss track predict on|off|auto` edits `predict:` in the active ledger
+frontmatter (`on` = `true`, `off` = `false`; a frontmatter Edit, so Claude Code shows its normal permission prompt; only appends at
+`<!-- track:end -->` are auto-allowed) and confirms in one line.
+The `UserPromptSubmit` hook reads it from the next prompt on. In `auto` the hook alone appends the
+switch markers (`<!-- track:predict-auto ... -->`); never write them by hand.
+
 **Log:** append a manual entry with Edit per `decision-ledger.md` section 4 (`id=manual:<UTC>`).
 
 During a session, when the hook denies an edit, follow the instructions in its message: ask with
 AskUserQuestion (the user chooses, never approve/deny), append the entry with Edit, then retry.
-Never write `decided_by: user` unless the user answered.
+When the hook adds a drift alert after an edit, or holds a stop for a breakpoint question, follow
+its instructions the same way (entries per `decision-ledger.md` section 4; never revert or stash).
+Limits: drift is measured from `base_commit`. If the base moves (a rebase, reset, or merge since
+the base), the hook pauses drift and explain-back and says "base moved — drift paused" once; tell
+the user to run `/oss track stop` then start to re-baseline. A fast-forward pull is not detected.
+Over the drift cap or with `budget: 0`, drift is recorded silently and only summarised at the end
+of a turn and in the debrief.
+Never write `decided_by: user` or `answered_by: user` unless the user answered.
 
 ## Procedure 1: Pre-flight (run in parallel where possible)
 
@@ -140,7 +188,10 @@ From `git diff --stat <base>...HEAD`, or, when Procedure 1 found uncommitted wor
 counted once) plus the untracked files:
 
 - Flag more than **400 changed lines or more than 10 files**, unless CONTRIBUTING states other
-  thresholds (use those and cite them).
+  thresholds (use those and cite them). With a track ledger, use its `drift_lines` / `drift_files`
+  when `drift_source` is `contributing:...`, and cite any drift decisions (`drift:<k>`): an item
+  set aside for a separate PR is a seam to propose, a dropped one that is still in the diff is a
+  finding.
 - Flag mixed concerns: formatting-only hunks combined with logic, unrelated renames.
 - Flag generated or lockfile noise.
 - Give a verdict (ok / consider splitting / split recommended) and, if splitting, propose the
@@ -163,7 +214,10 @@ a PR template, map these sections onto its headings and keep its checkboxes; oth
   there is no issue, `TODO(you): describe the problem this solves`.
 - **Why this approach:** `TODO(you)`. The send block stays `TODO(you)` even when a ledger exists;
   private notes get a "Decisions you recorded" hint list (decided entries: chosen + reason; reasons
-  that are `TODO(you)` stay `TODO(you)`). Never copy ledger text into the send block.
+  that are `TODO(you)` stay `TODO(you)`). Never copy ledger text into the send block. Private
+  notes also get "Your explanations (from breakpoint questions)": answered `explain:<k>` entries,
+  your words verbatim with their `file:line`, as a hint for you to rewrite; never paste them.
+  Predictions (`predict:<n>`) are not PR material and are never listed in the send block.
 - **What changed:** `TODO(you): one or two lines in your own words`. Show the AP1 warning in
   Private notes (do not summarise the diff instead of the problem).
 - **How it's tested:** name the tests that cover the change (the plugin may list test files from
@@ -171,7 +225,8 @@ a PR template, map these sections onto its headings and keep its checkboxes; oth
   For how the project runs its tests, point to the `dev-env-setup` skill; do not run them.
 - **Unknowns & assumptions:** `TODO(you)`, a required section, seeded in Private notes from the
   debrief's Unknowns list and from ledger entries that were skipped, `logged-over-budget`, or
-  hook-skipped.
+  hook-skipped, plus skipped or unanswered `explain:<k>` entries and drift entries that were
+  skipped, logged without asking, or dropped but still in the diff.
 - **AI disclosure:** see Procedure 5.
 
 The plugin fills only factual parts (linked issue, test file names, disclosure mechanics). Any
@@ -223,6 +278,7 @@ TODO(you)
 ### Pre-flight (duplicates, issue-first, readiness)
 ### Debrief summary and seeded unknowns
 ### Decisions from the ledger (hints for Why / Unknowns)
+### Follow-ups set aside (from the ledger)
 ### Trailer findings
 ### Lint (lint mode)
 ```

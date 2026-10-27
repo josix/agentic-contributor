@@ -8,7 +8,7 @@ Every piece of outbound text produced by this plugin — a claim comment, a set 
 
 This is not just a convention in the command instructions. It is enforced at the tool level by a `PreToolUse` hook that runs before every `Bash` call and every GitHub MCP tool call.
 
-A second, advisory hook (`track-checkpoint.sh`) is not part of the guardrail; see [Tracked Sessions & Checkpoints](tracked-sessions.md).
+Advisory hooks (`track-checkpoint.sh`, `track-breakpoint.sh`) are not part of the guardrail; see [Tracked Sessions & Checkpoints](tracked-sessions.md).
 
 ## How the Guardrail Works
 

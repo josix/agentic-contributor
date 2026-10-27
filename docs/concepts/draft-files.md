@@ -21,7 +21,8 @@ scenarios (5–10).
     ├── find-apache-airflow-find-20260611T143000Z.md
     ├── norms-apache-airflow-norms-20260611T144500Z.md
     ├── engage-apache-airflow-pr9876-20260611T150000Z.md
-    └── track-apache-airflow-issue1234-20261024T101500Z.md
+    ├── track-apache-airflow-issue1234-20261024T101500Z.md
+    └── track-apache-airflow-issue1234-20261024T101500Z.state
 ```
 
 A tracked session's one-line pointer is not in `.oss-drafts/`: it lives in the git dir, at
@@ -95,6 +96,8 @@ body_format: 2
 | `readiness_login` | v0.6.0+, `claim`, `find`, and `prepare-pr`: the GitHub login the readiness check used (absent when skipped) |
 | `readiness` | v0.6.0+, `claim`, `find`, and `prepare-pr`: `{open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}`; `unknown` for anything not read. Advisory; also shown in private notes, never in a send block |
 | `task`, `issue`, `branch`, `base_commit`, `started_at`, `stopped_at`, `scope`, `scope_source`, `api_paths`, `budget` | v0.8.0+, track ledgers only (see below); `status` is `active` or `stopped` there |
+| `predict`, `predict_max`, `user_commits`, `prior_unknowns` | v0.10.0+, track ledgers only: predict-then-reveal mode (`auto` for new sessions, `true`, or `false`; a ledger without the key stays off), its per-session cap (default 4), and the two facts `auto` reads (your commit count in the repo, `-1` = unknown; Unknowns you left in the previous session) |
+| `drift_lines`, `drift_files`, `drift_source`, `drift_max`, `explain_max`, `explain_interval_min` | v0.9.0+, track ledgers only: scope-drift thresholds and caps, and breakpoint-question limits (a v0.8.0 ledger without them uses the defaults 400 / 10 / default / 2 / 4 / 20) |
 | `routed_from` | v0.5.0+, only when a PR-intent request was rerouted to `report` (issue-first); names the original scenario |
 
 The `status: draft` field allows the separate execution/submission plugin to identify unreviewed
@@ -109,6 +112,11 @@ require git). Its frontmatter carries `body_format: 2` and `sendable: false`; it
 never PR text. The full format (frontmatter, entries, hook-written lines, trigger classes) lives in
 `skills/pr-preparation/references/decision-ledger.md`; see
 [Tracked Sessions & Checkpoints](tracked-sessions.md) for how it is used.
+
+From v0.9.0 a tracked session also has a disposable state file `track-...Z.state` next to the ledger.
+It is written by `track-breakpoint.sh`, holds only repo-relative paths of edited files and a few
+counters (never contents), and is deleted by `/oss track stop`. The caps live in the ledger, not in
+the state file.
 
 ### The `policy` block
 
@@ -199,7 +207,7 @@ write to paths under `.oss-drafts/` in the user's working directory — never to
 
 The `PreToolUse` guardrail hook does **not** block Write tool calls — it matches only `Bash` and
 GitHub MCP tool calls. A separate advisory hook
-(`track-checkpoint.sh`) does match Edit/Write, but only inside a tracked session, and it never acts
+(`track-checkpoint.sh`, and from v0.9.0 `track-breakpoint.sh` on `PostToolUse`/`Stop`/`UserPromptSubmit`) does match Edit/Write, but only inside a tracked session, and it never acts
 on files in `.oss-drafts/` except to auto-allow an append-shaped Edit of the active ledger. `/oss` gains `Edit` for
 the ledger only. Therefore:
 
