@@ -165,6 +165,7 @@ setup() { # $1 profile -> sets d root ledger pointer state evil env_extra perm
     badbase) base=zzz ;;
     unknown-sha) base=1234567890abcdef1234567890abcdef12345678 ;;
     explain0 | explain0-pending) extra="explain_max: 0" ;;
+    hunk-eint0) extra="explain_interval_min: 0" ;;
     predict-on | predict-2 | predict-full | predict-stop | predict-mixed | predict-plan | predict-short | predict-old-ptr) extra="predict: true" ;;
     predict-max2) extra=$'predict: true\npredict_max: 2' ;;
     predict-off) extra="predict: false" ;;
@@ -237,6 +238,7 @@ drift_source: contributing:CONTRIBUTING.md:3" ;;
     hunk | explain0 | explain0-pending | budget0-hunk | plan-hunk | latch | bp4 | bp-recent | bp-1300 | bp-abc | bp-future | pending-m0 | pending-m1 | stale-lock | busy-lock)
       hunk_app ;;
     junk-state) printf 'junk\nmore junk\n' > "$state" ;;
+    hunk-eint0) hunk_app ;;
     tiny-hunk) chg_range src/app.js 40 43; st_add 'e\tsrc/app.js\n' ;; # 4 lines: below EXPLAIN_MIN_LINES
     tiny-untracked) gen_lines new 4 > "$root/src/new.js"; st_add 'e\tsrc/new.js\n' ;;
     chat-turn) hunk_app; st_add 'm\t0\n' ;; # edits from an earlier turn, none since the last stop
@@ -362,12 +364,12 @@ while IFS="$tab" read -r expect profile event ptoken want || [ -n "${expect:-}" 
   esac
   l_before="$(lsize "$ledger")"
   s_before="$(lsize "$state")"
-  snp_before="$(grep -v "^p$tab" "$state" 2> /dev/null)"
+  snp_before="$(grep -v -e "^p$tab" -e '^t$' "$state" 2> /dev/null)" # a prompt also appends a t turn mark
   evil_before="$(cat "$evil")"
   run_hook "$json"
   l_after="$(lsize "$ledger")"
   s_after="$(lsize "$state")"
-  snp_after="$(grep -v "^p$tab" "$state" 2> /dev/null)"
+  snp_after="$(grep -v -e "^p$tab" -e '^t$' "$state" 2> /dev/null)"
   good=1
   [ "$rc" -eq 0 ] || { bad "$label rc=$rc"; good=0; }
   [ "$(cat "$evil")" = "$evil_before" ] || { bad "$label wrote through a symlink"; good=0; }
@@ -383,6 +385,7 @@ while IFS="$tab" read -r expect profile event ptoken want || [ -n "${expect:-}" 
         if [ -n "$out" ] || [ "$l_before" != "$l_after" ]; then bad "$label expected silent, got: $out"; good=0
         elif [ "$want" = "no d line" ] && grep -q '^d$' "$state" 2> /dev/null; then bad "$label wrote a d throttle marker"; good=0
         elif [ "$want" = "state has e line" ] && ! grep -q "^e$tab" "$state" 2> /dev/null; then bad "$label edit not logged"; good=0
+        elif [ "$want" = "t marked" ] && [ "$(tail -1 "$state" 2> /dev/null)" != t ]; then bad "$label no t turn mark: $(cat "$state" 2> /dev/null)"; good=0
         elif [ "$want" = "m advanced" ] && ! grep -q "^m${tab}1\$" "$state"; then bad "$label watermark not advanced"; good=0
         elif [ "$want" = "edits kept" ] && grep -q '^b' "$state"; then bad "$label edits consumed"; good=0
         elif [ "$want" = "m1 and edits kept" ] && { ! grep -q "^m${tab}1\$" "$state" || grep -q '^b' "$state"; }; then bad "$label watermark/edits wrong"; good=0
@@ -426,7 +429,7 @@ while IFS="$tab" read -r expect profile event ptoken want || [ -n "${expect:-}" 
           bad "$label marker/state not written before the block"; good=0; fi ;;
       predict-ctx)
         pu="${want%% *}"; pn="${want#* }"
-        if [ "$l_before" != "$l_after" ] || [ "$snp_before" != "$snp_after" ]; then bad "$label hook wrote to ledger or to non-p state lines"; good=0
+        if [ "$l_before" != "$l_after" ] || [ "$snp_before" != "$snp_after" ]; then bad "$label hook wrote to ledger or to non-p/t state lines"; good=0
         elif ! grep -qx "p$tab"s1 "$state"; then bad "$label full note sent but no p line recorded"; good=0
         elif [ "$(jqf '.decision // empty')" != "" ] || ! jqt --arg a "Predict mode is on ($pu used)" --arg n "id=$pn -->" '.hookSpecificOutput.hookEventName == "UserPromptSubmit" and (.hookSpecificOutput.additionalContext | contains($a) and contains($n) and contains("Only if this prompt asks you to diagnose") and contains("never copy it into any sendable text"))' > /dev/null 2>&1; then
           bad "$label expected predict context ($want), got: $out"; good=0; fi ;;
@@ -434,7 +437,7 @@ while IFS="$tab" read -r expect profile event ptoken want || [ -n "${expect:-}" 
         # repeat note: no new p line, compact (text minus the reference and ledger paths <= 650 bytes),
         # keeps the gate and names the ledger (the full note may be gone after context compaction)
         pn="${want#* }"
-        if [ "$l_before" != "$l_after" ] || [ "$s_before" != "$s_after" ]; then bad "$label hook wrote to ledger/state"; good=0
+        if [ "$l_before" != "$l_after" ] || [ "$snp_before" != "$snp_after" ] || grep -c "^p$tab" "$state" | grep -qv '^1$'; then bad "$label hook wrote to ledger/state"; good=0
         elif ! jqt --arg n "$pn" --arg r "$plugin_root/skills/pr-preparation/references/decision-ledger.md" --arg l "$ledger" '.hookSpecificOutput.additionalContext | (length - ($r | length) - ($l | length)) <= 650 and contains("section 4") and contains("Predict mode is on") and contains("Only if this prompt asks you to diagnose") and contains("Record " + $n + " right after the answer in " + $l + ",") and contains($r) and contains("never copy it into any sendable text")' > /dev/null 2>&1; then
           bad "$label expected the short predict note, got: $out"; good=0; fi ;;
       auto-ctx)
@@ -862,6 +865,38 @@ if [ -z "$r1" ] && [ -z "$r2" ] && ! grep -q '^b' "$state"; then
 else
   bad "(p) chat-only turn interrupted or edits consumed: [$r1] [$r2] state=$(cat "$state")"
 fi
+
+# (r) a chat-only turn is never interrupted by edits from the previous turn that no stop marked:
+#     edits made while a Stop block held the turn (the next Stop has stop_hook_active, so it can only
+#     append a t turn mark), and edits before an interrupt (no Stop at all; the next prompt marks the
+#     turn). A later turn that edits again still gets its explain-back question.
+setup hunk-eint0
+run_hook "$(build_stop s1 false)" # turn 1 edited: explain:1
+r1=0; jqt '.reason | contains("Breakpoint question 1/4") and contains("Target: src/app.js:40")' && r1=1
+chg_range src/b.js 10 49
+run_hook "$(build_post "$root/src/b.js")" # the agent keeps editing while the stop is held
+run_hook "$(build_stop s1 true)"          # its next Stop: stop_hook_active
+r2="$out"
+run_hook "$(build_stop s1 false)" # turn 2: chat only (no prompt hook in between)
+r3="$out"
+if [ "$r1" = 1 ] && [ -z "$r2" ] && [ -z "$r3" ]; then ok
+else bad "(r) chat-only turn after a held stop interrupted: [$r1] [$r2] [$r3] state=$(tr '\n' ' ' < "$state")"; fi
+chg_range src/a.js 20 24
+run_hook "$(build_post "$root/src/a.js")" # turn 3 edits again: still asked (about b.js, the largest)
+run_hook "$(build_stop s1 false)"
+jqt '.reason | contains("Breakpoint question 2/4") and contains("Target: src/b.js:10")' > /dev/null 2>&1 \
+  && ok || bad "(r) edit turn after a chat-only turn: no explain-back: $out"
+setup hunk-eint0
+run_hook "$(build_post "$root/src/app.js")" # edits, then the user interrupts: no Stop runs
+run_hook "$(build_prompt 'thanks')"         # next prompt (predict off): only the t turn mark
+r1="$out"
+run_hook "$(build_stop s1 false)" # chat only
+{ [ -z "$r1" ] && [ -z "$out" ] && grep -qx t "$state"; } && ok || bad "(r) chat-only turn after an interrupt interrupted: [$r1] [$out]"
+setup hunk-eint0
+run_hook "$(build_prompt 'fix it')"
+run_hook "$(build_post "$root/src/app.js")"
+run_hook "$(build_stop s1 false)" # a normal edit turn after a prompt mark is still asked
+jqt '.reason | contains("Target: src/app.js:40")' > /dev/null 2>&1 && ok || bad "(r) normal edit turn after a prompt: no explain-back: $out"
 
 # (q) each drift limit carries its own source label; the Stop text keeps the sentence break.
 setup files-contrib

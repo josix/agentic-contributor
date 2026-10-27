@@ -437,21 +437,28 @@ Additions in v0.9.0:
 
 `<root>/.oss-drafts/<ledger basename without .md>.state`. Plain text, one record per line,
 tab-separated, append-only except for compaction. Only `track-breakpoint.sh` writes it; `/oss track stop` deletes it. It
-holds repo-relative paths only, never contents. It is disposable: rate-limit and audit state lives
+holds the record types below: repo-relative paths of edited files (`e`), Claude Code `session_id`s
+(`p`), and counters and markers (`m`, `s`, `b`, `d`, `t`); never file contents, prompts or ledger text. It is disposable: rate-limit and audit state lives
 in the ledger, so deleting it cannot lift a cap. A missing, malformed, or symlinked state file means
 "no edits" (silent; a symlink disables both features).
 
 ```
 e<TAB><rel>      PostToolUse: a successful Edit/Write/MultiEdit/NotebookEdit outside .oss-drafts/
 d                PostToolUse: a drift check ran (throttle point)
-m<TAB><q>        Stop: question watermark (questions(q) at this stop)
+m<TAB><q>        Stop: question watermark (questions(q) at this stop); also a turn boundary
+t                turn boundary only: UserPromptSubmit (a new prompt), or a Stop with stop_hook_active
 p<TAB><sid>      UserPromptSubmit: the full predict note was sent to this session_id
 b<TAB><id|none>  Stop: breakpoint consumed (explain:<k> asked, none = no target, compacted)
 s<TAB><n>        Stop: number of asked=no drift markers already summarised to the user
 ```
 
 "Edits since the last breakpoint" = `e` lines after the last `b` line. "Edits this turn" = `e`
-lines after the last `m` line (every Stop writes one). Paths under `.oss-drafts/`
+lines after the last `m` or `t` line. Every Stop that can ask writes an `m`; a Stop with
+`stop_hook_active` (another Stop hook, or this one, is holding the turn) writes a `t` under the ledger
+lock, so edits made while a stop was held belong to the turn that just ended; a prompt writes a `t`
+(lockless, no fork, even with predict off), so edits before an interrupt (no Stop runs) do too. A `t`
+is never written when the state file does not exist, and compaction drops `t` lines (it runs only
+right after an `e` is appended or right before an `m` is). Paths under `.oss-drafts/`
 are never logged, so ledger writes never re-arm a breakpoint. The last `m` and `s` values win.
 
 **Compaction.** Above 400 lines the hook (under the ledger lock; skipped if busy) folds all but the
@@ -514,7 +521,8 @@ At Stop, when code edits happened since the last breakpoint, the hook blocks onc
 to put ONE skippable question about a specific `file:line` to the user and record the verbatim
 answer. All of these must hold: session active; not plan mode; `stop_hook_active` false;
 `budget>0` and `explain_max>0`; at least one edit since the last `b`; at least one edit since the
-previous stop (an `e` line after the last `m`, so a chat-only turn is never interrupted); no checkpoint or drift
+previous turn boundary (an `e` line after the last `m` or `t`, section 11, so a chat-only turn is never
+interrupted, even after a held stop or an interrupt); no checkpoint or drift
 question since the previous stop (the `m` watermark); the last assistant message is not already asking
 (its last non-blank line, ignoring trailing markdown emphasis, quotes and brackets, ends in `?` or
 full-width `？`, or it ends in a list of options whose lead-in line does); bp_n < `explain_max`; now - bp_last >= `explain_interval_min` x 60; the non-interactive latch
@@ -526,7 +534,8 @@ are kept, so a later stop that also follows edits can still ask.
   untracked created files count as one hunk at line 1. A hunk (or untracked file) smaller than
   `EXPLAIN_MIN_LINES` (5 lines, a constant in the hook) is never a target. Files no earlier question targeted are
   preferred. With no target the hook appends `b<TAB>none` and stays silent.
-- **Loop safety**: (1) `stop_hook_active:true` exits before any work; (2) the ledger marker and
+- **Loop safety**: (1) `stop_hook_active:true` exits before any parsing, git or question (it only
+  appends the `t` turn boundary); (2) the ledger marker and
   `b<TAB>explain:<k>` are written before the block is emitted; (3) the ledger count and interval
   caps. At most one block per stop.
 - **Non-interactive (`-p`)**: the hook cannot detect it. The first block makes Claude record a

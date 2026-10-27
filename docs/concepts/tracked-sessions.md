@@ -95,11 +95,12 @@ question covered, and at least 5 lines long (smaller changes are never asked abo
 not ask for the change. Your answer is recorded verbatim as `explain:<k>`; it is never graded. The
 debrief and the PR scaffold use it as your own Why, and skipped ones become Unknowns.
 
-It asks only when all hold: the agent edited code in this turn (since its previous stop; a
+It asks only when all hold: the agent edited code in this turn (since your prompt or its previous
+stop; edits made while a stop was held, or before you interrupted, belong to that earlier turn, so a
 chat-only turn is never interrupted, and edits from a turn whose question was deferred wait for the
 next turn that edits again), edits since the last breakpoint, fewer than `explain_max` (4) asked,
-at least `explain_interval_min` (20) minutes since the last one, no checkpoint or drift question
-since the previous stop, and the agent is not already waiting on you.
+at least `explain_interval_min` (20) minutes since the last one, no checkpoint, drift or predict
+question since the previous stop, and the agent is not already waiting on you.
 
 ## Fatigue budget
 
@@ -137,7 +138,8 @@ A private markdown file `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md`. Full
 The ledger is private notes. It is never a send block and never PR text. The hook writes only the
 class, path, a checksum of the changed lines (never the lines), counts, and timestamps. It never
 records prompts, transcripts, keystrokes, or file contents. The session state file `<ledger>.state`
-holds only repo-relative paths of edited files and a few counters; `/oss track stop` deletes it, and
+holds only repo-relative paths of edited files, Claude Code session ids (to send the full predict
+note once per session), and a few counters and turn markers; `/oss track stop` deletes it, and
 deleting it cannot lift a cap (the caps live in the ledger). The ledger is agent-written, so a
 checkpoint answer is the agent's report of what you
 chose; the debrief marks it as evidence, not proof.

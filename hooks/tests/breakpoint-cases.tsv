@@ -4,12 +4,14 @@
 #   note "<text in systemMessage>" (no decision) | paused (one-time base-moved note, no drift marker)
 #   paused-missing (one-time base-commit-not-found note, reason=base-missing)
 #   event StopM:<msg> = Stop with that last assistant message (\n decoded)
-#   silent "no d line": also no throttle marker in the state file
+#   silent "no d line": also no throttle marker in the state file; "t marked": the last state line is a t turn mark
 noop	none	Post	src/app.js	-
 noop	none	Stop	-	-
 noop	disabled	Stop	-	-
 noop	stopped	Post	src/app.js	-
-noop	edits-big	StopActive	-	-
+silent	edits-big	StopActive	-	t marked
+noop	active	StopActive	-	-
+silent	hunk	Prompt	-	t marked
 silent	small	Post	src/app.js	state has e line
 noop	active	Post	@ledger	-
 drift-ctx	big-lines	Post	src/app.js	1 crossed=lines

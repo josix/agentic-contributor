@@ -8,12 +8,14 @@
 #                                                    (never a block, never a revert)
 #   Stop                                             drift check once per turn end, then at most ONE
 #                                                    explain-back question; delivered as a block so
-#                                                    the agent asks the user before it finishes
+#                                                    the agent asks the user before it finishes; with
+#                                                    stop_hook_active it only appends a `t` turn mark
 #   UserPromptSubmit                                 predict-then-reveal (predict: auto | true | false):
 #                                                    additionalContext asking the agent to collect the
 #                                                    user's prediction first; never blocks, no git. Writes:
 #                                                    a predict-auto switch marker (ledger lock, fail open)
-#                                                    and a `p<TAB>sid` line in the state file (full note sent). It does not depend on
+#                                                    and a `p<TAB>sid` line in the state file (full note sent),
+#                                                    plus a `t` turn mark (even with predict off). It does not depend on
 #                                                    the session base, so it keeps running when drift
 #                                                    and explain-back are paused (base moved).
 # It is NOT the draft-only safety guard (guard-outbound.sh) and never replaces it. It fails OPEN:
@@ -173,9 +175,12 @@ input="$(cat 2> /dev/null)" || exit 0
 re_ev='"hook_event_name"[[:space:]]*:[[:space:]]*"(PostToolUse|Stop|UserPromptSubmit)"'
 [[ $input =~ $re_ev ]] || exit 0
 ev="${BASH_REMATCH[1]}"
+stop_cont=0
 if [ "$ev" = Stop ]; then
+  # loop guard, checked before any parsing: a Stop while a Stop hook already holds the turn never
+  # asks; it only closes the turn (mark_turn, below the lock helpers)
   re_sha='"stop_hook_active"[[:space:]]*:[[:space:]]*true'
-  [[ $input =~ $re_sha ]] && exit 0 # loop guard before any parsing or subprocess
+  [[ $input =~ $re_sha ]] && stop_cont=1
 fi
 root="$trk_root"
 ledger="$trk_ledger"
@@ -223,6 +228,11 @@ done < "$ledger"
 [ "$fm_status" = "active" ] || exit 0
 # Predict off (no key, false, anything else): a prompt costs no JSON parse and no further subprocess (stdin is read once).
 if [ "$ev" = UserPromptSubmit ]; then
+  # A prompt starts a new turn: a t line closes the previous one, so its edits (made after a Stop
+  # block, or before an interrupt, where no Stop wrote an m line) never count as "this turn" and a
+  # chat-only turn is never interrupted. Lockless append (builtin, no fork), like an e line; never
+  # creates the state file.
+  [[ -f "$state" ]] && printf 't\n' >> "$state" 2> /dev/null
   case "$fm_predict" in true | on | auto) ;; *) exit 0 ;; esac
 fi
 # Paused (other branch, or the pointer is too old): no drift, explain-back or predict note. The
@@ -337,18 +347,6 @@ print("\x1f".join(clean(v) for v in [d.get("hook_event_name"), ti.get("file_path
 ' "$KW_RE" 2> /dev/null
   fi
 }
-
-parsed="$(parse_input)" || exit 0
-[ -n "$parsed" ] || exit 0
-IFS=$'\037' read -r p_ev path perm_mode sid sha_active agent_id asking cwd p_kind p_trivial <<< "$parsed"
-case "$path$cwd" in *[[:cntrl:]]*) exit 0 ;; esac # belt and braces: never log a control char
-[ "$p_ev" = "$ev" ] || exit 0
-# plan mode: no checkpoint/drift/explain questions, but a planning prompt is exactly when to predict
-[ "$perm_mode" = "plan" ] && [ "$ev" != UserPromptSubmit ] && exit 0
-[ "$ev" = Stop ] && [ "$sha_active" = true ] && exit 0
-[ "$ev" = PostToolUse ] && [ -z "$path" ] && exit 0 # missing, or rejected for a control character
-re_sid='^[A-Za-z0-9._-]+$'
-if ! [[ $sid =~ $re_sid ]]; then sid="-"; fi
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 # --- shared: manifest map (keep identical in track-*.sh) ---
@@ -491,6 +489,33 @@ take_lock() { # exits 0 (fail open) when the lock stays busy
   trap 'trk_unlock "$lock"' EXIT
 }
 release_lock() { trk_unlock "$lock"; trap - EXIT; }
+
+# mark_turn: a Stop while a Stop hook already holds the turn (stop_hook_active). It never asks or
+# parses; it appends a t line (turn boundary) so edits made while the stop was held belong to the
+# turn that just ended, not to the next one (whose Stop would otherwise count them and interrupt a
+# chat-only turn). Under the ledger lock (compaction rewrites the file); fails open, no output,
+# never creates the state file.
+mark_turn() {
+  if [[ -f "$state" ]]; then
+    take_lock
+    printf 't\n' >> "$state" 2> /dev/null
+    release_lock
+  fi
+  exit 0
+}
+[ "$stop_cont" = 1 ] && mark_turn
+
+parsed="$(parse_input)" || exit 0
+[ -n "$parsed" ] || exit 0
+IFS=$'\037' read -r p_ev path perm_mode sid sha_active agent_id asking cwd p_kind p_trivial <<< "$parsed"
+case "$path$cwd" in *[[:cntrl:]]*) exit 0 ;; esac # belt and braces: never log a control char
+[ "$p_ev" = "$ev" ] || exit 0
+# plan mode: no checkpoint/drift/explain questions, but a planning prompt is exactly when to predict
+[ "$perm_mode" = "plan" ] && [ "$ev" != UserPromptSubmit ] && exit 0
+[ "$ev" = Stop ] && [ "$sha_active" = true ] && mark_turn
+[ "$ev" = PostToolUse ] && [ -z "$path" ] && exit 0 # missing, or rejected for a control character
+re_sid='^[A-Za-z0-9._-]+$'
+if ! [[ $sid =~ $re_sid ]]; then sid="-"; fi
 
 # ledger_state: one awk pass over the ledger -> globals (see decision-ledger.md section 5)
 ledger_state() {
@@ -991,14 +1016,15 @@ explain_text() { # uses k t_rel t_line t_size
 }
 
 # read_edits: sets q_mark, s_mark, n_lines, edited from the edit log (a b line resets the list) and
-# turn_edits, the number of edits since the last m line (every Stop writes one, so it marks the
-# previous stop)
+# turn_edits, the number of edits since the last turn boundary: an m line (written by every Stop
+# that can ask) or a t line (a prompt, or a Stop while a Stop hook held the turn)
 read_edits() {
   local st line rest
   st="$(awk -F'\t' '
 $1 == "b" { n = 0; split("", seen) }
 $1 == "e" && $2 != "" { te++; if (!($2 in seen)) { seen[$2] = 1; list[++n] = $2 } }
 $1 == "m" && $2 ~ /^[0-9]+$/ { qm = $2 + 0; te = 0 }
+$1 == "t" { te = 0 }
 $1 == "s" && $2 ~ /^[0-9]+$/ { sm = $2 + 0 }
 END { print "M\t" qm + 0; print "S\t" sm + 0; print "N\t" NR + 0; print "E\t" te + 0; for (i = 1; i <= n; i++) print "R\t" list[i] }' "$state" 2> /dev/null)" || return 1
   q_mark=0; s_mark=0; n_lines=0; turn_edits=0; edited=""
