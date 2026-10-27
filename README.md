@@ -12,6 +12,7 @@ This is the **research-and-engagement half** of a two-plugin system. It surfaces
 - **Draft-only guardrail** — a `PreToolUse` hook actively denies all outbound and mutating actions; drafts are presented for human review before any separate execution step.
 - **MCP + `gh` fallback** — prefers the structured GitHub MCP server when `GITHUB_MCP_TOKEN` is set; falls back to `gh` CLI automatically.
 - **Contributor readiness** — claim and find add a private, advisory self-check of how maintainers will likely see your PR (open PRs vs the project's cap, merged PRs, vouch) and favour track-record-building work; it never blocks a draft. Say "skip readiness" to opt out.
+- **Tracked sessions & decision checkpoints** — `/oss track` keeps a private decision ledger while an agent codes; an advisory, opt-in hook asks you to choose at a few reviewer-relevant moments (test weakening, dependencies, out-of-scope edits) within a small budget. From v0.9.0 the same hook family also raises advisory scope-drift alerts (keep / separate PR / drop / skip) and asks one skippable explain-back question about a specific `file:line` when the agent stops after edits. From v0.10.0, predict-then-reveal is `auto` by default (on for a newcomer to the repo or after a skipped explain-back, off after two "no idea" answers; `--predict` / `--no-predict` force it): the agent asks for your guess before revealing its diagnosis or plan, then shows where you matched or differed (private, never scored). The debrief and PR scaffold reuse the ledger as first-hand evidence.
 - **Configurable target projects** — copy `config/targets.example.yaml` to `config/targets.yaml` to set a personal shortlist of repos.
 
 ## Prerequisites
@@ -21,7 +22,7 @@ This is the **research-and-engagement half** of a two-plugin system. It surfaces
 | Claude Code CLI | latest | Plugin host |
 | GitHub CLI (`gh`) | any | `gh` fallback authentication and read commands |
 | `GITHUB_MCP_TOKEN` env var | — | GitHub personal access token for MCP server (optional but recommended) |
-| `jq` | any | Guardrail script JSON parsing |
+| `jq` | any | Guardrail and checkpoint hook JSON parsing (python3 fallback) |
 
 ## Installation
 
@@ -85,6 +86,8 @@ gh auth status
 /oss help me give feedback on apache/airflow PR #9876
 /oss help me respond to the review on my apache/spark PR #4321
 /oss draft a bug report for apache/airflow about scheduler crashing on database reconnect
+/oss track https://github.com/apache/datafusion/issues/1234 scope: datafusion/sql/**
+/oss track stop
 ```
 
 If you omit arguments, `/oss` presents the full scenario menu and asks which applies.
@@ -158,6 +161,20 @@ The `PreToolUse` guardrail hook (`hooks/hooks.json` + `hooks/scripts/guard-outbo
 
 The denial message explains that the plugin is draft-only and that the execution/submission plugin handles sending.
 
+A second, separate `PreToolUse` hook (`hooks/scripts/track-checkpoint.sh`) is advisory and fails open. It matches `Edit|Write|MultiEdit|NotebookEdit` but does nothing unless an `/oss track` session is active. A third, equally advisory script (`hooks/scripts/track-breakpoint.sh`) is registered on `PostToolUse` (same matcher), `Stop` and `UserPromptSubmit`, again for tracked sessions only.
+
+| Situation | Result |
+|---|---|
+| no tracked session | silent, no subprocess |
+| dependency, test-weakening, `api_paths`, or out-of-scope edit (budget left) | deny with a "choose" instruction; one retry is denied again, the third attempt gets context only (loop guard); the answer is recorded in the private ledger |
+| budget spent | no permission decision (normal prompts apply); logged as an Unknown |
+| Edit that appends one entry at `<!-- track:end -->` of the active ledger | allow (any other ledger edit gets the normal prompt) |
+| change grows past the drift limits, or out-of-scope modules no checkpoint covered (drift cap left) | `PostToolUse`: context, never a block; at `Stop`: may hold the stop once (block). Asks keep / separate PR / drop / skip; at most 2 per session |
+| prompt that asks for diagnosis or planning (predict mode on, under `predict_max`) | `UserPromptSubmit`: context, never a block; asks for your prediction first, then shows where it matched or differed (`file:line`) and records it privately; silent for `/name` commands, trivial prompts, and when predict is off or `budget: 0` |
+| agent stops after edits (breakpoint) | one rate-limited, skippable question about a `file:line`, held once at `Stop`; at most 4 per session, 20 minutes apart; `budget: 0` is quiet mode |
+
+It is not a safety boundary. See [Tracked Sessions & Checkpoints](docs/concepts/tracked-sessions.md).
+
 ## Architecture Principles
 
 ### Draft-Only / Human-in-the-Loop
@@ -169,7 +186,7 @@ hook.
 
 All scenario outputs — including read-only reports (scenarios 1–4) — are also saved as editable
 markdown files in `.oss-drafts/` in your working directory. The `.oss-drafts/` directory is
-automatically excluded from version control via `.git/info/exclude` when `/oss` first writes a
+automatically excluded from version control via the repo's exclude file (`git rev-parse --git-path info/exclude`) when `/oss` first writes a
 file in a git repo. Local file writes via the Write tool do not violate draft-only — they cannot
 reach GitHub.
 
@@ -190,6 +207,7 @@ All GitHub data access is read-only. The MCP server is configured with a `repo:r
 - [docs/guides/github-access.md](docs/guides/github-access.md) — MCP vs `gh` CLI, token setup, rate limits
 - [docs/concepts/draft-only-guardrail.md](docs/concepts/draft-only-guardrail.md) — guardrail internals, full deny/allow matrix
 - [docs/concepts/two-plugin-system.md](docs/concepts/two-plugin-system.md) — research half vs execution half
+- [docs/concepts/tracked-sessions.md](docs/concepts/tracked-sessions.md) — tracked sessions, decision ledger, checkpoints
 - [docs/reference/commands.md](docs/reference/commands.md) — `/oss` frontmatter and behavior steps
 - [docs/reference/agents.md](docs/reference/agents.md) — `oss-researcher` and `oss-claim-analyst` specs
 - [docs/reference/skills.md](docs/reference/skills.md) — all 9 skills with trigger phrases

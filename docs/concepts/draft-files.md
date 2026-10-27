@@ -20,8 +20,13 @@ scenarios (5–10).
 └── .oss-drafts/
     ├── find-apache-airflow-find-20260611T143000Z.md
     ├── norms-apache-airflow-norms-20260611T144500Z.md
-    └── engage-apache-airflow-pr9876-20260611T150000Z.md
+    ├── engage-apache-airflow-pr9876-20260611T150000Z.md
+    ├── track-apache-airflow-issue1234-20261024T101500Z.md
+    └── track-apache-airflow-issue1234-20261024T101500Z.state
 ```
+
+A tracked session's one-line pointer is not in `.oss-drafts/`: it lives in the git dir, at
+`<gitdir>/agentic-contributor/track-active` (see [Tracked Sessions](tracked-sessions.md)).
 
 The directory is created automatically on the first write.
 
@@ -36,8 +41,10 @@ The directory is created automatically on the first write.
 | `scenario` | One of: `status`, `find`, `norms`, `setup`, `clarify`, `claim`, `engage`, `review-reply`, `report`, `prepare-pr` | `engage` |
 | `owner` | Repository owner (slashes in `owner/repo` become `-`) | `apache` |
 | `repo` | Repository name | `airflow` |
-| `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, or `debrief` | `pr9876` |
+| `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, `debrief`, or `task` (track ledgers) | `pr9876` |
 | `UTC` | Timestamp in `YYYYMMDDThhmmssZ` format | `20260611T143000Z` |
+
+Track ledgers (v0.8.0) use the prefix `track-` (a file kind, not a scenario key): `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md`.
 
 **Examples:**
 
@@ -55,6 +62,7 @@ The directory is created automatically on the first write.
 | report feature request in apache/spark | `.oss-drafts/report-apache-spark-issue-feature-20260612T100000Z.md` |
 | prepare-pr for issue #1234 in apache/datafusion | `.oss-drafts/prepare-pr-apache-datafusion-issue1234-20260612T100000Z.md` |
 | prepare-pr debrief in apache/datafusion | `.oss-drafts/prepare-pr-apache-datafusion-debrief-20260612T100000Z.md` |
+| prepare-pr track ledger for issue #1234 in apache/datafusion | `.oss-drafts/track-apache-datafusion-issue1234-20261024T101500Z.md` (pointer: `<gitdir>/agentic-contributor/track-active`) |
 
 ## Frontmatter
 
@@ -77,20 +85,38 @@ body_format: 2
 | `plugin` | Always `agentic-contributor` |
 | `scenario` | The scenario key (`status`, `find`, `norms`, `setup`, `clarify`, `claim`, `engage`, `review-reply`, `report`, `prepare-pr`) |
 | `repo` | `owner/repo` (with slash, not hyphen) |
-| `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, or `debrief` |
+| `item` | `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, `debrief`, or `task` (track ledgers) |
 | `generated_at` | ISO-8601 UTC timestamp |
 | `status` | Always `draft` — change to `sent` once the execution plugin posts it |
 | `body_format` | v0.4.0+, every file (report-tier files too): `2` means only the `oss:send` block is sendable (zero send blocks = nothing sendable). Absent or `1` means legacy (whole body sendable) |
-| `sendable` | Private files only, the report-tier files (status, find, norms, setup) and the `prepare-pr` debrief: `false` means never send, regardless of `body_format` |
-| `mode` | `review-reply`: `brief` (default) or `lint`. `prepare-pr`: `debrief`, `draft` (default), or `lint` |
+| `sendable` | Private files only, the report-tier files (status, find, norms, setup), the `prepare-pr` debrief and the track ledger: `false` means never send, regardless of `body_format` |
+| `mode` | `review-reply`: `brief` (default) or `lint`. `prepare-pr`: `track`, `debrief`, `draft` (default), or `lint` |
 | `base`, `head`, `diff_stats` | v0.7.0+, `prepare-pr` only: the refs diffed and `{files, insertions, deletions}` |
 | `policy` | v0.5.0+, `find`, `norms`, and draft-tier scenarios: the project's detected AI-policy and contribution-limit block (see below) |
 | `readiness_login` | v0.6.0+, `claim`, `find`, and `prepare-pr`: the GitHub login the readiness check used (absent when skipped) |
 | `readiness` | v0.6.0+, `claim`, `find`, and `prepare-pr`: `{open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}`; `unknown` for anything not read. Advisory; also shown in private notes, never in a send block |
+| `task`, `issue`, `branch`, `base_commit`, `started_at`, `stopped_at`, `scope`, `scope_source`, `api_paths`, `budget` | v0.8.0+, track ledgers only (see below); `status` is `active` or `stopped` there |
+| `predict`, `predict_max`, `user_commits`, `prior_unknowns` | v0.10.0+, track ledgers only: predict-then-reveal mode (`auto` for new sessions, `true`, or `false`; a ledger without the key stays off), its per-session cap (default 4), and the two facts `auto` reads (your commit count in the repo, `-1` = unknown; Unknowns you left in the previous session) |
+| `drift_lines`, `drift_files`, `drift_source`, `drift_max`, `explain_max`, `explain_interval_min` | v0.9.0+, track ledgers only: scope-drift thresholds and caps, and breakpoint-question limits (a v0.8.0 ledger without them uses the defaults 400 / 10 / default / 2 / 4 / 20) |
 | `routed_from` | v0.5.0+, only when a PR-intent request was rerouted to `report` (issue-first); names the original scenario |
 
 The `status: draft` field allows the separate execution/submission plugin to identify unreviewed
 drafts and prompt for confirmation before acting on them.
+
+### Track ledger
+
+A tracked session (`/oss track`) writes a private ledger with its own frontmatter and an append-only
+list of decisions, plus the one-line pointer `"$(git rev-parse --git-dir)/agentic-contributor/track-active"` (in the
+git dir, never the worktree, so a cloned repository cannot ship an active session; tracked sessions
+require git). Its frontmatter carries `body_format: 2` and `sendable: false`; it has no send block and is
+never PR text. The full format (frontmatter, entries, hook-written lines, trigger classes) lives in
+`skills/pr-preparation/references/decision-ledger.md`; see
+[Tracked Sessions & Checkpoints](tracked-sessions.md) for how it is used.
+
+From v0.9.0 a tracked session also has a disposable state file `track-...Z.state` next to the ledger.
+It is written by `track-breakpoint.sh`, holds only repo-relative paths of edited files and a few
+counters (never contents), and is deleted by `/oss track stop`. The caps live in the ledger, not in
+the state file.
 
 ### The `policy` block
 
@@ -163,14 +189,15 @@ Then it asks you to review and modify the file before confirming. For `review-re
 Before writing the first `.oss-drafts/` file in a run, the orchestrator ensures the directory is
 excluded from version control in your project:
 
-1. **If your cwd is a git repo** (`.git/` exists): the orchestrator ensures `.oss-drafts/` is in
-   `.git/info/exclude` using the idempotent one-liner:
-   `grep -qxF '.oss-drafts/' .git/info/exclude || echo '.oss-drafts/' >> .git/info/exclude`
+1. **If your cwd is in a git repo**: the orchestrator resolves the exclude file with
+   `ex="$(git rev-parse --git-path info/exclude)"` (this also works in linked worktrees and
+   submodules, where `.git` is a file) and ensures `.oss-drafts/` is in it using the idempotent
+   one-liner: `grep -qxF '.oss-drafts/' "$ex" || echo '.oss-drafts/' >> "$ex"`
    This is non-invasive — it does not modify your tracked `.gitignore` and does not create a dirty
    working tree. Running `/oss` multiple times will not produce duplicate entries.
 2. **If your cwd is not a git repo**: the step is skipped silently.
 
-`.git/info/exclude` has the same syntax as `.gitignore` and applies only to your local clone. It
+The exclude file (`.git/info/exclude` in a plain clone) has the same syntax as `.gitignore` and applies only to your local clone. It
 is already included in git's ignore machinery without any configuration.
 
 ## Guardrail Safety
@@ -179,7 +206,10 @@ Writing to `.oss-drafts/` uses the Write tool. The `/oss` command only uses the 
 write to paths under `.oss-drafts/` in the user's working directory — never to any other path.
 
 The `PreToolUse` guardrail hook does **not** block Write tool calls — it matches only `Bash` and
-GitHub MCP tool calls. Therefore:
+GitHub MCP tool calls. A separate advisory hook
+(`track-checkpoint.sh`, and from v0.9.0 `track-breakpoint.sh` on `PostToolUse`/`Stop`/`UserPromptSubmit`) does match Edit/Write, but only inside a tracked session, and it never acts
+on files in `.oss-drafts/` except to auto-allow an append-shaped Edit of the active ledger. `/oss` gains `Edit` for
+the ledger only. Therefore:
 
 - Local draft file writes cannot reach GitHub.
 - They cannot post comments, push branches, create issues or PRs, or trigger any outbound action.

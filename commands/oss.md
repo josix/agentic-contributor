@@ -1,10 +1,11 @@
 ---
-description: "Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, prepare a PR or debrief a local change, learn norms, set up env (draft-only)"
+description: "Orchestrate an OSS-contribution task — find issues, research status, draft questions/feedback/new issues, prepare a PR or debrief a local change, learn norms, set up env, track decisions (draft-only)"
 argument-hint: '[what you want to do, e.g. "find a good first issue in apache/airflow"]'
 allowed-tools:
   - Bash
   - Read
   - Write
+  - Edit(.oss-drafts/**)
   - Grep
   - Glob
   - WebFetch
@@ -29,7 +30,7 @@ You are the single entry point for all OSS contribution tasks in this plugin.
 | 7 | **engage** | DRAFT feedback on someone else's in-progress PR |
 | 8 | **review-reply** | Per-comment understanding brief + lint of your own reply (you write the reply) |
 | 9 | **report** | DRAFT new bug report or feature request |
-| 10 | **prepare-pr** | Change debrief, size check, and a problem-first PR description scaffold you complete (never opens a PR) |
+| 10 | **prepare-pr** | Change debrief, size check, and a problem-first PR description scaffold you complete (never opens a PR); `track` mode records your decisions while an agent codes |
 
 ---
 
@@ -39,14 +40,17 @@ All scenario outputs are saved to `.oss-drafts/` in the user's current working d
 
 **Directory:** `.oss-drafts/` (relative to the user's cwd when `/oss` is invoked)
 
+**Exception, tracked sessions:** the track-mode decision ledger always lives in the repository root's `.oss-drafts/` (`<git toplevel>/.oss-drafts/`, from `git rev-parse --show-toplevel`), whatever the cwd, because the checkpoint hook only accepts a ledger there (`skills/pr-preparation/references/decision-ledger.md` section 1).
+
 **Naming:** `.oss-drafts/<scenario>-<owner>-<repo>-<item>-<UTC>.md`
 
 - `owner/repo` slashes become `-` (e.g. `apache-airflow`)
-- `item` is `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, `debrief`, etc.
+- `item` is `issueN`, `prN`, `status`, `find`, `norms`, `setup`, `issue-bug`, `issue-feature`, `pr-new`, `debrief`, `task` (track ledgers), etc.
 - UTC timestamp in `YYYYMMDDThhmmssZ` format (e.g. `20260611T143000Z`)
 - Example: `.oss-drafts/engage-apache-airflow-pr9876-20260611T143000Z.md`
 - Example (report): `.oss-drafts/report-apache-airflow-issue-bug-20260612T100000Z.md`
 - Example (prepare-pr): `.oss-drafts/prepare-pr-apache-datafusion-issue1234-20260612T100000Z.md`; debrief mode: `.oss-drafts/prepare-pr-apache-datafusion-debrief-20260612T100000Z.md`
+- Example (track ledger): `.oss-drafts/track-apache-datafusion-issue1234-20261024T101500Z.md`, plus the one-line pointer `<gitdir>/agentic-contributor/track-active` (in the git dir from `git rev-parse --git-dir`, never in the worktree)
 
 **Frontmatter** (include at the top of every draft file):
 
@@ -61,8 +65,8 @@ status: draft
 body_format: 2            # every file. Draft-tier scenarios (clarify, claim, engage, review-reply, report, prepare-pr)
                           # put postable text in send blocks; report-tier files (status, find, norms, setup) have none.
 sendable: false           # private files only: report-tier files (status, find, norms, setup; not the `report`
-                          # scenario) and the prepare-pr debrief. Never send, regardless of body_format
-mode: <brief|lint|debrief|draft>  # review-reply: brief|lint; prepare-pr: debrief|draft|lint
+                          # scenario), the prepare-pr debrief and track ledger. Never send, regardless of body_format
+mode: <brief|lint|debrief|draft>  # review-reply: brief|lint; prepare-pr: track|debrief|draft|lint
 policy: {...}             # find + scenarios 5-10 (and norms): the policy block, see Step 3; includes fetched_at
 routed_from: <scenario>   # only when a PR-intent request was rerouted to report (issue-first)
 base: <ref>               # prepare-pr only: base ref used for the diff
@@ -72,6 +76,8 @@ readiness_login: <login>  # claim + find + prepare-pr (+ engage when switched fr
 readiness: {...}          # claim + find + prepare-pr (+ engage when switched from claim): {open_prs, cap, merged_prs_in_repo, account_age_days, vouch_status, tier}
 ---
 ```
+
+Track ledger: see `skills/pr-preparation/references/decision-ledger.md` (it has its own frontmatter).
 
 **Body format (`body_format: 2`):** draft-tier files separate postable text from private notes.
 Only text between the markers is sendable; everything else is for the user only:
@@ -95,8 +101,8 @@ Only text between the markers is sendable; everything else is for the user only:
 
 **Gitignore:** Before writing the first draft file in a run, ensure `.oss-drafts/` is excluded from version control in the user's project:
 
-1. If `.git/` exists in the cwd, ensure `.oss-drafts/` is in `.git/info/exclude` using the idempotent one-liner:
-   `grep -qxF '.oss-drafts/' .git/info/exclude || echo '.oss-drafts/' >> .git/info/exclude`
+1. If the cwd is in a git repo, resolve the exclude file with `ex="$(git rev-parse --git-path info/exclude)"` (works in linked worktrees and submodules, where `.git` is a file) and ensure `.oss-drafts/` is in it using the idempotent one-liner:
+   `grep -qxF '.oss-drafts/' "$ex" || echo '.oss-drafts/' >> "$ex"`
    (Non-invasive — does not dirty the user's tracked `.gitignore`. Creates the file if it does not exist.)
 2. If not in a git repo, skip silently.
 
@@ -123,13 +129,16 @@ Invoke the `oss-scenario-routing` skill to classify the intent from `$ARGUMENTS`
   PR-intent -> prepare-pr / Report (Issue-First) Branch below.
 - Debrief signals ("help me understand what I changed", "debrief my change", "what did the agent
   change") route to `prepare-pr` with `mode: debrief`; this is not an 11th scenario.
+- Track signals ("track …", "start tracking", "stop tracking", "track status", "log this decision")
+  route to `prepare-pr` with `mode: track` (sub-action start/stop/status/resume/log); not an 11th scenario. The flag `--predict[=on|off|auto]`, `--no-predict` and `track predict on|off|auto`
+  are recognised here (predict-then-reveal) and change no scenario.
 - After classification, proceed immediately — do not ask additional questions at this stage.
 
 ---
 
 ## Step 3 — Policy Preflight
 
-Applies to `find`, `clarify`, `claim`, `engage`, `review-reply`, `report`, and `prepare-pr`. It does not apply to
+Applies to `find`, `clarify`, `claim`, `engage`, `review-reply`, `report`, and `prepare-pr` (except `mode: track`). It does not apply to
 `status`, `norms` (which computes the policy in full), or `setup`. It runs before the Step 4
 dispatch, and also before final routing for PR-intent requests.
 
@@ -164,7 +173,8 @@ review-reply, report, prepare-pr, and optionally setup), dispatch the mapped sub
   parallel with the `readiness` read; the orchestrator itself runs the local git reads (`git diff`,
   `git diff --stat`, `git status --porcelain`, `git ls-files --others --exclude-standard`,
   `git log`, `git merge-base`, `git remote -v`), including uncommitted and untracked work. Debrief mode needs no GitHub
-  fetch beyond the linked issue text. Local git is read-only: never commit, push, or run tests.
+  fetch beyond the linked issue text. Local git is read-only: never commit, push, or run tests. `mode: track` start dispatches
+  `oss-researcher` with key `track-start` only when an issue is given.
 - **claim** → dispatch `oss-claim-analyst` **and** `oss-researcher` (key `readiness`) in parallel;
   then proceed based on the verdict (see claim branch below).
 - **setup** → optionally dispatch `oss-researcher` (read-only) to fetch the project's
@@ -172,7 +182,7 @@ review-reply, report, prepare-pr, and optionally setup), dispatch the mapped sub
   output. The researcher dispatch is optional — if the docs are already available inline,
   skip it.
 
-**Readiness (claim, find, and prepare-pr).** Unless the request says "skip readiness", also dispatch
+**Readiness (claim, find, and prepare-pr, not in track mode).** Unless the request says "skip readiness", also dispatch
 `oss-researcher` with scenario key `readiness` in parallel with the normal fetch. Resolve the login
 as the `contributor-readiness` skill says (request, then `contributor.github_login` in
 `${CLAUDE_PLUGIN_ROOT}/config/targets.yaml` (the plugin's config, not the working directory), then the authenticated account) and pass it with `owner/repo` and the
@@ -236,16 +246,25 @@ review-reply, report, prepare-pr) must put postable text inside `oss:send` marke
   paste-ready PR text; a transcript is read only when the user points to one. Lint mode checks the
   user's filled-in send block with AP1-AP9. Policy use: disclosure text when `disclosure: required`;
   advise (never rewrite) on AI co-author trailers when `coauthor_trailer_forbidden: true`.
+  **Track mode** (`mode: track`) follows Procedure 0 in `pr-preparation`: Write creates the ledger
+  `.oss-drafts/track-<owner>-<repo>-<item>-<UTC>.md`, then the pointer
+  `"$(git rev-parse --git-dir)/agentic-contributor/track-active"` (git dir, never the worktree;
+  tracked sessions require git); stop removes that pointer with `rm -f`. Edit is used only on the
+  active ledger (append entries, stop). No policy preflight, no readiness.
+  Besides the PreToolUse checkpoints, an advisory PostToolUse/Stop/UserPromptSubmit hook may add a scope-drift alert,
+  hold a stop for one breakpoint question, or (predict mode, diagnosis/planning prompts) ask for
+  your prediction before you answer; follow its instructions (ask, then record the entry
+  with Edit on the active ledger; never revert or stash).
 - **find** policy use: record the `policy` block in frontmatter and mention any open-PR cap, vouch
   requirement, or good-first-issue AI ban in the shortlist notes. Put the readiness summary at the
   top of the file (private, report tier), set `readiness_login` and `readiness`, and pass the tier,
   open-PR count/cap, and `gfi_ai_ban` to the issue-matching ranking. When `gfi_ai_ban: true`, good
   first issues go in the unranked "Policy-reserved" footer, not the ranking.
 
-Before writing any file: ensure `.git/info/exclude` (or equivalent) excludes `.oss-drafts/` as
+Before writing any file: ensure the exclude file from `git rev-parse --git-path info/exclude` excludes `.oss-drafts/` as
 described in the convention block above.
 
-Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path.
+Use the **Write tool** to create the file. Only write to paths under `.oss-drafts/` in the user's working directory. Never use the Write tool for any other path, except the track-session pointer `<gitdir>/agentic-contributor/track-active` (track start, resume, and the stop fallback that writes an empty pointer). Edit is allowed only on the active track ledger (the frontmatter pre-approves `Edit` under `.oss-drafts/` relative to the working directory, so from a subdirectory the ledger edit gets a normal permission prompt).
 
 ### Claim → Engage Branch
 
@@ -311,6 +330,9 @@ Then ask the user to review and modify the file, and confirm whether they want a
 **prepare-pr debrief mode** writes a private notes file with `sendable: false` and no send block: show the file path and a
 short summary in chat, say it is private and not PR text, and skip the "ready to send" framing.
 
+**prepare-pr track mode** shows the ledger path and a short session summary (scope, budget, drift
+and breakpoint limits and how to quiet them, how to stop). The ledger is private; there is no DRAFT notice and no send block.
+
 ### Hard rule
 
 NEVER call any tool that posts, comments, creates issues/PRs, pushes branches, or takes any
@@ -349,3 +371,7 @@ GETs, `git clone`, and the allowlisted MCP read tools above — are allowed.
 
 Local file writes via the Write tool are NOT covered by the guardrail (they cannot reach GitHub)
 and are explicitly permitted for draft file export.
+
+`hooks/scripts/track-checkpoint.sh` (PreToolUse) and `hooks/scripts/track-breakpoint.sh`
+(PostToolUse, Stop and UserPromptSubmit) are separate, advisory hooks for Edit/Write inside a tracked session. They
+are not part of the draft-only guardrail above and fail open.

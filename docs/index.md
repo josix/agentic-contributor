@@ -6,7 +6,7 @@ Research-and-engagement assistant for contributing to open-source projects — d
 
 The `agentic-contributor` plugin is the research-and-drafting half of a two-plugin system for OSS contributions. It handles everything up to—but not including—the actual send/post/push: it fetches live GitHub data, classifies your intent, and produces ready-to-review drafts. A separate execution/submission plugin (using `gh` CLI) performs the actual actions after you approve a draft.
 
-The plugin exposes a single `/oss` command that routes to one of 10 contribution scenarios. A `PreToolUse` guardrail hook actively denies all outbound and mutating actions at the tool level, so the draft-only contract is enforced regardless of how the agents are used.
+The plugin exposes a single `/oss` command that routes to one of 10 contribution scenarios. A `PreToolUse` guardrail hook actively denies all outbound and mutating actions at the tool level, so the draft-only contract is enforced regardless of how the agents are used. Advisory hooks power decision checkpoints, scope-drift alerts, and breakpoint questions in `/oss track` sessions.
 
 ## Component Diagram
 
@@ -24,6 +24,7 @@ flowchart TD
     SR --> ID["skills/issue-drafting<br/>scenario 9: report"]
     SR --> PP["skills/pr-preparation<br/>scenario 10: prepare-pr"]
     SR --> CD["skills/change-debrief<br/>prepare-pr mode: debrief"]
+    SR --> TR["prepare-pr mode: track<br/>decision ledger"]
 
     OSS --> RES["agents/oss-researcher<br/>GitHub data (scenarios 1/2/3/4/5/7/8/9/10)"]
     OSS --> CA["agents/oss-claim-analyst<br/>claim detection (scenario 6)"]
@@ -36,6 +37,9 @@ flowchart TD
     OSS -.->|PreToolUse — DENIES all<br/>outbound/mutating actions| GRD["hooks/scripts/guard-outbound.sh"]
     RES -.-> GRD
     CA -.-> GRD
+
+    OSS -.->|PreToolUse Edit/Write| TCK["hooks/scripts/track-checkpoint.sh<br/>advisory checkpoints, tracked sessions only"]
+    OSS -.->|PostToolUse / Stop / UserPromptSubmit| BRK["hooks/scripts/track-breakpoint.sh<br/>drift alerts, breakpoint questions, predict-then-reveal"]
 ```
 
 ## Quick Links
@@ -54,6 +58,7 @@ flowchart TD
 
 - [Draft-Only Guardrail](concepts/draft-only-guardrail.md) — what the hook blocks, why deny, hand-off to execution plugin
 - [Two-Plugin System](concepts/two-plugin-system.md) — research half vs execution half, the hand-off boundary
+- [Tracked Sessions & Checkpoints](concepts/tracked-sessions.md) — record your decisions while an agent codes
 
 ### Reference
 

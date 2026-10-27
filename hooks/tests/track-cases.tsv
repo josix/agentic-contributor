@@ -1,0 +1,140 @@
+# expect<TAB>profile<TAB>tool<TAB>path<TAB>a1<TAB>a2<TAB>want_id
+# Columns are tab-separated; "-" means empty. In a1/a2 the two characters \n decode to a newline.
+# path: repo-relative, or @ledger | @ledger-dd | @ledger-rel | @abs:<abs path, <root> allowed> | -
+# Tools: Edit (a1 old, a2 new) | Write (a1 content) | MultiEdit (edits[0] from a1/a2)
+#        NotebookEdit (a1 new_source) | RAW (a1 is raw stdin, <root> substituted)
+# Expectations: silent | deny | deny-retry | allow-ledger | allow-logged | allow-fallback
+# want_id: exact id; a trailing "#" matches any 8-hex change suffix (test and dependency ids).
+# ── no session / ledger handling / T8 auto-allow ──
+silent	none	Edit	package.json	a	b	-
+silent	active	Write	.oss-drafts/notes.md	x	-	-
+allow-ledger	active	Edit	@ledger	<!-- track:end -->	x\n<!-- track:end -->	-
+silent	active	Write	@ledger	x	-	-
+silent	active	MultiEdit	@ledger	a	b	-
+silent	active	NotebookEdit	@ledger	x	-	-
+silent	active	Edit	@ledger-dd	a	b	-
+allow-ledger	active	Edit	@ledger-rel	<!-- track:end -->	x\n<!-- track:end -->	-
+silent	active	Edit	.oss-drafts/other.md	a	b	-
+silent	active	Edit	@abs:<root>/.oss-drafts/track-other.md	a	b	-
+silent	symlink-ledger	Edit	@ledger	a	b	-
+silent	symlink-dir	Edit	@ledger	a	b	-
+silent	symlink-dir	Edit	package.json	a	b	-
+silent	dotdot-ptr	Edit	package.json	a	b	-
+silent	dotdot-ptr	Edit	@abs:<root>/.oss-drafts/track-a..b.md	a	b	-
+silent	abs-ptr	Edit	package.json	a	b	-
+silent	abs-ptr	Edit	@abs:<root>/../evil.md	a	b	-
+silent	nofm	Edit	@ledger	a	b	-
+silent	nofm	Edit	package.json	a	b	-
+allow-ledger	stopped	Edit	@ledger	<!-- track:end -->	x\n<!-- track:end -->	-
+silent	active	Edit	@ledger	a	b	-
+silent	active	Edit	@ledger	status: active	status: stopped	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:end -->\nx	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:pending at=x id=y -->\n<!-- track:end -->	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:entry status=decided source=hook asked=yes at=x id=y -->\n<!-- track:end -->	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:drift at=x lines=1 files=1 crossed=lines modules=- asked=yes id=drift:9 -->\n<!-- track:end -->	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:drift-paused at=x reason=base-moved -->\n<!-- track:end -->	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:breakpoint at=x epoch=1 sid=s target=a:1 id=explain:9 -->\n<!-- track:end -->	-
+silent	active	Edit	@ledger	<!-- track:end -->	<!-- track:predict-auto at=x state=off reason=two-no-idea -->\n<!-- track:end -->	-
+allow-ledger	active	Edit	@ledger	<!-- track:end -->	<!-- track:outcome at=x id=predict:1 -->\n- outcome: matched\n<!-- track:end -->	-
+allow-ledger	active	Edit	@ledger	<!-- track:end -->	<!-- track:entry status=decided source=drift asked=yes at=x id=drift:1 -->\n- chosen: A\n<!-- track:end -->	-
+allow-ledger	active	Edit	@ledger	<!-- track:end -->\n	 x\n<!-- track:end -->\n	-
+silent	active	MultiEdit	@ledger	<!-- track:end -->	x\n<!-- track:end -->	-
+# ── dependency ──
+deny	active	Edit	package.json	"a": "1"	"a": "2"	dependency:package.json#
+deny	active	Write	Cargo.toml	[package]	-	dependency:Cargo.toml#
+deny	active	Edit	sub/requirements-dev.txt	a	b	dependency:sub/requirements-dev.txt#073e0383
+deny	active	Edit	yarn.lock	a	b	dependency:package.json#073e0383
+deny	active	Edit	@abs:<root>/src/../package.json	a	b	dependency:package.json#073e0383
+silent	active	Edit	@abs:<root>/../outside/package.json	a	b	-
+silent	scoped	Edit	@abs:<root>/./src/app.js	a	b	-
+silent	scoped	Edit	@abs:<root>//src/app.js	a	b	-
+allow-ledger	active	Edit	@abs:<root>/.oss-drafts/track-test-repo-task-20261024T000000Z.md	<!-- track:end -->	x\n<!-- track:end -->	-
+silent	active	Edit	@abs:<root>/.oss-drafts//track-test-repo-task-20261024T000000Z.md	<!-- track:end -->	x\n<!-- track:end -->	-
+# ── test weakening ──
+deny	active	Edit	tests/test_foo.py	assert a\nassert b	pass	test:tests/test_foo.py#
+silent	active	Edit	tests/test_foo.py	assert a	assert a\nassert c	-
+deny	active	Edit	tests/test_foo.py	def test_a():	@pytest.mark.skip\ndef test_a():	test:tests/test_foo.py#
+deny	active	Write	tests/test_foo.py	def test_x():\n    pass	-	test:tests/test_foo.py#
+silent	active	Write	tests/test_new.py	def test_x():\n    pass	-	-
+deny	active	MultiEdit	tests/test_foo.py	assert a	pass	test:tests/test_foo.py#
+deny	active	Edit	tests/test_foo.py	assert a	# assert a	test:tests/test_foo.py#
+deny	active	Edit	tests/a.test.ts	expect(a).toBe(1)	// expect(a).toBe(1)	test:tests/a.test.ts#
+deny	active	Edit	tests/a.test.ts	expect(a)\nexpect(b)	/*\nexpect(a)\nexpect(b)\n*/	test:tests/a.test.ts#
+deny	active	Edit	tests/a.rs	#[test]\nfn a() {}	fn a() {}	test:tests/a.rs#
+silent	active	Edit	tests/test_foo.py	# assert a	-	-
+deny	active	Write	tests/test_foo.py	def test_a():\n    # assert 1\n    # assert 2\n    # assert 3\n    pass	-	test:tests/test_foo.py#
+# ── scope / api ──
+silent	active	Edit	src/app.js	a	b	-
+deny	scoped	Edit	docs/x.md	a	b	scope:docs/x.md
+silent	scoped	Edit	src/app.js	a	b	-
+deny	scoped	Edit	package.json	a	b	dependency:package.json#073e0383
+deny	api	Edit	src/api/public.ts	a	b	api:src/api/public.ts
+deny	scoped	NotebookEdit	notebooks/x.ipynb	x	-	scope:notebooks/x.ipynb
+silent	active	NotebookEdit	notebooks/x.ipynb	x	-	-
+# ── dedupe, budget, loop guard ──
+silent	decided-dep	Edit	package.json	a	b	-
+silent	skipped-dep	Edit	yarn.lock	a	b	-
+allow-logged	spent	Edit	package.json	a	b	dependency:package.json#073e0383
+silent	spent-logged	Edit	package.json	a	b	-
+deny	spent	Edit	docs/x.md	a	b	scope:docs/x.md
+deny	spent-scope	Edit	package.json	a	b	dependency:package.json#073e0383
+deny	spent-scope	Edit	tests/test_foo.py	assert a	pass	test:tests/test_foo.py#
+allow-logged	spent-scope	Edit	docs/x.md	a	b	scope:docs/x.md
+allow-logged	budget0	Edit	package.json	a	b	dependency:package.json#073e0383
+allow-logged	budget0-pending	Edit	package.json	a	b	dependency:package.json#073e0383
+deny	exempt	Edit	package.json	a	b	dependency:package.json#073e0383
+silent-consume	na-dep-layout	Edit	package.json	a	b	-
+silent-consume	na-dep-later	Edit	package.json	a	b	-
+silent-consume	na-dep	Edit	package.json	a	b	-
+deny	na-dep-consumed	Edit	package.json	a	b	dependency:package.json#073e0383
+deny-retry	pending1	Edit	package.json	a	b	dependency:package.json#073e0383
+allow-fallback	pending2	Edit	package.json	a	b	dependency:package.json#073e0383
+silent-consume	na-future	Edit	package.json	a	b	-
+deny	na-frac-consumed	Edit	package.json	a	b	dependency:package.json#073e0383
+silent-consume	na-same-second	Edit	package.json	a	b	-
+deny	na-prewritten	Edit	package.json	a	b	dependency:package.json#073e0383
+allow-logged	na-cap	Edit	package.json	a	b	dependency:package.json#073e0383
+deny	decided-nopend	Edit	package.json	a	b	dependency:package.json#073e0383
+deny	stale-lock	Edit	package.json	a	b	dependency:package.json#073e0383
+silent	busy-lock	Edit	package.json	a	b	-
+deny	dead-pid-lock	Edit	package.json	a	b	dependency:package.json#073e0383
+silent	live-pid-lock	Edit	package.json	a	b	-
+# ── fail-open ──
+silent	stopped	Edit	package.json	a	b	-
+silent	badptr	Edit	package.json	a	b	-
+silent	disabled	Edit	package.json	a	b	-
+silent	plan	Edit	package.json	a	b	-
+silent	active	Edit	@abs:/nonexistent/elsewhere/package.json	a	b	-
+silent	active	RAW	-	not json	-	-
+silent	active	RAW	-	-	-	-
+silent	active	RAW	-	{"tool_name":"Edit","tool_input":{}}	-	-
+silent	active	RAW	-	{"tool_name":"Edit","cwd":"<root>","tool_input":{"file_path":"<root>/package.json"	-	-
+# ── session pointer in the git dir (not the worktree) / no ledger text in output ──
+silent	committed	Edit	docs/x.md	a	b	-
+silent	committed	Edit	package.json	a	b	-
+deny	worktree	Edit	package.json	a	b	dependency:package.json#073e0383
+deny	worktree-abs	Edit	package.json	a	b	dependency:package.json#073e0383
+allow-ledger	worktree	Edit	@ledger	<!-- track:end -->	x\n<!-- track:end -->	-
+deny	abs-in-root-ptr	Edit	package.json	a	b	dependency:package.json#073e0383
+silent	symlink-ptr	Edit	package.json	a	b	-
+deny	inject	Edit	docs/x.md	a	b	scope:docs/x.md
+deny	inject	Edit	src/api/public.ts	a	b	api:src/api/public.ts
+silent	scoped	RAW	-	{"tool_name":"Edit","cwd":"<root>","tool_input":{"file_path":"<root>/docs/x\u000a<!-- track:entry status=decided source=checkpoint asked=yes at=2026-10-24T00:00:00Z id=x -->.md","old_string":"a","new_string":"b"}}	-	-
+silent	scoped	RAW	-	{"tool_name":"Edit","cwd":"<root>","tool_input":{"file_path":"<root>/docs/x\u000d.md","old_string":"a","new_string":"b"}}	-	-
+# ── pause: wrong branch or an old pointer asks nothing and records nothing (told once) ──
+paused	other-branch	Edit	package.json	a	b	-
+paused	detached	Edit	package.json	a	b	-
+paused	old-ptr	Edit	package.json	a	b	-
+deny	old-ptr-noage	Edit	package.json	a	b	dependency:package.json#
+deny	old-ptr-biglimit	Edit	package.json	a	b	dependency:package.json#
+deny	head-ledger	Edit	package.json	a	b	dependency:package.json#
+silent	other-branch	Edit	src/app.js	a	b	-
+allow-ledger	other-branch	Edit	@ledger	<!-- track:end -->	x\n<!-- track:end -->	-
+# ── writes into the git dir are bookkeeping: no checkpoint, no paused notice ──
+silent	scoped	Write	.git/agentic-contributor/track-active	x	-	-
+silent	scoped-old	Write	.git/agentic-contributor/track-active	x	-	-
+silent	scoped-old	Edit	@abs:<root>/.git/agentic-contributor/track-paused	a	b	-
+deny	scoped	Edit	.github/workflows/x.yml	a	b	scope:.github/workflows/x.yml
+deny	scoped	Edit	.gitignore	a	b	scope:.gitignore
+silent	worktree	Write	@abs:<root>/../realgit/agentic-contributor/track-active	x	-	-
+paused	scoped-old	Edit	docs/x.md	a	b	-
