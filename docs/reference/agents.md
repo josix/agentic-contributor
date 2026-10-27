@@ -21,7 +21,7 @@ General-purpose GitHub research agent. Fetches issues, pull requests, releases, 
 
 ### Supported Scenarios
 
-Used in scenarios: **status, find, norms, setup** (optional), **clarify, engage, review-reply, report**, and as a follow-up dispatch in the **claim→engage** branch.
+Used in scenarios: **status, find, norms, setup** (optional), **clarify, engage, review-reply, report**, and as a follow-up dispatch in the **claim→engage** branch. Special scenario keys: `policy-preflight` (returns only the `policy` block) and `readiness` (claim and find: reads the user's own public activity for the contributor-readiness check, dispatched in parallel with the normal fetch; own login only).
 
 ### Tools
 
@@ -41,7 +41,7 @@ Prefer MCP tools when `GITHUB_MCP_TOKEN` is set:
 | Data | MCP tool | `gh` CLI fallback |
 |---|---|---|
 | Issues | `list_issues` / `search_issues` | `gh issue list --json …` |
-| PRs | `get_pull_request` / `list_pull_requests` | `gh pr view --json …` / `gh pr list --json …` |
+| PRs | `pull_request_read` (`method`: `get`, `get_diff`, `get_files`, `get_review_comments`, `get_reviews`, `get_comments`, `get_status`) / `list_pull_requests` | `gh pr view --json …` / `gh pr diff` / `gh pr list --json …` |
 | Contribution files | `get_file_contents` | `gh api repos/<owner/repo>/contents/<path>` |
 | Releases | `list_releases` | `gh release list` |
 | Repository metadata | `search_repositories` | `gh api repos/<owner/repo>` |

@@ -27,12 +27,14 @@ The `issue-matching` skill asks up to 5 short questions before fetching data:
 ```
 1. What are you hoping to achieve? (bug fix, feature, docs, learning, …)
 2. What languages/frameworks are you comfortable with?
-3. Is this your first contribution to apache/airflow? (yes/no)
+3. Your relationship with apache/airflow? (I use it / I've contributed before / neither)
 4. Issues only, PRs only, or both?
 5. Any other target projects to include?
 ```
 
 Answer each question. The more specific your answers, the better the ranking.
+
+Optionally set `contributor.github_login` (and `contributor.uses`) in the plugin's `config/targets.yaml` (`${CLAUDE_PLUGIN_ROOT}/config/targets.yaml`, not your project directory) so the advisory readiness check uses your login. It is local-only; without it the authenticated `gh` account is used. Say "skip readiness" to turn the check off.
 
 ### Step 3 — Watch the Research
 

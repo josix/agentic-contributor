@@ -85,6 +85,13 @@ Use the fetched template metadata and any available `contribution-norms` output 
   pick a component when the symptom is ambiguous rather than guessing. Present the available
   component labels or prefixes and ask the user which applies before drafting.
 
+**Policy note.** If the policy block (frontmatter `policy`, from the orchestrator's preflight)
+shows `issue_first` as `required` or `recommended`, or the project's AI policy prefers a
+high-quality issue with a minimal reproducer over an AI-generated PR (as DataFusion's does), add a
+line to the `## Private notes (not sent)` section saying so and citing the source. If `routed_from` is set, say the draft was
+rerouted from a PR request and that the user can come back to `prepare-pr` once maintainers acknowledge the issue. Policy notes are advisory, belong only in
+Private notes, and never block the draft.
+
 ## Procedure 2 — Bug Report
 
 After Pre-flight completes, draft a bug report with the following evidence checklist. Map each
@@ -94,21 +101,21 @@ structure when no template is found.
 **Evidence checklist:**
 
 - **Environment / version info** — OS, language runtime version, package version, relevant
-  dependency versions. If the user has not provided this, mark the field `TODO: add environment
+  dependency versions. If the user has not provided this, mark the field `TODO(you): add environment
   details (OS, version of <package>, runtime version)`.
 - **Minimal reproducible example** — the smallest code snippet or sequence of steps that reliably
-  triggers the bug. If missing, mark `TODO: provide a minimal reproducible example`.
+  triggers the bug. If missing, mark `TODO(you): provide a minimal reproducible example`.
 - **Exact steps to reproduce** — numbered list, starting from a clean state.
 - **Expected behavior** — what should happen.
 - **Actual behavior** — what actually happens (include exact error output).
 - **Error logs / stack traces** — include verbatim in a fenced code block (` ```text `). If none
-  provided, mark `TODO: attach error log or stack trace if available`.
+  provided, mark `TODO(you): attach error log or stack trace if available`.
 - **File:line code references** — cite the specific file and line number in the repo source that
   is most likely the root cause or that the bug manifests in, if identifiable from the symptom
   description.
 - **Related issue / PR links** — list any related items found in the duplicate search.
 
-**Missing evidence rule:** Mark required-but-missing fields with `TODO:` placeholders. Never
+**Missing evidence rule:** Mark required-but-missing fields with `TODO(you):` placeholders. Never
 fabricate environment details, version numbers, stack traces, or reproduction steps.
 
 ## Procedure 3 — Feature Request
@@ -132,7 +139,7 @@ when no template is found.
 - **Related issues / discussions** — list related items found in the duplicate search, plus any
   linked discussion threads.
 
-**Missing evidence rule:** Mark required-but-missing fields with `TODO:` placeholders. Never
+**Missing evidence rule:** Mark required-but-missing fields with `TODO(you):` placeholders. Never
 fabricate motivation, user counts, or design details.
 
 ## Template-Application Logic
@@ -142,12 +149,12 @@ Apply one of the following cases based on what the template fetch returns:
 ### (a) Markdown template (`.md` file)
 
 Fill the template's sections in order. Strip HTML comment blocks (`<!-- ... -->`). Preserve all
-section headings. Use `TODO:` placeholders for any required information the user has not provided.
+section headings. Use `TODO(you):` placeholders for any required information the user has not provided.
 
 ### (b) YAML issue form (`.yml` / `.yaml` file with a `body:` key)
 
 Map the drafted content to each form field by the field's `label` or `id`. Flag any field marked
-`required: true` that has not been filled — mark it prominently with `TODO: [required field] —
+`required: true` that has not been filled — mark it prominently with `TODO(you): [required field] —
 <label>`. Preserve `validations` context (e.g., `required: true`) as a comment in the draft so
 the user knows which fields cannot be left blank.
 
@@ -177,10 +184,12 @@ draft must include all three of:
    convention was found, use a concise, descriptive title.
 2. **Suggested labels** — a comma-separated list of label names following the project's label
    conventions. If no convention was found, suggest `bug` or `enhancement` as appropriate.
-3. **Body** — the full issue body, ready to paste, with `TODO:` placeholders for any missing
+3. **Body** — the full issue body, ready to paste, with `TODO(you):` placeholders for any missing
    required fields.
 
-Format the output as:
+Format the output as (frontmatter is added by the orchestrator; it must set `body_format: 2`).
+Suggested Title and Suggested Labels are headings OUTSIDE the send block; only the issue body is
+sendable:
 
 ```markdown
 ## Suggested Title
@@ -193,8 +202,17 @@ Format the output as:
 
 ## Issue Body
 
+<!-- oss:send:start -->
 <full body here>
+<!-- oss:send:end -->
+
+## Private notes (not sent)
+
+<policy / routed_from notes, duplicate-search notes, anything not for the maintainers>
 ```
+
+Any `TODO(you):` left inside the send block makes the execution plugin refuse to send, so unfilled
+drafts cannot be posted by accident.
 
 ## References
 

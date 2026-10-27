@@ -6,11 +6,13 @@ This is the **research-and-engagement half** of a two-plugin system. It surfaces
 
 ## Features
 
-- **Single `/oss` entrypoint** — one command handles all 9 contribution scenarios; presents an interactive menu if arguments are omitted.
-- **9 built-in scenarios** — project status, issue/PR matching, contribution norms, dev environment setup, maintainer questions, issue claiming, PR feedback, review-reply drafting, and new-issue authoring (bug reports and feature requests).
+- **Single `/oss` entrypoint** — one command handles all 10 contribution scenarios; presents an interactive menu if arguments are omitted.
+- **10 built-in scenarios** — project status, issue/PR matching, contribution norms, dev environment setup, maintainer questions, issue claiming, PR feedback, review-reply understanding briefs and reply linting, new-issue authoring (bug reports and feature requests), and PR preparation (a change debrief plus a problem-first PR description you complete). Every draft scenario carries a cached, advisory project policy preflight (AI-use policy, open-PR cap, vouch, issue-first), and PR-intent requests are routed to a new-issue draft when the project wants an issue first.
 - **Read-only GitHub research** — `oss-researcher` and `oss-claim-analyst` subagents access GitHub via the MCP server or `gh` CLI; neither ever mutates.
 - **Draft-only guardrail** — a `PreToolUse` hook actively denies all outbound and mutating actions; drafts are presented for human review before any separate execution step.
 - **MCP + `gh` fallback** — prefers the structured GitHub MCP server when `GITHUB_MCP_TOKEN` is set; falls back to `gh` CLI automatically.
+- **Contributor readiness** — claim and find add a private, advisory self-check of how maintainers will likely see your PR (open PRs vs the project's cap, merged PRs, vouch) and favour track-record-building work; it never blocks a draft. Say "skip readiness" to opt out.
+- **Tracked sessions & decision checkpoints** — `/oss track` keeps a private decision ledger while an agent codes; an advisory, opt-in hook asks you to choose at a few reviewer-relevant moments (test weakening, dependencies, out-of-scope edits) within a small budget. From v0.9.0 the same hook family also raises advisory scope-drift alerts (keep / separate PR / drop / skip) and asks one skippable explain-back question about a specific `file:line` when the agent stops after edits. From v0.10.0, predict-then-reveal is `auto` by default (on for a newcomer to the repo or after a skipped explain-back, off after two "no idea" answers; `--predict` / `--no-predict` force it): the agent asks for your guess before revealing its diagnosis or plan, then shows where you matched or differed (private, never scored). The debrief and PR scaffold reuse the ledger as first-hand evidence.
 - **Configurable target projects** — copy `config/targets.example.yaml` to `config/targets.yaml` to set a personal shortlist of repos.
 
 ## Prerequisites
@@ -20,7 +22,7 @@ This is the **research-and-engagement half** of a two-plugin system. It surfaces
 | Claude Code CLI | latest | Plugin host |
 | GitHub CLI (`gh`) | any | `gh` fallback authentication and read commands |
 | `GITHUB_MCP_TOKEN` env var | — | GitHub personal access token for MCP server (optional but recommended) |
-| `jq` | any | Guardrail script JSON parsing |
+| `jq` | any | Guardrail and checkpoint hook JSON parsing (python3 fallback) |
 
 ## Installation
 
@@ -84,6 +86,8 @@ gh auth status
 /oss help me give feedback on apache/airflow PR #9876
 /oss help me respond to the review on my apache/spark PR #4321
 /oss draft a bug report for apache/airflow about scheduler crashing on database reconnect
+/oss track https://github.com/apache/datafusion/issues/1234 scope: datafusion/sql/**
+/oss track stop
 ```
 
 If you omit arguments, `/oss` presents the full scenario menu and asks which applies.
@@ -99,12 +103,13 @@ If you omit arguments, `/oss` presents the full scenario menu and asks which app
 | 5 | **clarify** | Draft questions for a maintainer | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
 | 6 | **claim** | Issue availability check + draft claim comment | `smart-questions` | `oss-claim-analyst` | Assessment + DRAFT saved to `.oss-drafts/` |
 | 7 | **engage** | Draft feedback on someone else's PR | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
-| 8 | **review-reply** | Draft replies to review comments on your PR | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
+| 8 | **review-reply** | Understanding brief per review comment + lint of the reply you write (no ghostwriting) | `smart-questions` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
 | 9 | **report** | Draft a new bug report or feature request | `issue-drafting` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
+| 10 | **prepare-pr** | Change debrief, size check, and a problem-first PR description scaffold you complete (never opens a PR) | `pr-preparation`, `change-debrief` | `oss-researcher` | DRAFT saved to `.oss-drafts/` (review-before-send) |
 
 Every scenario saves its output to `.oss-drafts/` in your current working directory as an editable
 markdown file. Report scenarios (1–4) show "Saved to `<path>`. Review and edit this report file as
-needed before using it." Draft scenarios (5–9) show the draft in chat plus "**DRAFT — saved to
+needed before using it." Draft scenarios (5–10) show the draft in chat plus "**DRAFT — saved to
 `<path>`. Review and edit this file before sending.**" The plugin never posts — sending is the
 execution plugin's job.
 
@@ -121,16 +126,24 @@ Both agents are read-only. The `PreToolUse` guardrail hook enforces this at the 
 
 | Skill | Purpose |
 |---|---|
-| `oss-scenario-routing` | Classifies intent into one of the 9 scenarios; handles the claim→engage branch switch |
-| `issue-matching` | Structured contributor intake (5 questions), heuristic scoring, ranked shortlist |
+| `oss-scenario-routing` | Classifies intent into one of the 10 scenarios; handles the claim→engage branch switch |
+| `issue-matching` | Structured contributor intake (5 questions), track-record-first heuristic scoring, ranked shortlist with a policy-reserved footer |
+| `contributor-readiness` | Advisory private self-check in claim and find: open PRs vs cap, merged PRs, account age, vouch, tier ("skip readiness" opts out) |
 | `smart-questions` | DRAFT-ONLY contract for clarify, engage, review-reply, and claim scenarios |
-| `contribution-norms` | Surfaces CONTRIBUTING, CLA/DCO, PR/commit conventions, and Apache governance |
+| `contribution-norms` | Surfaces CONTRIBUTING, CLA/DCO, PR/commit conventions, Apache governance, and AI-use policy / contribution limits |
 | `dev-env-setup` | Step-by-step guided local setup from official docs with a verifiable checkpoint |
 | `issue-drafting` | DRAFT-ONLY new bug reports and feature requests with duplicate search, ISSUE_TEMPLATE application, and evidence checklists |
+| `pr-preparation` | Size and shape check and a problem-first PR description scaffold you complete (prepare-pr); never pushes or opens a PR |
+| `change-debrief` | Private debrief of what changed, why, and impact with explain-back questions (prepare-pr debrief mode) |
 
 ## Hooks
 
 The `PreToolUse` guardrail hook (`hooks/hooks.json` + `hooks/scripts/guard-outbound.sh`) runs before every `Bash` call and every GitHub MCP tool call. It enforces draft-only behavior.
+
+> **Note:** The hook is active in **every** Claude Code session while the plugin is enabled, not
+> only during `/oss`. `git push`, `gh pr create`, and the other actions below are denied in
+> unrelated work too. Run them yourself in a terminal, or disable the plugin via `/plugin` and
+> restart the session; re-enable it the same way when you want the `/oss` workflow back.
 
 | Action | Decision |
 |---|---|
@@ -148,18 +161,32 @@ The `PreToolUse` guardrail hook (`hooks/hooks.json` + `hooks/scripts/guard-outbo
 
 The denial message explains that the plugin is draft-only and that the execution/submission plugin handles sending.
 
+A second, separate `PreToolUse` hook (`hooks/scripts/track-checkpoint.sh`) is advisory and fails open. It matches `Edit|Write|MultiEdit|NotebookEdit` but does nothing unless an `/oss track` session is active. A third, equally advisory script (`hooks/scripts/track-breakpoint.sh`) is registered on `PostToolUse` (same matcher), `Stop` and `UserPromptSubmit`, again for tracked sessions only.
+
+| Situation | Result |
+|---|---|
+| no tracked session | silent, no subprocess |
+| dependency, test-weakening, `api_paths`, or out-of-scope edit (budget left) | deny with a "choose" instruction; one retry is denied again, the third attempt gets context only (loop guard); the answer is recorded in the private ledger |
+| budget spent | no permission decision (normal prompts apply); logged as an Unknown |
+| Edit that appends one entry at `<!-- track:end -->` of the active ledger | allow (any other ledger edit gets the normal prompt) |
+| change grows past the drift limits, or out-of-scope modules no checkpoint covered (drift cap left) | `PostToolUse`: context, never a block; at `Stop`: may hold the stop once (block). Asks keep / separate PR / drop / skip; at most 2 per session |
+| prompt that asks for diagnosis or planning (predict mode on, under `predict_max`) | `UserPromptSubmit`: context, never a block; asks for your prediction first, then shows where it matched or differed (`file:line`) and records it privately; silent for `/name` commands, trivial prompts, and when predict is off or `budget: 0` |
+| agent stops after edits (breakpoint) | one rate-limited, skippable question about a `file:line`, held once at `Stop`; at most 4 per session, 20 minutes apart; `budget: 0` is quiet mode |
+
+It is not a safety boundary. See [Tracked Sessions & Checkpoints](docs/concepts/tracked-sessions.md).
+
 ## Architecture Principles
 
 ### Draft-Only / Human-in-the-Loop
 
 Every piece of outbound text (comments, claim messages, review replies) is a draft shown to you
 for review. The plugin will never post, comment, push, or send on your behalf. This is enforced at
-two levels: the command instructions (Step 5 in `commands/oss.md`) and the `PreToolUse` guardrail
+two levels: the command instructions (Step 6 in `commands/oss.md`) and the `PreToolUse` guardrail
 hook.
 
 All scenario outputs — including read-only reports (scenarios 1–4) — are also saved as editable
 markdown files in `.oss-drafts/` in your working directory. The `.oss-drafts/` directory is
-automatically excluded from version control via `.git/info/exclude` when `/oss` first writes a
+automatically excluded from version control via the repo's exclude file (`git rev-parse --git-path info/exclude`) when `/oss` first writes a
 file in a git repo. Local file writes via the Write tool do not violate draft-only — they cannot
 reach GitHub.
 
@@ -176,15 +203,16 @@ All GitHub data access is read-only. The MCP server is configured with a `repo:r
 - [docs/index.md](docs/index.md) — overview, component diagram, quick links
 - [docs/getting-started/installation.md](docs/getting-started/installation.md) — install, auth, validation
 - [docs/getting-started/quick-start.md](docs/getting-started/quick-start.md) — first `/oss` walkthrough
-- [docs/guides/using-oss.md](docs/guides/using-oss.md) — `/oss` command in depth, all 9 scenarios
+- [docs/guides/using-oss.md](docs/guides/using-oss.md) — `/oss` command in depth, all 10 scenarios
 - [docs/guides/github-access.md](docs/guides/github-access.md) — MCP vs `gh` CLI, token setup, rate limits
 - [docs/concepts/draft-only-guardrail.md](docs/concepts/draft-only-guardrail.md) — guardrail internals, full deny/allow matrix
 - [docs/concepts/two-plugin-system.md](docs/concepts/two-plugin-system.md) — research half vs execution half
+- [docs/concepts/tracked-sessions.md](docs/concepts/tracked-sessions.md) — tracked sessions, decision ledger, checkpoints
 - [docs/reference/commands.md](docs/reference/commands.md) — `/oss` frontmatter and behavior steps
 - [docs/reference/agents.md](docs/reference/agents.md) — `oss-researcher` and `oss-claim-analyst` specs
-- [docs/reference/skills.md](docs/reference/skills.md) — all 6 skills with trigger phrases
+- [docs/reference/skills.md](docs/reference/skills.md) — all 9 skills with trigger phrases
 - [docs/reference/hooks.md](docs/reference/hooks.md) — guardrail registration and deny/allow matrix
-- [docs/reference/scenarios.md](docs/reference/scenarios.md) — canonical 9-scenario table with full detail
+- [docs/reference/scenarios.md](docs/reference/scenarios.md) — canonical 10-scenario table with full detail
 - [CHANGELOG.md](CHANGELOG.md) — version history
 
 ## License

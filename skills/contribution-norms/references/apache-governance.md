@@ -95,6 +95,14 @@ can be merged.
 
 ---
 
+## `.asf.yaml`
+
+ASF projects configure repository settings, including a possible open-PR cap
+(`github.pull_requests.creation_cap`), in `.asf.yaml` at the repo root. See
+`ai-policy-signals.md` for the verified key.
+
+---
+
 ## Key Links
 
 | Resource | URL |
