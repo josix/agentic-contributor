@@ -31,8 +31,10 @@ tab="$(printf '\t')"
 LEDGER_NAME="track-test-repo-task-20261024T000000Z.md"
 T="2026-10-24T00:00:00Z"
 # Test and dependency ids end in "#<8 hex>", the cksum of the edit's changed-line set. PKG is the id
-# of the fixture edit "a" -> "b" on package.json (changed lines "+b", "-a"); the same edit on a lock
-# file maps to the same manifest id.
+# of the fixture edit "a" -> "b" on package.json (changed lines "+b", "-a"). A lock file takes its
+# manifest's path but its own changed lines, so only the artificial identical a -> b edit on yarn.lock
+# gives PKG too; the realistic case (manifest decided, then a lock edit with different content) is
+# check (k) below.
 PKG="dependency:package.json#073e0383"
 tmps=""
 
@@ -433,6 +435,15 @@ if PATH="$nojq_path" command -v python3 > /dev/null 2>&1 && ! PATH="$nojq_path" 
   setup active
   decision="$(py_decision "$(build_json Edit "$root/tests/test_foo.py" '# assert a' '')")"
   [ "$decision" = silent ] && ok || bad "(c) python3 fallback: removing a comment expected silent, got: $decision"
+  # lock file after a settled manifest decision: silent on python too; with no decision it still asks
+  setup active
+  run_hook "$(build_json Edit "$root/package.json" '"dependencies": {' $'"dependencies": {\n    "left-pad": "^1.3.0",')"
+  py_mid="$(id_of)"; pend "$py_mid"; entry decided yes "$py_mid"
+  decision="$(py_decision "$(build_json Edit "$root/package-lock.json" '"packages": {' $'"packages": {\n    "node_modules/left-pad": {')")"
+  [ "$decision" = silent ] && ok || bad "(c) python3 fallback: lock edit after a decided manifest expected silent, got: $decision"
+  setup active
+  decision="$(py_decision "$(build_json Edit "$root/package-lock.json" '"packages": {' $'"packages": {\n    "node_modules/left-pad": {')")"
+  [ "$decision" = deny ] && ok || bad "(c) python3 fallback: lock edit with no manifest decision expected deny, got: $decision"
 else
   echo "info: (c) python3 fallback skipped (no jq-free PATH with a working python3)"
 fi
@@ -556,6 +567,49 @@ run_hook "$(build_json Edit "$root/package.json" '"dependencies": {' $'"dependen
 setup active
 run_hook "$(build_json Edit "$root/package.json" $'{\n  "dependencies": {' $'{\n  "dependencies": {\n    "left-pad": "^1.3.0",')"; id2="$(id_of)"
 { [ -n "$id1" ] && [ "$id1" = "$id2" ]; } && ok || bad "(j) context lines changed the id: $id1 vs $id2"
+
+# (k) a lock file follows its manifest decision: package.json gains left-pad (deny), the user decides,
+#     then package-lock.json changes with DIFFERENT lines (so a different #<change>). The lock edit is
+#     silent, writes nothing, and spends no budget (the next real checkpoint is 2/3, not 3/3). A lock
+#     edited with no settled manifest id (npm update), a pre-written manifest entry with no pending
+#     line, or a lock in another directory is still checkpointed.
+MAN_EDIT='"dependencies": {'
+MAN_NEW=$'"dependencies": {\n    "left-pad": "^1.3.0",'
+LOCK_OLD='"packages": {'
+LOCK_NEW=$'"packages": {\n    "node_modules/left-pad": {\n      "version": "1.3.0",'
+for st in decided skipped; do
+  setup active
+  run_hook "$(build_json Edit "$root/package.json" "$MAN_EDIT" "$MAN_NEW")"; mid="$(id_of)"
+  case "$mid" in dependency:package.json#????????) ;; *) bad "(k/$st) manifest edit expected deny, got: $out"; continue ;; esac
+  entry "$st" yes "$mid"
+  before="$(lsize "$ledger")"
+  run_hook "$(build_json Edit "$root/package-lock.json" "$LOCK_OLD" "$LOCK_NEW")"
+  { [ -z "$out" ] && [ "$(lsize "$ledger")" = "$before" ]; } \
+    || { bad "(k/$st) lock edit after a $st manifest expected silent and no ledger write, got: $out"; continue; }
+  run_hook "$(build_json Write "$root/yarn.lock" $'left-pad@^1.3.0:\n  version "1.3.0"' '')"
+  [ -z "$out" ] || { bad "(k/$st) yarn.lock Write after a $st manifest expected silent, got: $out"; continue; }
+  run_hook "$(build_json Edit "$root/Cargo.toml" a b)"
+  printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("Decision checkpoint 2/3")' > /dev/null 2>&1 \
+    && ok || bad "(k/$st) lock edit used a budget slot (expected next checkpoint 2/3), got: $out"
+done
+lock_denies() { # $1 label, $2 lock path (repo-relative), $3 want id prefix
+  local lid
+  run_hook "$(build_json Edit "$root/$2" "$LOCK_OLD" "$LOCK_NEW")"; lid="$(id_of)"
+  case "$lid" in "$3#"????????) ok ;; *) bad "$1: expected deny with id $3#<hex>, got: $out" ;; esac
+}
+setup active
+lock_denies "(k) lock edit with no manifest decision" package-lock.json dependency:package.json
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("Decision checkpoint 1/3")' > /dev/null 2>&1 \
+  && ok || bad "(k) lock edit alone expected checkpoint 1/3, got: $out"
+setup active
+entry decided yes "dependency:package.json#a72aa39b" # pre-written, the hook never asked: settles nothing
+lock_denies "(k) lock edit after a pre-written manifest entry" package-lock.json dependency:package.json
+setup active
+pend "$PKG"; entry decided yes "$PKG" # root package.json settled; sub/ has its own manifest
+lock_denies "(k) lock edit in another directory" sub/yarn.lock dependency:sub/package.json
+setup active
+pend "$PKG"; entry not-applicable no "$PKG" # not a dependency change: does not cover the lock file
+lock_denies "(k) lock edit after a not-applicable manifest entry" package-lock.json dependency:package.json
 
 total=$((pass + fail))
 echo "track tests ($runner): $pass/$total passed"

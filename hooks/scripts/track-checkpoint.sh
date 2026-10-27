@@ -496,7 +496,7 @@ key="$rel"
 trig=""
 if is_test_path "$rel" && { [ "$tool_name" = "Edit" ] || [ "$tool_name" = "MultiEdit" ] || [ "$tool_name" = "Write" ]; }; then
   # Fail open (skip the test check, fall through to dependency/api/scope) when the payload or the
-  # existing file is over TRACK_MAX_COUNT_CHARS.
+  # existing file is over TRACK_MAX_COUNT_CHARS, or its size or the counts cannot be read.
   old_a=0; old_s=0; new_a=0; new_s=0; counted=0
   if [ "${#input}" -le "$TRACK_MAX_COUNT_CHARS" ]; then
     counted=1
@@ -505,8 +505,7 @@ if is_test_path "$rel" && { [ "$tool_name" = "Edit" ] || [ "$tool_name" = "Multi
       if [ -f "$abs" ]; then
         fsize="$(wc -c < "$abs" 2> /dev/null)" || fsize=""
         fsize="${fsize//[[:space:]]/}"
-        case "$fsize" in '' | *[!0-9]*) exit 0 ;; esac
-        if [ "$fsize" -gt "$TRACK_MAX_COUNT_CHARS" ]; then
+        if [ -z "$fsize" ] || [ -n "${fsize//[0-9]/}" ] || [ "$fsize" -gt "$TRACK_MAX_COUNT_CHARS" ]; then
           counted=0
         else
           read -r old_a old_s <<< "$(count_file "$abs")"
@@ -516,8 +515,8 @@ if is_test_path "$rel" && { [ "$tool_name" = "Edit" ] || [ "$tool_name" = "Multi
       fi
     fi
   fi
+  case "${old_a:-x}${new_a:-x}${old_s:-x}${new_s:-x}" in *[!0-9]*) counted=0 ;; esac
   if [ "$counted" -eq 1 ]; then
-    case "${old_a:-x}${new_a:-x}${old_s:-x}${new_s:-x}$app" in '' | *[!0-9]*) exit 0 ;; esac
     if [ "$new_a" -lt "$old_a" ] || [ "$new_s" -gt "$old_s" ]; then
       class="test"
       key="$rel$(change_id)"
@@ -525,12 +524,17 @@ if is_test_path "$rel" && { [ "$tool_name" = "Edit" ] || [ "$tool_name" = "Multi
     fi
   fi
 fi
+family="" # lock file only: "dependency:<dir><manifest>", the id family of its sibling manifest
 if [ -z "$class" ]; then
   m="$(manifest_for "$base")"
   if [ -n "$m" ]; then
     class=dependency
     key="$dir$m$(change_id)"
     trig="the edit touches dependency manifest $dir$m (a lock file counts as its manifest)."
+    # A lock file's changed lines differ from the manifest edit's, so its id (same manifest prefix,
+    # its own #<change>) differs from the manifest's. It is let through silently once ANY id of that manifest is settled (see the awk):
+    # the user already decided the dependency change the lock file follows from.
+    [ "$m" != "$base" ] && family="dependency:$dir$m"
   fi
 fi
 if [ -z "$class" ] && [ -n "$fm_api" ] && glob_match "$rel" "$fm_api"; then
@@ -612,7 +616,7 @@ trap 'trk_unlock "$lock"' EXIT
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ 2> /dev/null)" || exit 0
 
 # ── ledger state: settled / over-logged / pending count / asked ──────────────
-state="$(TRACK_ID="$id" awk '
+state="$(TRACK_ID="$id" TRACK_FAMILY="$family" awk '
 # The id is everything after the FIRST " id=" up to the trailing " -->": the id itself may contain
 # " id=" (e.g. a path "docs/x id=y.md"); no attribute before id= is allowed to.
 function lastid(l,   q) {
@@ -646,14 +650,22 @@ END {
   m = (p < nn) ? p : nn
   # an unconsumed acknowledgement: more answered pendings than edits already let through
   ack = (m > c) ? 1 : 0
+  # lock file: is any id of its sibling manifest ("<family>" or "<family>#<change>") settled, under
+  # the same rule (decided/skipped entry plus a pending line)?
+  f = ENVIRON["TRACK_FAMILY"]; fam = 0
+  if (f != "") for (i in settled) if ((i == f || substr(i, 1, length(f) + 1) == f "#") && (i in P)) fam = 1
   # a decided/skipped entry settles an id only if the hook asked about it (it has a pending line)
-  print ((t in settled && p > 0) ? 1 : 0), ((t in over) ? 1 : 0), ((t in pend) ? pend[t] : 0), asked, ack, c
+  print ((t in settled && p > 0) ? 1 : 0), ((t in over) ? 1 : 0), ((t in pend) ? pend[t] : 0), asked, ack, c, fam
 }' "$ledger" 2> /dev/null)" || exit 0
-read -r settled over pend_n asked ack cons_n <<< "$state"
-case "$settled$over$pend_n$asked$ack$cons_n" in '' | *[!0-9]*) exit 0 ;; esac
+read -r settled over pend_n asked ack cons_n fam_settled <<< "$state"
+case "$settled$over$pend_n$asked$ack$cons_n$fam_settled" in '' | *[!0-9]*) exit 0 ;; esac
 
 [ "$settled" -eq 1 ] && exit 0
 [ "$over" -eq 1 ] && exit 0
+# A lock-file edit whose manifest's dependency change is already settled is silent: no question,
+# no ledger line, no budget slot. With no settled manifest id (a lock edited alone, e.g. `npm
+# update`), it is checkpointed under its own id like any other dependency change.
+[ "$fam_settled" -eq 1 ] && exit 0
 
 append() { printf '%s\n' "$@" >> "$ledger" 2> /dev/null || true; }
 

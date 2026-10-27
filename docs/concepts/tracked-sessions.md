@@ -48,7 +48,7 @@ session. One class per edit, first match wins: test, dependency, api, scope.
 | Class | Fires when |
 |---|---|
 | test | the edit to an existing test file lowers assertions or adds skips (a new test file never triggers) |
-| dependency | the edit touches a dependency manifest; a lock file counts as its manifest (`yarn.lock` is `package.json`) |
+| dependency | the edit touches a dependency manifest or lock file; a lock file counts as its manifest (`yarn.lock` is `package.json`), and once you have decided a change to that manifest, the matching lock-file edit passes silently instead of asking again |
 | api | the path matches the opt-in `api_paths` list (default empty) |
 | scope | the path is outside the session `scope` (off when scope is empty) |
 

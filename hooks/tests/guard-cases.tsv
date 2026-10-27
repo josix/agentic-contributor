@@ -521,3 +521,47 @@ allow	mcp__github__get_me	-
 allow	mcp__claude_ai_GitHub__list_pull_requests	-
 allow	mcp__slack__send_message	-
 allow	mcp__foo__github_sync	-
+
+# ── review-fix: command names are case-insensitive (macOS filesystems are) ──
+deny	Bash	GH pr create
+deny	Bash	Gh pr create --title t --body b
+deny	Bash	gH issue create
+deny	Bash	GH issue comment 1 --body x
+deny	Bash	Gh repo fork o/r
+deny	Bash	Git push origin main
+deny	Bash	GIT push
+deny	Bash	/usr/bin/GIT push
+deny	Bash	GIT -C repo push origin main
+deny	Bash	/usr/libexec/git-core/GIT-PUSH origin main
+deny	Bash	ENV GH pr create
+deny	Bash	echo ok && GIT push
+deny	Bash	GH api -X POST repos/o/r/issues
+deny	Bash	GH api repos/o/r/issues -f title=x
+deny	Bash	CURL -X POST https://api.github.com/repos/o/r/issues
+deny	Bash	Curl -d x https://api.github.com/repos/o/r/issues
+deny	Bash	WGET --post-data=x https://api.github.com/repos/o/r/issues
+allow	Bash	Git status
+allow	Bash	GIT log --oneline -5
+allow	Bash	GH pr view 1
+allow	Bash	Gh issue list
+allow	Bash	CURL https://api.github.com/repos/o/r
+allow	Bash	echo GH pr create
+
+# ── review-fix: function NAME { ... } and { ... } brace-group bodies ──
+deny	Bash	function f { gh pr create; }; f
+deny	Bash	function f { git push origin main; }; f
+deny	Bash	function f() { git push; }
+deny	Bash	function f () { gh issue create; }
+deny	Bash	{ gh pr create; }
+deny	Bash	{ { git push; }; }
+deny	Bash	true && { gh pr create; }
+deny	Bash	function f {\n  git push\n}\nf
+deny	Bash	function f { GH pr create; }; f
+allow	Bash	echo {a,b}
+allow	Bash	git log --format='{%h}'
+allow	Bash	git log --format={x}
+allow	Bash	echo {gh,pr,create}
+allow	Bash	echo "{ gh pr create; }"
+allow	Bash	function f { git status; }; f
+allow	Bash	{ git status; git log -1; }
+allow	Bash	function f() { gh pr view 1; }; f

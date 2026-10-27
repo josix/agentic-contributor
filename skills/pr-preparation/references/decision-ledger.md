@@ -318,7 +318,14 @@ Lock files map to their sibling manifest id: `yarn.lock`, `package-lock.json`, `
 `npm-shrinkwrap.json`, `bun.lockb` → `package.json`; `Cargo.lock` → `Cargo.toml`; `go.sum` →
 `go.mod`; `poetry.lock`, `uv.lock` → `pyproject.toml`; `Gemfile.lock` → `Gemfile`; `Pipfile.lock`
 → `Pipfile`; `composer.lock` → `composer.json`; `mix.lock` → `mix.exs`; `Package.resolved` →
-`Package.swift`.
+`Package.swift`. The path part is the sibling manifest (`sub/yarn.lock` → `dependency:sub/package.json#…`),
+but `<change>` is the lock file's own changed-line set, so it differs from the manifest edit's id.
+A lock-file edit is therefore silent (no question, no ledger line, no budget) when any id of its
+sibling manifest, `dependency:<dir><manifest>` or `dependency:<dir><manifest>#<any>`, is settled
+(a `decided` or `skipped` entry with a pending line, the same rule as above): the user already chose
+on the dependency change the lock file follows from. With no settled manifest id (a lock file
+edited alone, e.g. by `npm update`, or after only a `not-applicable` manifest entry), the lock-file
+edit is checkpointed under its own id like any dependency change.
 
 Dependency basenames (case-sensitive): `package.json package-lock.json npm-shrinkwrap.json
 pnpm-lock.yaml yarn.lock bun.lockb Cargo.toml Cargo.lock go.mod go.sum pyproject.toml setup.py
