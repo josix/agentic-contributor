@@ -77,7 +77,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Guard: `gh agent-task`** (aliases `agent-tasks`, `agent`, `agents`) is denied for every subcommand except `list` and `view`; `gh agent-task create` starts a Copilot coding-agent task that opens a PR.
 - **Routing:** rule 4 (PR intent) now lists "prepare a PR", matching `/oss`; the `/oss` description (shown in `/help`) mentions prepare-pr and debrief.
 - **Docs:** README and the hooks reference note that the guard applies to every session where the plugin is enabled, and how to disable it via `/plugin`.
-- Guard tests: 442 to 461 cases (`gh agent-task` and the new local git reads).
+- **Guard review fixes (case):** command names are matched case-insensitively (`GH pr create`, `Git push`, `/usr/bin/GIT push`, `CURL -X POST …`). macOS filesystems are case-insensitive by default, so these forms ran the real binaries but passed the guard. Subcommands and flags still match case-sensitively.
+- **Guard review fixes (function bodies):** the first command inside `function NAME { … }` and `{ … }` brace groups is checked, so `function f { gh pr create; }; f` is denied. Only a `{` word at command position counts, so `echo {a,b}` and `--format={x}` are unaffected.
+- Guard tests: 442 to 511 cases (`gh agent-task`, the new local git reads, command-name case, and function/brace-group bodies).
 
 ## [0.6.0] - 2026-10-21
 

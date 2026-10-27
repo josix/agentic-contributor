@@ -257,6 +257,9 @@ strip_prefix() {
     s="${s#"${s%%[![:space:]]*}"}"
     if [[ "$s" =~ $kw_re ]]; then
       s="${BASH_REMATCH[3]}"
+    elif [[ "$s" =~ ^function[[:space:]]+[^[:space:]{]+[[:space:]]*(.*)$ ]]; then
+      # function NAME { cmd ...: the body starts after the NAME word
+      s="${BASH_REMATCH[1]}"
     elif [[ "$s" =~ ^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.*)$ ]]; then
       s="${BASH_REMATCH[1]}"
     fi
@@ -550,8 +553,19 @@ normalize_segment() {
     w="${all[$p]}"
     if [[ "$w" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then p=$((p + 1)); continue; fi
     base="${w##*/}"
+    # Command names are compared lower-cased: on a case-insensitive filesystem
+    # (macOS default) `GIT push` or `/usr/bin/Gh pr create` run the real binary.
+    # Only the command word is folded; arguments keep their case.
+    if [[ "$base" == *[[:upper:]]* ]]; then
+      base="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')"
+    fi
     case "$base" in
       '{'|'!'|then|do|else|elif|if|while|until) p=$((p + 1)) ;;
+      function)
+        # function NAME { cmd; }: skip the NAME word so the body's first
+        # command is checked (`function f() {` is split at the parentheses).
+        p=$((p + 1)); nt_skip_rd
+        [[ $p -lt $n && "${all[$p]}" != "{" ]] && p=$((p + 1)) ;;
       env|command|exec|builtin|nohup|time|sudo|xargs|timeout|nice|ionice|stdbuf|setsid|caffeinate|doas|watch|unbuffer|flock|chrt|taskset)
         p=$((p + 1)); nt_skip_wrapper_opts "$base" ;;
       coproc)
@@ -567,8 +581,8 @@ normalize_segment() {
   NT[0]="$base"; NA[0]="$base"
   # dashed git binary (/usr/libexec/git-core/git-push): treat as `git push`
   if [[ "$base" == git-?* ]]; then
+    NT[1]="${base#git-}"; NA[1]="${NT[1]}"
     NT[0]=git; NA[0]=git; base=git
-    NT[1]="${w##*/}"; NT[1]="${NT[1]#git-}"; NA[1]="${NT[1]}"
   fi
   k=$p
   while [[ $k -lt $n ]]; do
@@ -826,38 +840,50 @@ if [[ "$tool_name" == "Bash" ]]; then
   # SEP matches "command position": start-of-string or a real shell separator
   # (;  |  &  &&  ||  $(  backtick  newline), optionally followed by whitespace.
   # This prevents plain-space-separated words (e.g. "echo git push") from matching.
-  SEP='(^|;|\||&|\&\&|\|\||\$\(|`|'$'\n'')[[:space:]]*'
+  # A brace-group opener at command position is skipped too, including a
+  # function header: `{ gh pr create; }`, `function f { git push; }`,
+  # `f() { git push; }` (`{` only counts as a word followed by whitespace, so
+  # `echo {a,b}` or `--format={x}` are untouched).
+  FNAME='[^[:space:];|&(){}]+'
+  SEP='(^|;|\||&|\&\&|\|\||\$\(|`|'$'\n'')[[:space:]]*((function[[:space:]]+'"$FNAME"'[[:space:]]*(\(\)[[:space:]]*)?|'"$FNAME"'[[:space:]]*\(\)[[:space:]]*)?\{[[:space:]]+)*'
+  # Command names match case-insensitively: macOS filesystems are
+  # case-insensitive, so `GIT push` / `Gh pr create` run the real binaries.
+  # Subcommands and flags keep their exact case.
+  C_GIT='[gG][iI][tT]'
+  C_GH='[gG][hH]'
+  C_CURL='[cC][uU][rR][lL]'
+  C_WGET='[wW][gG][eE][tT]'
 
   # The rules below run on the continuation-joined text; heredoc bodies are
   # included, so text mentioning outbound commands is denied (use the Write tool).
 
   # git push (any form)
-  if [[ "$stripped" =~ $SEP'git'[[:space:]]+'push'([[:space:]]|$) ]]; then
+  if [[ "$stripped" =~ $SEP$C_GIT[[:space:]]+'push'([[:space:]]|$) ]]; then
     deny "git push: $command_str"
   fi
 
   # gh pr create / comment / review / edit / merge / close / reopen / lock / unlock / ready
-  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'pr'[[:space:]]+(create|new|comment|review|edit|merge|close|reopen|lock|unlock|ready|--fill)([[:space:]]|$) ]]; then
+  if [[ "$stripped" =~ $SEP$C_GH[[:space:]]+'pr'[[:space:]]+(create|new|comment|review|edit|merge|close|reopen|lock|unlock|ready|--fill)([[:space:]]|$) ]]; then
     deny "gh pr mutating subcommand: $command_str"
   fi
 
   # gh issue create / comment / edit / close / reopen / lock / unlock
-  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'issue'[[:space:]]+(create|new|comment|edit|close|reopen|lock|unlock)([[:space:]]|$) ]]; then
+  if [[ "$stripped" =~ $SEP$C_GH[[:space:]]+'issue'[[:space:]]+(create|new|comment|edit|close|reopen|lock|unlock)([[:space:]]|$) ]]; then
     deny "gh issue mutating subcommand: $command_str"
   fi
 
   # gh release create / edit / delete / upload
-  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'release'[[:space:]]+(create|new|edit|delete|upload)([[:space:]]|$) ]]; then
+  if [[ "$stripped" =~ $SEP$C_GH[[:space:]]+'release'[[:space:]]+(create|new|edit|delete|upload)([[:space:]]|$) ]]; then
     deny "gh release mutating subcommand: $command_str"
   fi
 
   # gh repo create / fork / delete / edit
-  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'repo'[[:space:]]+(create|new|fork|delete|edit)([[:space:]]|$) ]]; then
+  if [[ "$stripped" =~ $SEP$C_GH[[:space:]]+'repo'[[:space:]]+(create|new|fork|delete|edit)([[:space:]]|$) ]]; then
     deny "gh repo mutating subcommand: $command_str"
   fi
 
   # gh gist create (can post content publicly)
-  if [[ "$stripped" =~ $SEP'gh'[[:space:]]+'gist'[[:space:]]+(create|new)([[:space:]]|$) ]]; then
+  if [[ "$stripped" =~ $SEP$C_GH[[:space:]]+'gist'[[:space:]]+(create|new)([[:space:]]|$) ]]; then
     deny "gh gist create: $command_str"
   fi
 
@@ -869,13 +895,13 @@ if [[ "$tool_name" == "Bash" ]]; then
   # binaries, git/gh global options) for git, gh, curl and wget.
   guard_deadline
   if ! check_cmd_text "$stripped" "$stripped" &&
-     [[ "$stripped" =~ (^|[^[:alnum:]_.-])(gh|git|curl|wget)[[:space:]] ]]; then
+     [[ "$stripped" =~ (^|[^[:alnum:]_.-])($C_GH|$C_GIT|$C_CURL|$C_WGET)[[:space:]] ]]; then
     deny "command could not be analysed: $command_str"
   fi
 
   guard_deadline
   # curl with mutating methods or data payloads
-  if [[ "$stripped" =~ $SEP'curl'[[:space:]] ]]; then
+  if [[ "$stripped" =~ $SEP$C_CURL[[:space:]] ]]; then
     if [[ "$stripped" =~ [[:space:]]-X[[:space:]]*(POST|PUT|PATCH|DELETE) ]] || \
        [[ "$stripped" =~ [[:space:]]--request[[:space:]]*(POST|PUT|PATCH|DELETE) ]] || \
        { ! [[ "$stripped" =~ [[:space:]](-G|--get|-[A-Za-z]*G[A-Za-z]*)([[:space:]]|$) ]] &&
@@ -886,7 +912,7 @@ if [[ "$tool_name" == "Bash" ]]; then
   fi
 
   # wget with mutating methods or data payloads
-  if [[ "$stripped" =~ $SEP'wget'[[:space:]] ]]; then
+  if [[ "$stripped" =~ $SEP$C_WGET[[:space:]] ]]; then
     # wget's -X/-d/-F/--data/--form are NOT mutation options (exclude-dirs, debug, force-html)
     if [[ "$stripped" =~ [[:space:]]--method[[:space:]]+(POST|PUT|PATCH|DELETE) ]] || \
        [[ "$stripped" =~ [[:space:]]--method=(POST|PUT|PATCH|DELETE) ]] || \
