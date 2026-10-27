@@ -113,7 +113,7 @@ followed by `<!-- track:end -->`:
 
 ```markdown
 ### <id> · <UTC>
-<!-- track:entry status=<decided|skipped|not-applicable> source=<checkpoint|manual> asked=<yes|no> at=<UTC> id=<id> -->
+<!-- track:entry status=<decided|skipped|not-applicable> source=<checkpoint|manual> asked=<yes|no> outcome=<proceed|declined> at=<UTC> id=<id> -->
 - trigger: <test|dependency|api|scope|manual> — <rel path or "n/a">
 - files: <rel path[, …]>
 - options: A) <option — trade-off> | B) <…> | C) Skip — decide later
@@ -126,6 +126,13 @@ Rules:
 
 - Write `decided_by: user…` only if the user actually answered. Never invent a user choice.
 - `Skip` means `status=skipped`, `reason: TODO(you)`. The debrief lists it under Unknowns.
+- `outcome=declined` when the user's choice means not making the edit (avoid the change, keep the
+  tests and change the code, implement without it, leave it and stay in scope); otherwise,
+  including `Skip` and non-interactive entries, `outcome=proceed`. A declined id is blocked, not
+  settled (section 5): later edits under it are denied without a new question or budget. If the
+  user later explicitly asks for the change, append a new entry for the id with `status=decided
+  outcome=proceed`; the latest entry wins. An entry with no `outcome=` (ledgers before this field)
+  counts as `proceed`.
 - You asked the user (AskUserQuestion): `asked=yes`, whatever they chose (including `Skip`).
 - No AskUserQuestion available (headless run, subagent): `status=skipped`, `asked=no`, `chosen: none`,
   `decided_by: agent`, `reason: non-interactive`. `asked=no` means it does not use budget.
@@ -255,9 +262,12 @@ matches `^[A-Za-z0-9._-]+$`, otherwise `-`.
   id is everything after the **first** ` id=` up to the trailing ` -->`, so an id may itself contain
   ` id=` or spaces (`docs/x id=y.md`); no attribute before `id=` may contain ` id=`. The
   hook matches with awk `index()` against `ENVIRON["TRACK_ID"]` (no regex metacharacters).
-- **settled(id)**: a `track:entry` line with `status=decided` or `status=skipped` and the suffix
-  ` id=<id> -->`, **and** at least one `track:pending` line for the same id (a hand-written entry
-  with no pending line settles nothing).
+- **settled(id)**: the **latest** `track:entry` line with `status=decided` or `status=skipped` and
+  the suffix ` id=<id> -->` has no ` outcome=declined `, **and** at least one `track:pending` line
+  exists for the same id (a hand-written entry with no pending line settles nothing).
+- **declined(id)**: the same, but that latest entry has ` outcome=declined `. The hook denies the
+  edit (no new pending line, no budget) and says not to retry. A lock file is not let through by a
+  declined manifest id.
 - **over_logged(id)**: a `track:entry` line with `status=logged-over-budget` and that suffix.
 - **pending(id)**: count of `track:pending` lines with that suffix, minus the count of
   `status=not-applicable` entries for the id (never below 0).
@@ -365,7 +375,7 @@ behaves like `*`). A trailing `/` means prefix. Comparison is against the repo-r
   settled entry is denied once more (second pending line). The third attempt gets no deny: the
   hook (no permission decision, normal prompts still apply) appends `status=skipped source=hook`
   and says so in `additionalContext` (plus a short `systemMessage` for the user). No deny loops.
-- A settled id is never asked again. An over-logged id is silent. Test and dependency ids name the
+- A settled id is never asked again. A declined id is denied, never asked again. An over-logged id is silent. Test and dependency ids name the
   change (section 6), so this covers retries of the same edit, not later, different changes to the
   same file.
 - Separate caps (v0.9.0): checkpoints keep `budget` (3) per pool, with scope checkpoints in their
@@ -407,8 +417,8 @@ Checkpoint id: <id>
 Do this, then retry the same edit unchanged:
 1. Ask the user with AskUserQuestion: ONE question, "<question>", with 2-3 options. Each option gets a one-line trade-off. Put your recommendation first and mark it "(Recommended)". The last option is "Skip — decide later". Ask them to choose, not to approve or deny.
 2. Read <rel_ledger>, then use Edit to replace the line `<!-- track:end -->` with the entry (section 4, `asked=yes`) followed by `<!-- track:end -->`.
-3. If AskUserQuestion is unavailable: write the entry with status=skipped, asked=no, chosen: none, decided_by: agent, reason: non-interactive (does not use budget).
-4. If the user's choice means not making this edit, do not retry. Follow their choice.
+3. If AskUserQuestion is unavailable: write the entry with status=skipped, asked=no, outcome=proceed, chosen: none, decided_by: agent, reason: non-interactive (does not use budget).
+4. If the user's choice means not making this edit (outcome=declined), do not retry: the hook blocks later edits under this id. Follow their choice.
 Write "decided_by: user…" only if the user actually answered. The ledger is private: never copy it into any sendable text.
 ```
 

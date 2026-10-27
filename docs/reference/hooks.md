@@ -181,6 +181,7 @@ Everything not matched by a deny pattern:
 | no session, stopped session, plan mode, any internal error | silent (no output) |
 | trigger (test weakening, dependency manifest or lock file, opt-in `api_paths`, outside `scope`), id not yet settled, budget left | `deny` with instructions to ask via AskUserQuestion, append a ledger entry, and retry |
 | id already settled, or already logged over budget | silent |
+| id declined (latest entry has `outcome=declined`: the user chose not to make the change) | `deny`: do not retry; no new question, no ledger line, no budget |
 | lock file whose sibling manifest has any settled id (`dependency:<dir><manifest>#…`) | silent: no question, no ledger line, no budget |
 | budget spent (default 3 questions asked; scope checkpoints have a separate budget of the same size), or `budget: 0` | `additionalContext` plus a short `systemMessage` (no permission decision); a `logged-over-budget` line is appended |
 | second retry without a ledger entry (loop guard) | `deny` again once; the third attempt gets `additionalContext` plus a `systemMessage` (no permission decision) and a `skipped` line |

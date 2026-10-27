@@ -611,6 +611,53 @@ setup active
 pend "$PKG"; entry not-applicable no "$PKG" # not a dependency change: does not cover the lock file
 lock_denies "(k) lock edit after a not-applicable manifest entry" package-lock.json dependency:package.json
 
+# (l) outcome=declined blocks the id instead of settling it. The bug: the user answered "avoid the
+#     change" for an api file (path-only id), and every later edit to that file went through silently.
+entry_o() { # status outcome id
+  printf '<!-- track:entry status=%s source=checkpoint asked=yes outcome=%s at=%s id=%s -->\n' "$1" "$2" "$T" "$3" >> "$ledger"
+}
+reason_has() { printf '%s' "$out" | jq -e --arg s "$1" '.hookSpecificOutput.permissionDecisionReason | contains($s)' > /dev/null 2>&1; }
+setup api
+run_hook "$(build_json Edit "$root/src/api/public.ts" x y)"
+if [ "$(decision_of)" = deny ] && reason_has "outcome=<proceed|declined>"; then
+  entry_o decided declined api:src/api/public.ts
+  npend="$(grep -c '^<!-- track:pending ' "$ledger")"; sz="$(lsize "$ledger")"
+  run_hook "$(build_json Edit "$root/src/api/public.ts" x z)" # a different edit to the declined file
+  { [ "$(decision_of)" = deny ] && reason_has "outcome=declined" && reason_has "Do not retry" \
+    && [ "$(lsize "$ledger")" = "$sz" ]; } && ok \
+    || bad "(l) declined api: expected deny with no ledger write, got: $out"
+  # the user changes their mind: a later proceed entry wins and the edit goes through silently
+  entry_o decided proceed api:src/api/public.ts
+  run_hook "$(build_json Edit "$root/src/api/public.ts" x z)"
+  [ -z "$out" ] && ok || bad "(l) proceed after declined: expected silent, got: $out"
+  [ "$(grep -c '^<!-- track:pending ' "$ledger")" = "$npend" ] && ok || bad "(l) declined/proceed wrote pending lines"
+else
+  bad "(l) api: expected first deny with outcome in the template, got: $out"
+fi
+# declined scope file: blocked, and no budget slot is spent (a new scope file is still 2/3)
+setup scoped
+run_hook "$(build_json Edit "$root/docs/x.md" a b)"; entry_o decided declined scope:docs/x.md
+run_hook "$(build_json Edit "$root/docs/x.md" a c)"
+[ "$(decision_of)" = deny ] && reason_has "outcome=declined" && ok || bad "(l) declined scope: expected deny, got: $out"
+printf 'x\n' > "$root/docs/y.md"
+run_hook "$(build_json Edit "$root/docs/y.md" a b)"
+reason_has "Scope checkpoint 2/3" && ok || bad "(l) declined block used budget (expected 2/3), got: $out"
+# declined test weakening retried unchanged: blocked (same #<change> id)
+setup active
+tw="$(build_json Edit "$root/tests/test_foo.py" $'    assert 1\n    assert 2' '    assert 2')"
+run_hook "$tw"; tid="$(id_of)"; entry_o decided declined "$tid"
+run_hook "$tw"
+[ "$(decision_of)" = deny ] && reason_has "outcome=declined" && ok || bad "(l) declined test retry: expected deny, got: $out"
+# a declined manifest decision does not let its lock file through silently
+setup active
+pend "$PKG"; entry_o decided declined "$PKG"
+lock_denies "(l) lock edit after a declined manifest" package-lock.json dependency:package.json
+# entries without outcome= (older ledgers) and skipped+proceed still settle
+setup active
+pend "$PKG"; entry_o skipped proceed "$PKG"
+run_hook "$(build_json Edit "$root/package.json" a b)"
+[ -z "$out" ] && ok || bad "(l) skipped+proceed: expected silent, got: $out"
+
 total=$((pass + fail))
 echo "track tests ($runner): $pass/$total passed"
 [ "$fail" -eq 0 ]

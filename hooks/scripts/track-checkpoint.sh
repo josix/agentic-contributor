@@ -632,7 +632,12 @@ function lastid(l,   q) {
 /^<!-- track:entry /   {
   i = lastid($0); if (i == "\001") next
   if (index($0, " status=not-applicable ")) { N[i]++; next }
-  if (index($0, " status=decided ") || index($0, " status=skipped ")) settled[i] = 1
+  # The latest decided/skipped entry for an id wins: outcome=declined (the user chose not to make
+  # the change) blocks the id, anything else (outcome=proceed, or no outcome field) settles it.
+  if (index($0, " status=decided ") || index($0, " status=skipped ")) {
+    if (index($0, " outcome=declined ")) { declined[i] = 1; delete settled[i] }
+    else { settled[i] = 1; delete declined[i] }
+  }
   else if (index($0, " status=logged-over-budget ")) over[i] = 1
   if (index($0, " asked=no ")) exempt[i] = 1
 }
@@ -655,12 +660,18 @@ END {
   f = ENVIRON["TRACK_FAMILY"]; fam = 0
   if (f != "") for (i in settled) if ((i == f || substr(i, 1, length(f) + 1) == f "#") && (i in P)) fam = 1
   # a decided/skipped entry settles an id only if the hook asked about it (it has a pending line)
-  print ((t in settled && p > 0) ? 1 : 0), ((t in over) ? 1 : 0), ((t in pend) ? pend[t] : 0), asked, ack, c, fam
+  print ((t in settled && p > 0) ? 1 : 0), ((t in over) ? 1 : 0), ((t in pend) ? pend[t] : 0), asked, ack, c, fam, ((t in declined && p > 0) ? 1 : 0)
 }' "$ledger" 2> /dev/null)" || exit 0
-read -r settled over pend_n asked ack cons_n fam_settled <<< "$state"
-case "$settled$over$pend_n$asked$ack$cons_n$fam_settled" in '' | *[!0-9]*) exit 0 ;; esac
+read -r settled over pend_n asked ack cons_n fam_settled declined <<< "$state"
+case "$settled$over$pend_n$asked$ack$cons_n$fam_settled$declined" in '' | *[!0-9]*) exit 0 ;; esac
 
 [ "$settled" -eq 1 ] && exit 0
+# The user already said no to this id: block it, without asking again or using budget. A settled
+# id used to stay silent whatever the answer, so a declined api/scope file (path-only id) let every
+# later edit to it through.
+if [ "$declined" -eq 1 ]; then
+  emit deny "[agentic-contributor · tracked session] The user already chose not to make this change (checkpoint $id is recorded with outcome=declined in $rel_ledger), so this $tool_name on $rel is blocked. Do not retry it; follow the user's choice. Only if the user now explicitly asks for this change: confirm with them (AskUserQuestion), then append a new entry for id=$id in the same format with status=decided and outcome=proceed and their words as the reason (the latest entry wins), and retry." ""
+fi
 [ "$over" -eq 1 ] && exit 0
 # A lock-file edit whose manifest's dependency change is already settled is silent: no question,
 # no ledger line, no budget slot. With no settled manifest id (a lock edited alone, e.g. `npm
@@ -733,5 +744,5 @@ fi
 nl=$'\n'
 reason="[agentic-contributor · tracked session] $pool checkpoint $k/$fm_budget before this $tool_name on $rel.${nl}Trigger: $trig${nl}Checkpoint id: $id"
 [ -n "$retry" ] && reason="$reason${nl}$retry"
-reason="$reason${nl}${nl}Do this, then retry the same edit unchanged:${nl}1. Ask the user with AskUserQuestion: ONE question, \"$question\", with 2-3 options (suggested: $opts). Each option gets a one-line trade-off. Put your recommendation first and mark it \"(Recommended)\". The last option is \"Skip — decide later\". Ask them to choose, not to approve or deny.$depnote${nl}2. Read $ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### $id · <UTC now>${nl}<!-- track:entry status=<decided|skipped> source=checkpoint asked=yes at=<UTC now> id=$id -->${nl}- trigger: $class — $rel${nl}- files: $rel${nl}- options: A) … | B) … | C) Skip — decide later${nl}- chosen: <letter|Skip>${nl}- decided_by: <user-on-recommendation if they picked your recommendation | user otherwise>${nl}- reason: <the user's own words, verbatim, or TODO(you) if they gave none>${nl}   Use status=skipped (reason: TODO(you)) if they pick Skip; you did ask, so keep asked=yes.${nl}3. If AskUserQuestion is unavailable (non-interactive run or subagent): write the entry with status=skipped, asked=no (in the marker line), chosen: none, decided_by: agent, reason: non-interactive (does not use budget).${nl}4. If the user's choice means not making this edit, do not retry. Follow their choice.${nl}Write \"decided_by: user…\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
+reason="$reason${nl}${nl}Do this, then retry the same edit unchanged:${nl}1. Ask the user with AskUserQuestion: ONE question, \"$question\", with 2-3 options (suggested: $opts). Each option gets a one-line trade-off. Put your recommendation first and mark it \"(Recommended)\". The last option is \"Skip — decide later\". Ask them to choose, not to approve or deny.$depnote${nl}2. Read $ledger, then use Edit to replace the line \`<!-- track:end -->\` with this entry followed by \`<!-- track:end -->\`:${nl}### $id · <UTC now>${nl}<!-- track:entry status=<decided|skipped> source=checkpoint asked=yes outcome=<proceed|declined> at=<UTC now> id=$id -->${nl}- trigger: $class — $rel${nl}- files: $rel${nl}- options: A) … | B) … | C) Skip — decide later${nl}- chosen: <letter|Skip>${nl}- decided_by: <user-on-recommendation if they picked your recommendation | user otherwise>${nl}- reason: <the user's own words, verbatim, or TODO(you) if they gave none>${nl}   Use status=skipped (reason: TODO(you)) if they pick Skip; you did ask, so keep asked=yes. outcome=declined if their choice means not making this edit (for example avoid the change, keep the tests and change the code, implement without it, leave it and stay in scope); otherwise, including Skip, outcome=proceed.${nl}3. If AskUserQuestion is unavailable (non-interactive run or subagent): write the entry with status=skipped, asked=no, outcome=proceed (in the marker line), chosen: none, decided_by: agent, reason: non-interactive (does not use budget).${nl}4. If the user's choice means not making this edit (outcome=declined), do not retry: the hook blocks later edits under this id. Follow their choice.${nl}Write \"decided_by: user…\" only if the user actually answered. The ledger is private: never copy it into any sendable text."
 emit deny "$reason" ""
